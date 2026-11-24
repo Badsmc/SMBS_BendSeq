@@ -4,6 +4,10 @@ import locale
 
 
 TRANSLATIONS = {
+    "Импорт заднего упора": "Import backgauge",
+    "Удалить задний упор": "Remove backgauge",
+    "Выбрано: {tool}": "Selected: {tool}",
+    "Путь: {path}": "Path: {path}",
     "Вверх": "Up",
     "Вниз": "Down",
     "Направление гиба": "Bend direction",

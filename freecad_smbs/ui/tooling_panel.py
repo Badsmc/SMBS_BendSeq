@@ -121,9 +121,9 @@ class ToolingPanel:
                     self.remove_tool_button = QtWidgets.QPushButton()
                     self.segments_button = QtWidgets.QPushButton()
                     for button, callback in (
-                        (self.import_tool_button, self._on_add_tool),
-                        (self.remove_tool_button, self._on_remove_tool),
-                        (self.segments_button, lambda: self._on_edit_segments()),
+                        (self.import_tool_button, self._import_selected_kind),
+                        (self.remove_tool_button, self._remove_selected_kind),
+                        (self.segments_button, self._configure_selected_kind),
                     ):
                         button.clicked.connect(callback)
                         btn_layout.addWidget(style_action(button))
@@ -176,22 +176,9 @@ class ToolingPanel:
                     vbox.setContentsMargins(16, 16, 16, 16)
                     vbox.setSpacing(16)
 
-                    self.gauge_picture = QtWidgets.QLabel()
-                    self.gauge_picture.setAlignment(QtCore.Qt.AlignCenter)
-                    self.gauge_picture.setMaximumSize(220, 145)
-                    actions = QtWidgets.QHBoxLayout()
-                    for title, callback in (
-                        (tr("Загрузить"), self._import_backgauge),
-                        (tr("Удалить"), self._remove_backgauge),
-                        (tr("Настройки заднего упора"), self._configure_backgauge),
-                    ):
-                        button = QtWidgets.QPushButton(title)
-                        button.clicked.connect(callback)
-                        actions.addWidget(button)
-                    row = QtWidgets.QHBoxLayout()
-                    row.addLayout(actions, 1)
-                    row.addWidget(self.gauge_picture)
-                    vbox.addLayout(row)
+                    self.gauge_list = QtWidgets.QListWidget()
+                    self.gauge_list.itemSelectionChanged.connect(self._on_selection_changed)
+                    vbox.addWidget(self.gauge_list)
                     self._refresh_backgauge()
                     return widget
 
@@ -228,7 +215,14 @@ class ToolingPanel:
                     from freecad_smbs.resources.tooling_paths import resolve_backgauge_fcstd
 
                     self._backgauge_fcstd = resolve_backgauge_fcstd(self.library_path)
-                    self._show_picture(self.gauge_picture, self._backgauge_fcstd, backgauge=True)
+                    self.gauge_list.blockSignals(True)
+                    self.gauge_list.clear()
+                    if self._backgauge_fcstd is not None:
+                        self.gauge_list.addItem(self._backgauge_fcstd.stem)
+                        self.gauge_list.setCurrentRow(0)
+                    self.gauge_list.blockSignals(False)
+                    if hasattr(self, "info_group"):
+                        self._on_selection_changed()
 
                 def _backgauge_changed(self):
                     self._refresh_backgauge()
@@ -294,6 +288,24 @@ class ToolingPanel:
                         from freecad_smbs.commands.backgauge_dialog import show_backgauge_settings
 
                         show_backgauge_settings(self._workspace, modal_parent=self)
+
+                def _import_selected_kind(self):
+                    if self.tabs.currentIndex() == 3:
+                        self._import_backgauge()
+                    else:
+                        self._on_add_tool()
+
+                def _remove_selected_kind(self):
+                    if self.tabs.currentIndex() == 3:
+                        self._remove_backgauge()
+                    else:
+                        self._on_remove_tool()
+
+                def _configure_selected_kind(self):
+                    if self.tabs.currentIndex() == 3:
+                        self._configure_backgauge()
+                    else:
+                        self._on_edit_segments()
 
                 def _build_clamps_tab(self) -> QtWidgets.QWidget:
                     widget = QtWidgets.QWidget()
@@ -641,7 +653,7 @@ class ToolingPanel:
 
                 def _on_selection_changed(self) -> None:
                     index = self.tabs.currentIndex()
-                    tool_tab = index in (0, 1)
+                    tool_tab = index in (0, 1, 3)
                     self.info_group.setVisible(tool_tab)
                     self.tool_actions.setVisible(tool_tab)
                     if not tool_tab:
@@ -649,6 +661,21 @@ class ToolingPanel:
                             self.clamp_preview.fitInView(
                                 self.clamp_scene.sceneRect(), QtCore.Qt.KeepAspectRatio
                             )
+                        return
+                    if index == 3:
+                        path = self._backgauge_fcstd if self.gauge_list.currentItem() else None
+                        self.import_tool_button.setText(tr("Импорт заднего упора"))
+                        self.remove_tool_button.setText(tr("Удалить задний упор"))
+                        self.segments_button.setText(tr("Настройки заднего упора"))
+                        self.remove_tool_button.setEnabled(path is not None)
+                        self.segments_button.setEnabled(self._workspace is not None)
+                        self.lbl_selected_id.setText(
+                            tr("Выбрано: {tool}", tool=path.stem) if path else tr("Выбрано: нет")
+                        )
+                        self.lbl_selected_meta.setText(
+                            tr("Путь: {path}", path=path) if path else tr("Метаданные: —")
+                        )
+                        self._show_picture(self.tool_picture, path, backgauge=True)
                         return
                     self.import_tool_button.setText(tr(("Импорт пуансона", "Импорт матрицы")[index]))
                     self.remove_tool_button.setText(tr(("Удалить пуансон", "Удалить матрицу")[index]))
