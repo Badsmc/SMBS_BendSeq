@@ -46,7 +46,7 @@ def _mount_origin(shape, face_name, normal_z):
     return face.CenterOfMass
 
 
-def _mesh_node(coin, shapes, point_in_view, color, transparency=0.0):
+def _cad_mesh(shapes, point_in_view):
     points = []
     indices = []
     for shape in shapes:
@@ -58,6 +58,11 @@ def _mesh_node(coin, shapes, point_in_view, color, transparency=0.0):
             indices.append(-1)
     if not indices:
         raise ValueError("CAD mesh has no triangles")
+    return points, indices
+
+
+def _mesh_node(coin, mesh, color, transparency=0.0):
+    points, indices = mesh
     root = coin.SoSeparator()
     material = coin.SoMaterial()
     material.diffuseColor.setValue(*color)
@@ -72,7 +77,7 @@ def _mesh_node(coin, shapes, point_in_view, color, transparency=0.0):
     return root
 
 
-def _load_frame(coin, library_root):
+def load_frame_meshes(library_root):
     path = resolve_machine_frame_fcstd(library_root)
     if path is None:
         raise FileNotFoundError("machine_frame.FCStd")
@@ -99,15 +104,14 @@ def _load_frame(coin, library_root):
         shapes = {body.Name: _global_shape(body) for body in bodies}
         bed_origin = _mount_origin(shapes[bed.Name], mount["bed_face"], 1)
         ram_origin = _mount_origin(shapes[ram.Name], mount["ram_face"], -1)
-        frame = _mesh_node(coin, (shapes[body.Name] for body in bodies if body != ram),
-                           at_origin(bed_origin), (0.44, 0.49, 0.54), 0.47)
-        beam = _mesh_node(coin, (shapes[ram.Name],), at_origin(ram_origin),
-                          (0.50, 0.54, 0.60), 0.35)
+        frame = _cad_mesh((shapes[body.Name] for body in bodies if body != ram),
+                          at_origin(bed_origin))
+        beam = _cad_mesh((shapes[ram.Name],), at_origin(ram_origin))
         ram_width = shapes[ram.Name].getElement(mount["ram_face"]).BoundBox.XLength
     return frame, beam, float(ram_origin.z - bed_origin.z), float(ram_width)
 
 
-def _load_gauge(coin, library_root):
+def load_gauge_mesh(library_root):
     from smbs_core.kinematics2d.backgauge_cad_3d import BackgaugeCAD3D
 
     path = resolve_backgauge_fcstd(library_root)
@@ -118,9 +122,8 @@ def _load_gauge(coin, library_root):
     # The picked point identifies the contact face. The X/Z station in Coin
     # refers to the centre of that face, regardless of where it was picked.
     centre = shape.Faces[adapter.stop_face_index - 1].CenterOfMass
-    return _mesh_node(coin, (shape,),
-                      lambda p: (centre.y - p.y, p.x - centre.x, p.z - centre.z),
-                      (0.83, 0.49, 0.19))
+    return _cad_mesh((shape,),
+                     lambda p: (centre.y - p.y, p.x - centre.x, p.z - centre.z))
 
 
 CLAMP_HEIGHT_MM = 25.0
@@ -239,7 +242,9 @@ class CoinMachineScene:
             self.mount_key = None
             self.rest_z = self.ram_mount_width = 0.0
             try:
-                frame, beam, self.rest_z, self.ram_mount_width = _load_frame(self.coin, library_root)
+                frame_mesh, beam_mesh, self.rest_z, self.ram_mount_width = load_frame_meshes(library_root)
+                frame = _mesh_node(self.coin, frame_mesh, (0.44, 0.49, 0.54), 0.47)
+                beam = _mesh_node(self.coin, beam_mesh, (0.50, 0.54, 0.60), 0.35)
                 for motion, item in ((self.frame_mount, frame), (self.ram_motion, beam)):
                     component = self.coin.SoSeparator()
                     component.addChild(motion)
@@ -277,7 +282,7 @@ class CoinMachineScene:
             self.stations = ()
             self.gauge_key = library_root
             try:
-                self.gauge_mesh = _load_gauge(self.coin, library_root)
+                self.gauge_mesh = _mesh_node(self.coin, load_gauge_mesh(library_root), (0.83, 0.49, 0.19))
             except (OSError, ValueError, RuntimeError, TypeError, AttributeError, KeyError) as exc:
                 self.gauge_error = f"Задние упоры: {exc}"
             else:

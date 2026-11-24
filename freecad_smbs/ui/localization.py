@@ -4,6 +4,7 @@ import locale
 
 
 TRANSLATIONS = {
+    "Количество операций на странице": "Operations per page",
     "Карта гибки PDF": "Bend plan PDF",
     "Сохранить карту гибки в PDF…": "Save bend instructions as PDF…",
     "Карта гибки сохранена в PDF.": "Bend instructions saved as PDF.",
@@ -13,7 +14,9 @@ TRANSLATIONS = {
     "Форма после гиба": "Shape after bending",
     "Применённая раскладка": "Applied layout",
     "Предложение по сегментам": "Suggested segments",
-    "Пунктир — линия оснастки. Точки — лапки заднего упора.": "Dashed line: tool axis. Dots: backgauge fingers.",
+    "Слева — рабочая зона, справа — общий вид. Пуансон — коричневый, матрица — зелёная, упор — оранжевый, станина — серая.": "Working area on the left, overview on the right. Brown: punch. Green: die. Orange: backgauge. Gray: frame.",
+    "Модель станины недоступна.": "Machine frame model unavailable.",
+    "Модель заднего упора недоступна.": "Backgauge model unavailable.",
     "Схема показывает ориентацию и форму детали и не подтверждает отсутствие коллизий.": "The diagrams show part orientation and shape. Verify collisions separately.",
     "Не удалось сохранить PDF.": "Could not save the PDF.",
     "Поперечное сечение": "Cross-section",

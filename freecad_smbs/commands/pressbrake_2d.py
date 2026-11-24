@@ -3480,6 +3480,14 @@ class _PreviewPanel:
                 from freecad_smbs.ui.bend_instructions_pdf import export_bend_instructions_pdf
 
                 title = tr("Сохранить карту гибки в PDF…")
+                preferences = QtCore.QSettings("SMBS", "BendSeq")
+                count, accepted = QtWidgets.QInputDialog.getInt(
+                    self, title, tr("Количество операций на странице"),
+                    preferences.value("pdf/positions_per_page", 1, type=int), 1, 10,
+                )
+                if not accepted:
+                    return
+                preferences.setValue("pdf/positions_per_page", count)
                 path, _ = QtWidgets.QFileDialog.getSaveFileName(
                     self, title, "SMBS-Bend-Plan.pdf", "PDF (*.pdf)",
                 )
@@ -3489,7 +3497,7 @@ class _PreviewPanel:
                     path += ".pdf"
                 try:
                     export_bend_instructions_pdf(
-                        self, path, QtCore, QtGui, bend_rows(self),
+                        self, path, QtCore, QtGui, bend_rows(self), positions_per_page=count,
                     )
                 except (OSError, ValueError, RuntimeError, AttributeError, TypeError) as exc:
                     QtWidgets.QMessageBox.warning(self, title, str(exc))
