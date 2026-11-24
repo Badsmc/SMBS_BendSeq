@@ -4,6 +4,7 @@ import locale
 
 
 TRANSLATIONS = {
+    "Предложенная раскладка сегментов (визуально)": "Suggested segment layout (visual only)",
     "Импорт заднего упора": "Import backgauge",
     "Удалить задний упор": "Remove backgauge",
     "Выбрано: {tool}": "Selected: {tool}",

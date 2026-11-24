@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from freecad_smbs.ui.localization import tr
 from freecad_smbs.ui.tool_segment_display import (
-    native_display_sections, segment_color,
+    native_display_sections, segment_color, section_boundary_edges,
 )
 
 
@@ -457,6 +457,10 @@ def create_coin_viewer(parent=None):
                         section_preview=section_preview,
                     )
                 self._tool_root.removeAllChildren()
+                lighting = coin.SoLightModel()
+                lighting.model = coin.SoLightModel.BASE_COLOR
+                lighting.setOverride(True)
+                self._tool_root.addChild(lighting)
                 self._punch_motion = coin.SoTranslation()
                 punch_root = coin.SoSeparator()
                 punch_root.addChild(self._punch_motion)
@@ -480,6 +484,24 @@ def create_coin_viewer(parent=None):
                         group.addChild(coordinates)
                         group.addChild(geometry)
                         root.addChild(group)
+                        edges = section_boundary_edges(span, facets)
+                        if edges:
+                            outline = coin.SoSeparator()
+                            ink = coin.SoMaterial()
+                            ink.diffuseColor.setValue(0.08, 0.08, 0.10)
+                            ink.setOverride(True)
+                            outline.addChild(ink)
+                            style = coin.SoDrawStyle()
+                            style.lineWidth = 2
+                            outline.addChild(style)
+                            coords = coin.SoCoordinate3()
+                            vertices = [(-y, x, z) for edge in edges for x, y, z in edge]
+                            coords.point.setValues(0, len(vertices), vertices)
+                            lines = coin.SoLineSet()
+                            lines.numVertices.setValues(0, len(edges), [2] * len(edges))
+                            outline.addChild(coords)
+                            outline.addChild(lines)
+                            root.addChild(outline)
                 for face in tool_faces:
                     node = _face_node(coin, face)
                     if node is None:

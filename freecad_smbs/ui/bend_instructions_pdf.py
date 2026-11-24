@@ -5,7 +5,7 @@ from math import dist
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from freecad_smbs.ui.tool_segment_display import native_display_sections, segment_color
+from freecad_smbs.ui.tool_segment_display import native_display_sections, segment_color, suggested_sections
 from freecad_smbs.ui.coin3d_machine import CLAMP_HEIGHT_MM, load_frame_meshes, load_gauge_mesh
 from freecad_smbs.ui.localization import tr as _translate
 from smbs_core.geometry_backend.io.clamp_validator import ClampValidatorError, load_clamp_config
@@ -123,7 +123,8 @@ def _diagram(core, gui, faces, extent, part_extent, axis, *, sheet_faces, active
                 if face.kind == "frame":
                     fill.setAlpha(150)
                 painter.setBrush(fill)
-                painter.setPen(core.Qt.NoPen if color else gui.QPen(gui.QColor("#476389"), 0.75))
+                painter.setPen(gui.QPen(gui.QColor("#283748"), 0.4) if kind in ("punch", "die")
+                               else core.Qt.NoPen if color else gui.QPen(gui.QColor("#476389"), 0.75))
                 painter.drawPath(path)
             if offset == 0:
                 painter.setPen(gui.QPen(gui.QColor("#147363"), 1.4, core.Qt.DashLine))
@@ -393,6 +394,7 @@ def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positio
                 except _CAD_ERRORS:
                     pass  # Use the same profile preview as for non-native tooling.
         meshes = native_by_length[virtual_length]
+        section_preview = suggested_sections(workspace, length)
         gauge_faces = tuple(face for x in stations
                             for face in _mesh_faces(gauge, "gauge", (stop.s_mm, x, stop.z_mm))
                             ) if gauge and stop is not None else ()
@@ -404,7 +406,10 @@ def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positio
             if beam:
                 beam_z = ram_z + punch_top + clamp_height if punch_outline else bed_z + rest_z
                 mounts = _mesh_faces(beam, "frame", (0, 0, beam_z))
-            tools = _tools_for_diagram(tooling, length, ram_z, meshes)
+            tools = (build_tool_preview_faces(
+                tooling, active_bend_length_mm=length, punch_ram_z_mm=ram_z,
+                section_preview=section_preview,
+            ) if section_preview else _tools_for_diagram(tooling, length, ram_z, meshes))
             scenes.append((*bed_faces, *mounts, *tools, *gauge_faces, *sheet))
         part_extent = _extent((*before, *after), axis)
         for label, faces, sheet in zip(("before", "after"), scenes, (before, after)):

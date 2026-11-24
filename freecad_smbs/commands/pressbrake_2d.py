@@ -3345,6 +3345,11 @@ class _PreviewPanel:
                         message = f"{bend_id} · Предпросмотр раскладки сегментов"
                         if not tooling.visible:
                             tooling = replace(tooling, visible=True)
+                    if section_preview is None and not inspection and not mesh_hit:
+                        from freecad_smbs.ui.tool_segment_display import suggested_sections
+                        section_preview = suggested_sections(self, math.dist(*fold_state.bends[bend_id].axis_xyz))
+                        if section_preview:
+                            message += " · " + tr("Предложенная раскладка сегментов (визуально)")
                     viewer.update_tools(
                         tooling, ram_z, active_bend_length_mm=(
                             inspected_length if inspected_length is not None
