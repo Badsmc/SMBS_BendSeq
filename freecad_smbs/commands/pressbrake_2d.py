@@ -3477,7 +3477,7 @@ class _PreviewPanel:
                     return
 
                 from freecad_smbs.ui.bend_information import bend_rows
-                from freecad_smbs.ui.bend_instructions_pdf import export_bend_instructions_pdf
+                from freecad_smbs.ui.bend_instructions_pdf import export_bend_instructions_pdf, suggested_pdf_path
 
                 title = tr("Сохранить карту гибки в PDF…")
                 preferences = QtCore.QSettings("SMBS", "BendSeq")
@@ -3498,7 +3498,7 @@ class _PreviewPanel:
                 preferences.setValue("pdf/large_first", large_first)
                 preferences.setValue("pdf/positions_per_page", count)
                 path, _ = QtWidgets.QFileDialog.getSaveFileName(
-                    self, title, "SMBS-Bend-Plan.pdf", "PDF (*.pdf)",
+                    self, title, suggested_pdf_path(self), "PDF (*.pdf)",
                 )
                 if not path:
                     return

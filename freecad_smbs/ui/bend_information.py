@@ -166,7 +166,7 @@ def _update_bend_callouts(document, page, view, session, center):
         document.removeObject(callout.Name)
 
 
-def export_bend_information(document, session, rows):
+def export_bend_information(document, session, rows, *, create_page=True):
     import FreeCAD as App
     import Part
 
@@ -206,8 +206,10 @@ def export_bend_information(document, session, rows):
         drawing.Label = tr("SMBS — развёртка с последовательностью гибов")
         drawing.Shape = shape
         drawing.Visibility = True
-        for page, view in _flat_techdraw_views(document, drawing):
-            _update_bend_callouts(document, page, view, session, shape.BoundBox.Center)
+        page = None
+        if create_page:
+            for page, view in _flat_techdraw_views(document, drawing):
+                _update_bend_callouts(document, page, view, session, shape.BoundBox.Center)
         group_document_objects(document)
         document.recompute()
         document.commitTransaction()
@@ -235,25 +237,31 @@ def show_bend_information(workspace, embed):
             table.setItem(row, col, qt.QTableWidgetItem(value))
     table.resizeColumnsToContents()
     layout.addWidget(table)
+    prepare = qt.QPushButton(tr("Подготовить развёртку для TechDraw"))
+    prepare.setToolTip(tr("Создать контур и линии гиба для стандартной команды TechDraw «Вставить вид»."))
+    layout.addWidget(prepare)
     export = qt.QPushButton(tr("Создать / обновить и открыть TechDraw"))
     layout.addWidget(export)
     feedback = qt.QLabel()
     feedback.setWordWrap(True)
     layout.addWidget(feedback)
 
-    def save():
+    def save(*, create_page=True):
         import FreeCAD as App
         import FreeCADGui as Gui
 
         export.setEnabled(False)
+        prepare.setEnabled(False)
         debug_event("TECHDRAW_EXPORT_STARTED")
         try:
             document = workspace._bound_smbs_document()
             if document is None:
                 raise ValueError(tr("Документ детали закрыт. Загрузите деталь заново."))
-            page = export_bend_information(document, workspace.session, bend_rows(workspace))
+            page = export_bend_information(
+                document, workspace.session, bend_rows(workspace), create_page=create_page
+            )
             debug_event("TECHDRAW_EXPORT_COMPLETED", document=document.Name,
-                        page=page.Name,
+                        page=page.Name if page is not None else None,
                         edges=len(document.getObject("SMBS_BendDrawing").Shape.Edges))
         except Exception as exc:
             detail = str(exc) or type(exc).__name__
@@ -262,6 +270,13 @@ def show_bend_information(workspace, embed):
             feedback.setText(detail)
             qt.QMessageBox.warning(dialog, tr("SMBS — экспорт TechDraw"), detail)
         else:
+            if not create_page:
+                App.setActiveDocument(document.Name)
+                Gui.Selection.clearSelection()
+                Gui.Selection.addSelection(document.getObject("SMBS_BendDrawing"))
+                Gui.activateWorkbench("TechDrawWorkbench")
+                feedback.setText(tr("Развёртка выделена. В TechDraw выберите лист и выполните «Вставить вид». Для вида сверху задайте направление (0, 0, 1)."))
+                return
             feedback.setText(tr("Обновлены развёртка, таблица и подписи на листе TechDraw."))
             try:
                 App.setActiveDocument(document.Name)
@@ -271,6 +286,8 @@ def show_bend_information(workspace, embed):
                 feedback.setText(tr("Лист создан. Откройте его двойным щелчком в папке SMBS."))
         finally:
             export.setEnabled(True)
+            prepare.setEnabled(True)
 
-    export.clicked.connect(save)
+    prepare.clicked.connect(lambda: save(create_page=False))
+    export.clicked.connect(lambda: save())
     embed(workspace, dialog, tr("Информация о гибах"), "bend_information")

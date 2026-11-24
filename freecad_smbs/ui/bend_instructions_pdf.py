@@ -23,6 +23,26 @@ from smbs_core.kinematics2d.preview_mesh_3d import (
 from smbs_core.kinematics2d.staged_orientation import reverse_axis_for_operation
 
 
+def suggested_pdf_path(workspace):
+    """Use the bound FCStd filename, or the part label for an unsaved document."""
+    import re
+
+    document = workspace._bound_smbs_document()
+    filename = getattr(document, "FileName", "") if document is not None else ""
+    if filename:
+        return str(Path(filename).with_suffix(".pdf"))
+    label = str(getattr(workspace.session, "part_label", "") or "SMBS-Bend-Plan")
+    label = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", label).strip().rstrip(". ")
+    if not label:
+        label = "SMBS-Bend-Plan"
+    if label.split(".", 1)[0].upper() in {
+        "CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)),
+        *(f"LPT{i}" for i in range(1, 10)),
+    }:
+        label = "_" + label
+    return label + ".pdf"
+
+
 def _operation_faces(session, state, bend_id, phase, reverse, rear_frame, support_z):
     placement = compute_machine_pose(
         state, bend_id, phase=phase,
@@ -165,6 +185,89 @@ def operation_page_slots(count, width, height, *, large_first=False):
     return tuple(slots)
 
 
+def _flat_pattern_image(session, operations, core, gui):
+    """Draw the same unfolded contours and bend axes used by TechDraw export."""
+    contours = getattr(session.unfold_data, "flat_contours", None)
+    if contours is not None:
+        rings = [tuple((v.x, v.y) for v in edge.discretize(Deflection=0.05))
+                 for edge in contours.Edges]
+    else:
+        outline = tuple(session.panel_build.outline_vertices_xy)
+        rings = [(*outline, outline[0])] if outline else []
+    axes = {op.bend_id: session.fold_state.bends[op.bend_id].axis_xyz for op in operations}
+    points = [p for ring in rings for p in ring]
+    points.extend((p[0], p[1]) for axis in axes.values() for p in axis)
+    image = gui.QImage(1000, 620, gui.QImage.Format_RGB32)
+    image.fill(gui.QColor("white"))
+    if not points:
+        return image
+    xs, ys = zip(*points)
+    cx, cy = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+    scale = min(880 / max(1, max(xs) - min(xs)), 500 / max(1, max(ys) - min(ys)))
+    def point(p):
+        return core.QPointF(500 + (p[0] - cx) * scale, 310 - (p[1] - cy) * scale)
+    painter = gui.QPainter(image)
+    try:
+        painter.setRenderHint(gui.QPainter.Antialiasing)
+        painter.setPen(gui.QPen(gui.QColor("#172b44"), 2))
+        for ring in rings:
+            painter.drawPolyline(gui.QPolygonF([point(p) for p in ring]))
+        painter.setPen(gui.QPen(gui.QColor("#bb5a20"), 2, core.Qt.DashLine))
+        for axis in axes.values():
+            painter.drawLine(point(axis[0]), point(axis[1]))
+        font = painter.font()
+        font.setPixelSize(19)
+        painter.setFont(font)
+        for bid, axis in axes.items():
+            numbers = ", ".join(str(i) for i, op in enumerate(operations, 1) if op.bend_id == bid)
+            anchor = point(tuple((a + b) / 2 for a, b in zip(*axis)))
+            text = numbers + " · " + bid
+            bounds = painter.fontMetrics().boundingRect(text).adjusted(-5, -3, 5, 3)
+            rect = core.QRectF(anchor.x() + 5, anchor.y() - bounds.height() - 5,
+                               bounds.width(), bounds.height())
+            painter.fillRect(rect, gui.QColor("white"))
+            painter.setPen(gui.QColor("#914418"))
+            painter.drawText(rect, core.Qt.AlignCenter, text)
+    finally:
+        painter.end()
+    return image
+
+
+def _overview_html(session, operations, rows, tooling, core, gui, diagrams):
+    from freecad_smbs.ui.tool_section_preview import draw_tool_section
+
+    diagrams.append(("smbs-flat.png", _flat_pattern_image(session, operations, core, gui)))
+    html = (f'<h1>{escape(tr("Развёртка и оснастка"))}</h1>'
+            f'<h2>{escape(session.part_label)}</h2>'
+            '<p><img width="650" height="403" src="smbs-flat.png"></p>'
+            '<table border="1" cellspacing="0" cellpadding="4" width="100%">'
+            f'<tr><th>{escape(tr("№ операции"))}</th><th>{escape(tr("Линия"))}</th>'
+            f'<th>{escape(tr("Этап"))}</th><th>{escape(tr("Угол гиба"))}</th></tr>')
+    for index, (op, row) in enumerate(zip(operations, rows, strict=True), 1):
+        html += (f'<tr><td>{index}</td><td>{escape(op.bend_id)}</td>'
+                 f'<td>{escape(row[3])}</td><td>{op.target_angle_deg:+.2f}°</td></tr>')
+    html += '</table><table width="100%"><tr>'
+    for kind, title in (("punch", "Пуансон"), ("die", "Матрица")):
+        tool = getattr(tooling, kind)
+        html += f'<td width="50%"><h2>{escape(tr(title))}</h2>'
+        if tool is not None:
+            outer, holes = getattr(tooling, kind + "_polygons_machine")()
+            if outer:
+                image = draw_tool_section((outer, *holes), gui.QColor(_COLORS[kind]), core, gui)
+                name = f"smbs-{kind}-section.png"
+                diagrams.append((name, image.toImage()))
+                html += f'<p><img width="220" height="145" src="{name}"></p>'
+            column = -2 if kind == "punch" else -1
+            for segments in dict.fromkeys(row[column] for row in rows):
+                numbers = ", ".join(str(i) for i, row in enumerate(rows, 1) if row[column] == segments)
+                html += (f'<p>{escape(tr("№ операции"))}: {numbers}<br>'
+                         f'{escape(_tool_line(tooling, kind, segments))}</p>')
+        else:
+            html += '<p>—</p>'
+        html += '</td>'
+    return html + '</tr></table>'
+
+
 def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positions_per_page=1, large_first=False):
     """Export one setup page per operation without modifying the active document."""
     if isinstance(positions_per_page, bool) or not isinstance(positions_per_page, int) or not 1 <= positions_per_page <= 10:
@@ -212,6 +315,8 @@ def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positio
     native_by_length = {}
     pages = []
     diagrams = []
+    overview = _overview_html(session, operations, rows[:len(operations)], tooling,
+                              qt_core, gui, diagrams)
     for index, (operation, row) in enumerate(zip(operations, rows[:len(operations)], strict=True)):
         bid = operation.bend_id
         length = dist(*state.bends[bid].axis_xyz)
@@ -313,6 +418,16 @@ def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positio
             raise OSError(tr("Не удалось сохранить PDF."))
         try:
             available = writer.pageLayout().paintRectPixels(writer.resolution())
+            document.setHtml("<html><body>" + overview + "</body></html>")
+            size = document.size()
+            scale = min((available.width() - 8) / size.width(),
+                        (available.height() - 8) / size.height())
+            painter.save()
+            painter.scale(scale, scale)
+            document.drawContents(painter)
+            painter.restore()
+            if not writer.newPage():
+                raise OSError(tr("Не удалось сохранить PDF."))
             for index, html in enumerate(pages):
                 slot = index % positions_per_page
                 if index and slot == 0 and not writer.newPage():

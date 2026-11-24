@@ -4,6 +4,10 @@ import locale
 
 
 TRANSLATIONS = {
+    "Развёртка и оснастка": "Flat pattern and tooling",
+    "Подготовить развёртку для TechDraw": "Prepare flat pattern for TechDraw",
+    "Создать контур и линии гиба для стандартной команды TechDraw «Вставить вид».": "Create the outline and bend lines for the standard TechDraw Insert View command.",
+    "Развёртка выделена. В TechDraw выберите лист и выполните «Вставить вид». Для вида сверху задайте направление (0, 0, 1).": "The flat pattern is selected. In TechDraw, select a page and use Insert View. Set direction to (0, 0, 1) for the top view.",
     "Две колонки": "Two columns",
     "Первая операция крупно, остальные в две колонки": "Large first operation, remaining operations in two columns",
     "Компоновка страницы": "Page layout",
