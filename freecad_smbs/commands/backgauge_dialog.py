@@ -22,7 +22,7 @@ def show_backgauge_settings(workspace, *, modal_parent=None):
     dlg.resize(680, 560)
     layout = W.QVBoxLayout(dlg)
     notice = W.QLabel(
-        tr("Используется только реальная модель Backgauge.FCStd. В таблице: «До гиба» — размер по развёртке; «Упор S» — положение лицевой поверхности упора от оси гиба. В автоматическом режиме программа измеряет задний край детали на каждой заданной станции X до начала гиба. Для двух пальцев используется общая координата S по дальнему краю. Ручной режим задаёт центр S/Z для каждого гиба. Упор только перемещается при просмотре: столкновения, проникновения, контакт и допустимость хода НЕ проверяются.")
+        tr("Используется только реальная модель Backgauge.FCStd. В таблице: «До гиба» — размер по развёртке; «Упор S» — положение лицевой поверхности упора от оси гиба. В автоматическом режиме лапки расставляются симметрично относительно центра задней грани перед каждым гибом. Координаты X доступны в ручном режиме. Для двух пальцев используется общая координата S по дальнему краю. Ручной режим задаёт центр S/Z для каждого гиба. Упор только перемещается при просмотре: столкновения, проникновения, контакт и допустимость хода НЕ проверяются.")
     )
     notice.setWordWrap(True)
     layout.addWidget(notice)
@@ -112,27 +112,20 @@ def show_backgauge_settings(workspace, *, modal_parent=None):
     second_station.setValue(
         model.cad_second_station_xm_mm
         if model and model.cad_second_station_xm_mm is not None
-        else 0.0
+        else (station.value() + 100.0 if station.value() <= 9900.0 else station.value() - 100.0)
     )
     dims.addRow(second_enabled)
     dims.addRow(tr("Второй CAD упор: Xₘ:"), second_station)
-    station.setEnabled(cad_mode.isChecked())
-    second_enabled.setEnabled(cad_mode.isChecked())
-    second_station.setEnabled(
-        cad_mode.isChecked() and second_enabled.isChecked()
-    )
-    cad_mode.toggled.connect(station.setEnabled)
-    cad_mode.toggled.connect(second_enabled.setEnabled)
-    cad_mode.toggled.connect(
-        lambda state: second_station.setEnabled(
-            state and second_enabled.isChecked()
-        )
-    )
-    second_enabled.toggled.connect(
-        lambda state: second_station.setEnabled(
-            state and cad_mode.isChecked()
-        )
-    )
+
+    def update_station_controls():
+        manual = cad_mode.isChecked() and not auto.isChecked()
+        station.setEnabled(manual)
+        second_enabled.setEnabled(cad_mode.isChecked())
+        second_station.setEnabled(manual and second_enabled.isChecked())
+
+    auto.toggled.connect(update_station_controls)
+    second_enabled.toggled.connect(update_station_controls)
+    update_station_controls()
     width.setValue(model.width_s_mm if model else 10.0)
     height.setValue(model.height_z_mm if model else 10.0)
     dims.addRow(tr("Служебная ширина S (позиция центра):"), width)
@@ -190,7 +183,7 @@ def show_backgauge_settings(workspace, *, modal_parent=None):
         # Catch duplicate stations in the GUI before model construction.
         # Do not silently disable the second gauge or shift it to a
         # fabricated position. The operator must choose a real station.
-        if (cad_mode.isChecked() and second_enabled.isChecked()
+        if (not auto.isChecked() and cad_mode.isChecked() and second_enabled.isChecked()
                 and abs(second_station.value() - station.value()) < 1e-6):
             W.QMessageBox.warning(
                 dlg, "Два упора на одной позиции",
@@ -204,6 +197,9 @@ def show_backgauge_settings(workspace, *, modal_parent=None):
             second_station.setFocus()
             second_station.selectAll()
             return
+        second_x = float(second_station.value())
+        if auto.isChecked() and abs(second_x - station.value()) < 1e-6:
+            second_x = station.value() + (100.0 if station.value() <= 9900.0 else -100.0)
         targets = {}
         try:
             for row in range(table.rowCount() if not auto.isChecked() else 0):
@@ -228,7 +224,7 @@ def show_backgauge_settings(workspace, *, modal_parent=None):
                 cad_geometry_enabled=cad_mode.isChecked(),
                 cad_station_xm_mm=float(station.value()),
                 cad_second_station_xm_mm=(
-                    float(second_station.value())
+                    second_x
                     if cad_mode.isChecked() and second_enabled.isChecked()
                     else None
                 ),

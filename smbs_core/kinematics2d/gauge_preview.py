@@ -99,9 +99,38 @@ def gauge_rear_envelope_from_faces(faces, station_xm_mm):
     return rear_s, (min(z_at_edge) + max(z_at_edge)) / 2.0
 
 
-def sequenced_gauge_envelopes(session, *, stations_xm_mm,
+def centered_gauge_stations(faces, count):
+    """Place finger centers at the midpoints of equal parts of the rear edge."""
+    faces = tuple(faces)
+    rear_s = max((s for face in faces for s, _, _ in face.vertices), default=0.0)
+    tolerance = 1e-5
+    if rear_s <= tolerance or count < 1:
+        return ()
+    spans = []
+    for face in faces:
+        vertices = tuple(face.vertices)
+        for a, b in zip(vertices, vertices[1:] + vertices[:1]):
+            if rear_s - min(a[0], b[0]) <= tolerance:
+                left, right = sorted((a[1], b[1]))
+                if right - left > tolerance:
+                    spans.append((left, right))
+    # Adjacent faces can describe one edge. Keep real gaps between them.
+    merged = []
+    for left, right in sorted(spans):
+        if merged and left <= merged[-1][1] + tolerance:
+            merged[-1] = (merged[-1][0], max(right, merged[-1][1]))
+        else:
+            merged.append((left, right))
+    if not merged:
+        return ()
+    left, right = max(merged, key=lambda span: span[1] - span[0])
+    return tuple(left + (index + 0.5) * (right - left) / count
+                 for index in range(count))
+
+
+def sequenced_gauge_envelopes(session, *, finger_count,
                               reverse_axis_by_bend, rear_frame_bend_ids=()):
-    """Sample each configured finger at the start of every bend."""
+    """Calculate automatic stations and their rear envelopes for each bend."""
     from .panel_kinematics import FoldState
     from .preview_mesh_3d import build_sheet_preview_faces
     from .machine_pose_contract import compute_machine_pose
@@ -133,10 +162,10 @@ def sequenced_gauge_envelopes(session, *, stations_xm_mm,
                 state, session.panel_vertices_xy, bend_id, None,
                 machine_placement=placement,
             )
-            targets[bend_id] = tuple(
-                gauge_rear_envelope_from_faces(faces, station)
-                for station in stations_xm_mm
-            )
+            stations = centered_gauge_stations(faces, finger_count)
+            targets[bend_id] = (stations, tuple(
+                gauge_rear_envelope_from_faces(faces, station) for station in stations
+            ))
         except (ValueError, TypeError, KeyError, AttributeError) as exc:
             errors[bend_id] = str(exc)
         state.set_angle(bend_id, float(bend.angle_deg))
@@ -149,6 +178,8 @@ def visual_gauge_target(model, bend_id, envelopes):
         centre = model.position_for(bend_id)
         return BackgaugePosition2D(centre.s_mm - model.width_s_mm / 2.0, centre.z_mm), ""
 
+    if not envelopes:
+        return None, "Не найдена задняя грань для автоматической расстановки лапок"
     edges = tuple(edge for edge in envelopes if edge is not None)
     if not edges:
         return None, "Край детали вне станций X заднего упора"

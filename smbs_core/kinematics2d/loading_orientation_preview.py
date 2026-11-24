@@ -32,7 +32,7 @@ class LoadingOrientationPreview:
 def plan_preview_loading_orientations(
     state, panel_vertices_xy: Mapping[str, Sequence[tuple[float, float]]],
     order: Sequence[str], *, deadband_mm: float = 10.0,
-    stations_xm_mm=(),
+    stations_xm_mm=(), centered_finger_count=0,
 ) -> tuple[LoadingOrientationPreview, ...]:
     """Plan 180° machine-Z rotations along the supplied bending sequence.
 
@@ -45,7 +45,7 @@ def plan_preview_loading_orientations(
     The result should NEVER be interpreted as an approved setup. Only an
     explicit selected search candidate can supply checked 2D/CAD evidence.
     """
-    from .gauge_preview import gauge_rear_envelope_from_faces
+    from .gauge_preview import centered_gauge_stations, gauge_rear_envelope_from_faces
     from .panel_kinematics import FoldState
     from .preview_mesh_3d import build_sheet_preview_faces
     from .workpiece_placement_3d import WorkpiecePlacement3D
@@ -98,13 +98,15 @@ def plan_preview_loading_orientations(
             ]
             if projected and all(isfinite(s) for s in projected):
                 contacts = ()
-                if stations_xm_mm and zone is not None:
+                if (stations_xm_mm or centered_finger_count) and zone is not None:
                     faces = build_sheet_preview_faces(
                         isolated, panel_vertices_xy, bend_id, None,
                         machine_placement=placement,
                     )
+                    stations = (centered_gauge_stations(faces, centered_finger_count)
+                                if centered_finger_count else stations_xm_mm)
                     contacts = tuple(
-                        edge[0] for station in stations_xm_mm
+                        edge[0] for station in stations
                         if (edge := gauge_rear_envelope_from_faces(faces, station)) is not None
                     )
                 setups.append((reverse, max(0.0, -min(projected)),

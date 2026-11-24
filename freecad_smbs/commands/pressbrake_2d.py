@@ -5451,10 +5451,10 @@ class _PreviewPanel:
             def _default_loading_orientation_map(self, order):
                 """Prefer the shorter reach towards the rear gauge."""
                 model = self.backgauge_model
-                stations = self._backgauge_stations() if (
+                finger_count = len(self._backgauge_stations()) if (
                     model is not None and model.automatic and model.cad_geometry_enabled
-                ) else ()
-                key = (id(self.session), id(self.session.fold_state), order, stations)
+                ) else 0
+                key = (id(self.session), id(self.session.fold_state), order, finger_count)
                 if key == self._ergonomic_loading_cache_key:
                     self._ergonomic_loading_status = self._ergonomic_loading_cache_status
                     return self._ergonomic_loading_cache
@@ -5467,7 +5467,7 @@ class _PreviewPanel:
                         self.session.panel_vertices_xy,
                         order,
                         deadband_mm=0.0,
-                        stations_xm_mm=stations,
+                        centered_finger_count=finger_count,
                     )
                     choices = {
                         item.bend_id: item.reverse_axis
@@ -9738,8 +9738,8 @@ class _PreviewPanel:
                 if (model is None or session is None or
                         not model.cad_geometry_enabled):
                     return {}
-                stations = self._backgauge_stations()
-                key = (id(session), tuple(session.bend_order), stations,
+                finger_count = len(self._backgauge_stations())
+                key = (id(session), tuple(session.bend_order), finger_count,
                        tuple(sorted(orientations.items())),
                        frozenset(self._fast_advisory_orientation_keys))
                 cached = self._machine_gauge_envelope_cache
@@ -9749,7 +9749,7 @@ class _PreviewPanel:
                     sequenced_gauge_envelopes,
                 )
                 values, errors = sequenced_gauge_envelopes(
-                    session, stations_xm_mm=stations,
+                    session, finger_count=finger_count,
                     reverse_axis_by_bend=orientations,
                     rear_frame_bend_ids=self._fast_advisory_orientation_keys,
                 )
@@ -9784,7 +9784,7 @@ class _PreviewPanel:
                         visual_gauge_target,
                     )
                     envelopes = (
-                        self._sequenced_gauge_envelopes(orientations).get(bend_id, ())
+                        self._sequenced_gauge_envelopes(orientations).get(bend_id, ((), ()))[1]
                         if model.automatic else ()
                     )
                     result = visual_gauge_target(model, bend_id, envelopes)
@@ -9808,6 +9808,7 @@ class _PreviewPanel:
                 pos, note = start
                 if pos is None:
                     return (), None, note
+                stations = self._gauge_stations_for_index(index)
                 s, z = pos.s_mm, pos.z_mm
                 controller = self.press_cycle
                 phase = getattr(getattr(controller, "phase", None), "value", "")
@@ -9819,8 +9820,19 @@ class _PreviewPanel:
                         t = max(0.0, min(1.0, float(controller.transfer_progress)))
                         s += (target[0].s_mm - s) * t
                         z += (target[0].z_mm - z) * t
+                        next_stations = self._gauge_stations_for_index(index + 1)
+                        if len(stations) == len(next_stations):
+                            stations = tuple(x + (next_x - x) * t
+                                             for x, next_x in zip(stations, next_stations))
                         note = ""
-                return self._backgauge_stations(), (s, z), note
+                return stations, (s, z), note
+
+            def _gauge_stations_for_index(self, index):
+                if not self.backgauge_model.automatic:
+                    return self._backgauge_stations()
+                orientations = self._effective_loading_orientation_map()
+                bend_id = self.session.bend_order[index]
+                return self._sequenced_gauge_envelopes(orientations).get(bend_id, ((), ()))[0]
 
             def draw(self):
                 if not self._playback_alive():

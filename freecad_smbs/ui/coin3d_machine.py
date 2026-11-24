@@ -284,9 +284,8 @@ class CoinMachineScene:
                 self.gauge_error = ""
         if self.gauge_error:
             return self.gauge_error
-        if self.stations != stations:
+        if len(self.stations) != len(stations):
             self.gauges.removeAllChildren()
-            self.stations = stations
             fingers = []
             for _ in stations:
                 motion = self.coin.SoTranslation()
@@ -296,6 +295,7 @@ class CoinMachineScene:
                 self.gauges.addChild(finger)
                 fingers.append(motion)
             self.fingers = tuple(fingers)
+        self.stations = stations
         s, z = contact
         for finger, x in zip(self.fingers, stations):
             finger.translation.setValue(float(s), float(x), float(z))
