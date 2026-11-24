@@ -4,6 +4,9 @@ import locale
 
 
 TRANSLATIONS = {
+    "Две колонки": "Two columns",
+    "Первая операция крупно, остальные в две колонки": "Large first operation, remaining operations in two columns",
+    "Компоновка страницы": "Page layout",
     "Количество операций на странице": "Operations per page",
     "Карта гибки PDF": "Bend plan PDF",
     "Сохранить карту гибки в PDF…": "Save bend instructions as PDF…",

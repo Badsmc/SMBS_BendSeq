@@ -132,7 +132,30 @@ def _tool_line(setup, kind, segments):
     return f"{title} · {status} — {segments}"
 
 
-def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positions_per_page=1):
+def operation_page_slots(count, width, height, *, large_first=False):
+    """Fill a page in reading order, with an optional full-width first operation."""
+    if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= 10:
+        raise ValueError("count must be an integer from 1 to 10")
+    if count == 1:
+        return ((0., 0., width, height),)
+    slots = []
+    top = 0.
+    remaining = count
+    if large_first:
+        top = height * 0.45
+        slots.append((0., 0., width, top))
+        remaining -= 1
+    rows = (remaining + 1) // 2
+    row_height = (height - top) / rows
+    for index in range(remaining):
+        row, column = divmod(index, 2)
+        columns = 1 if index == remaining - 1 and remaining % 2 else 2
+        slot_width = width / columns
+        slots.append((column * slot_width, top + row * row_height, slot_width, row_height))
+    return tuple(slots)
+
+
+def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positions_per_page=1, large_first=False):
     """Export one setup page per operation without modifying the active document."""
     if isinstance(positions_per_page, bool) or not isinstance(positions_per_page, int) or not 1 <= positions_per_page <= 10:
         raise ValueError("positions_per_page must be an integer from 1 to 10")
@@ -279,18 +302,23 @@ def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positio
             raise OSError(tr("Не удалось сохранить PDF."))
         try:
             available = writer.pageLayout().paintRectPixels(writer.resolution())
-            slot_height = available.height() / positions_per_page
             for index, html in enumerate(pages):
                 slot = index % positions_per_page
                 if index and slot == 0 and not writer.newPage():
                     raise OSError(tr("Не удалось сохранить PDF."))
+                start = index - slot
+                page_count = min(positions_per_page, len(pages) - start)
+                slots = operation_page_slots(
+                    page_count, available.width(), available.height(), large_first=large_first,
+                )
+                x, y, slot_width, slot_height = slots[slot]
                 document.setHtml("<html><body>" + html + "</body></html>")
                 size = document.size()
-                scale = min(available.width() / size.width(),
+                scale = min((slot_width - 8) / size.width(),
                             (slot_height - 8) / size.height())
                 painter.save()
-                painter.translate((available.width() - size.width() * scale) / 2,
-                                  slot * slot_height + 4)
+                painter.translate(x + (slot_width - size.width() * scale) / 2,
+                                  y + (slot_height - size.height() * scale) / 2)
                 painter.scale(scale, scale)
                 document.drawContents(painter)
                 painter.restore()

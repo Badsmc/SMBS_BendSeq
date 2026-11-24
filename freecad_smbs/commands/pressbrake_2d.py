@@ -3487,6 +3487,15 @@ class _PreviewPanel:
                 )
                 if not accepted:
                     return
+                layouts = (tr("Две колонки"), tr("Первая операция крупно, остальные в две колонки"))
+                selected_layout, accepted = QtWidgets.QInputDialog.getItem(
+                    self, title, tr("Компоновка страницы"), layouts,
+                    int(preferences.value("pdf/large_first", False, type=bool)), False,
+                )
+                if not accepted:
+                    return
+                large_first = selected_layout == layouts[1]
+                preferences.setValue("pdf/large_first", large_first)
                 preferences.setValue("pdf/positions_per_page", count)
                 path, _ = QtWidgets.QFileDialog.getSaveFileName(
                     self, title, "SMBS-Bend-Plan.pdf", "PDF (*.pdf)",
@@ -3498,6 +3507,7 @@ class _PreviewPanel:
                 try:
                     export_bend_instructions_pdf(
                         self, path, QtCore, QtGui, bend_rows(self), positions_per_page=count,
+                        large_first=large_first,
                     )
                 except (OSError, ValueError, RuntimeError, AttributeError, TypeError) as exc:
                     QtWidgets.QMessageBox.warning(self, title, str(exc))
