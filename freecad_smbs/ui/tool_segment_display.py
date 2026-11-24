@@ -1,8 +1,8 @@
 """Cached display groups derived from the exact native tooling meshes."""
 
 PALETTES = {
-    'punch': ((0.85, 0.36, 0.22), (0.97, 0.68, 0.28), (0.72, 0.30, 0.46)),
-    'die': ((0.20, 0.49, 0.67), (0.28, 0.71, 0.65), (0.42, 0.42, 0.73)),
+    'punch': ((0.85, 0.36, 0.22), (0.98, 0.82, 0.22), (0.52, 0.25, 0.66)),
+    'die': ((0.20, 0.49, 0.67), (0.25, 0.78, 0.48), (0.60, 0.34, 0.80)),
 }
 
 
@@ -25,7 +25,3 @@ def native_display_sections(tool, triangles):
         groups[index].append(triangle)
     return tuple((i, section.span_xm, tuple(group))
                  for i, (section, group) in enumerate(zip(sections, groups)) if group)
-
-
-def segment_label(span):
-    return f'{span[1] - span[0]:g} mm'

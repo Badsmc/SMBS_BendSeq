@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from freecad_smbs.ui.localization import tr
 from freecad_smbs.ui.tool_segment_display import (
-    native_display_sections, segment_color, segment_label,
+    native_display_sections, segment_color,
 )
 
 
@@ -91,6 +91,10 @@ def _face_node(coin, face):
     else:
         facets = coin.SoLineSet() if face.kind.endswith("_seam") else coin.SoFaceSet()
         facets.numVertices.setValues(0, 1, [len(face.vertices)])
+    binding = coin.SoMaterialBinding()
+    binding.value = coin.SoMaterialBinding.OVERALL
+    node.addChild(binding)
+    material.setOverride(True)
     node.addChild(material)
     node.addChild(coordinates)
     node.addChild(facets)
@@ -408,28 +412,6 @@ def create_coin_viewer(parent=None):
                 self.reset_camera()
                 self._initial_fit_done = True
 
-        def _add_segment_label(self, root, span, points):
-            # Screen-facing text is created only when the tooling cache changes.
-            coin = self._coin
-            label = coin.SoSeparator()
-            material = coin.SoMaterial()
-            material.diffuseColor.setValue(0.10, 0.10, 0.12)
-            material.emissiveColor.setValue(0.10, 0.10, 0.12)
-            label.addChild(material)
-            position = coin.SoTranslation()
-            position.translation.setValue(max(p[0] for p in points) + 2,
-                                          sum(span) / 2,
-                                          (min(p[2] for p in points) + max(p[2] for p in points)) / 2)
-            label.addChild(position)
-            font = coin.SoFont()
-            font.size = 13
-            label.addChild(font)
-            text = coin.SoText2()
-            text.justification = coin.SoText2.CENTER
-            text.string = segment_label(span)
-            label.addChild(text)
-            root.addChild(label)
-
         def update_tools(self, tooling, ram_z, *, active_bend_length_mm=None, section_preview=None):
             from smbs_core.kinematics2d.preview_mesh_3d import (
                 build_tool_preview_faces,
@@ -490,11 +472,14 @@ def create_coin_viewer(parent=None):
                         coordinates.point.setValues(0, len(points), points)
                         geometry = coin.SoFaceSet()
                         geometry.numVertices.setValues(0, len(facets), [3] * len(facets))
+                        binding = coin.SoMaterialBinding()
+                        binding.value = coin.SoMaterialBinding.OVERALL
+                        group.addChild(binding)
+                        material.setOverride(True)
                         group.addChild(material)
                         group.addChild(coordinates)
                         group.addChild(geometry)
                         root.addChild(group)
-                        self._add_segment_label(root, span, points)
                 for face in tool_faces:
                     node = _face_node(coin, face)
                     if node is None:
@@ -503,14 +488,6 @@ def create_coin_viewer(parent=None):
                         punch_root.addChild(node.root)
                     else:
                         die_root.addChild(node.root)
-                labels = {}
-                for face in tool_faces:
-                    kind = face.kind.split("_", 1)[0]
-                    if kind in ("punch", "die") and not face.kind.endswith("_seam"):
-                        labels.setdefault((kind, face.section_index), []).extend(face.vertices)
-                for (kind, _), points in labels.items():
-                    span = (min(p[1] for p in points), max(p[1] for p in points))
-                    self._add_segment_label(punch_root if kind == "punch" else die_root, span, points)
                 self._tool_root.addChild(die_root)
                 self._tool_root.addChild(punch_root)
                 self._tool_key = key
