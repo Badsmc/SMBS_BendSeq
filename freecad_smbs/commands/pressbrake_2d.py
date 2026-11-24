@@ -1337,6 +1337,12 @@ class BendInformationCommand(_WorkspaceActionCommand):
     icon = "gui_part.svg"
 
 
+class BendInstructionsPdfCommand(_WorkspaceActionCommand):
+    label = "Карта гибки PDF"
+    method = "_save_bend_instructions_pdf"
+    icon = "control_save.svg"
+
+
 class MeshCheckCommand(_WorkspaceActionCommand):
     label = "Mesh 3D"
     method = "_open_mesh_menu"
@@ -3463,6 +3469,32 @@ class _PreviewPanel:
                 from freecad_smbs.ui.bend_information import show_bend_information
 
                 show_bend_information(self, embed_task_dialog)
+
+            def _save_bend_instructions_pdf(self):
+                if self.session is None or self._task_progress_busy:
+                    return
+                if not self._apply_typed_manual_order():
+                    return
+
+                from freecad_smbs.ui.bend_information import bend_rows
+                from freecad_smbs.ui.bend_instructions_pdf import export_bend_instructions_pdf
+
+                title = tr("Сохранить карту гибки в PDF…")
+                path, _ = QtWidgets.QFileDialog.getSaveFileName(
+                    self, title, "SMBS-Bend-Plan.pdf", "PDF (*.pdf)",
+                )
+                if not path:
+                    return
+                if not path.lower().endswith(".pdf"):
+                    path += ".pdf"
+                try:
+                    export_bend_instructions_pdf(
+                        self, path, QtCore, QtGui, bend_rows(self),
+                    )
+                except (OSError, ValueError, RuntimeError, AttributeError, TypeError) as exc:
+                    QtWidgets.QMessageBox.warning(self, title, str(exc))
+                else:
+                    self.status.setText(tr("Карта гибки сохранена в PDF."))
 
             def _tool_assembly_inputs(self, *, require_pair=True):
                 from smbs_core.geometry_backend.io.clamp_validator import load_clamp_config

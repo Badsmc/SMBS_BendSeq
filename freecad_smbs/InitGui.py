@@ -21,7 +21,7 @@ from freecad_smbs.commands.pressbrake_2d import (
     PressBrake2DCommand, LoadPartCommand, ToolingTabCommand,
     SequenceCatalogCommand,
     BackgaugeCommand, ManualCommand, SettingsCommand,
-    FastSearchCommand, BendInformationCommand, MeshCheckCommand,
+    FastSearchCommand, BendInformationCommand, BendInstructionsPdfCommand, MeshCheckCommand,
 )
 from freecad_smbs.commands.tooling import (
     ToolingCommand, SegmentStockCommand, VirtualClampsCommand, ToolLayoutCommand,
@@ -40,6 +40,7 @@ CMD_MANUAL = "SMBS_Manual"
 CMD_SETTINGS = "SMBS_Settings"
 CMD_FAST = "SMBS_FastSearch"
 CMD_INFORMATION = "SMBS_BendInformation"
+CMD_BEND_INSTRUCTIONS_PDF = "SMBS_BendInstructionsPdf"
 CMD_MESH = "SMBS_MeshCheck"
 COMMANDS_MAP = {
     CMD_PRESSBRAKE_2D: PressBrake2DCommand,
@@ -52,6 +53,7 @@ COMMANDS_MAP = {
     CMD_SETTINGS: SettingsCommand,
     CMD_FAST: FastSearchCommand,
     CMD_INFORMATION: BendInformationCommand,
+    CMD_BEND_INSTRUCTIONS_PDF: BendInstructionsPdfCommand,
     CMD_MESH: MeshCheckCommand,
     CMD_TOOLING: ToolingCommand,
     "SMBS_SegmentStock": SegmentStockCommand,
@@ -104,7 +106,7 @@ class SMBSWorkbench(Workbench):
         register_commands()
         toolbar = [
             CMD_DXF_MANUAL, CMD_TOOLING_TAB, CMD_PRESSBRAKE_2D,
-            CMD_FAST, CMD_INFORMATION, CMD_MESH,
+            CMD_FAST, CMD_INFORMATION, CMD_BEND_INSTRUCTIONS_PDF, CMD_MESH,
             CMD_SETTINGS,
         ]
         menu = [

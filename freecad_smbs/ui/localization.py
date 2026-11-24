@@ -4,6 +4,18 @@ import locale
 
 
 TRANSLATIONS = {
+    "Карта гибки PDF": "Bend plan PDF",
+    "Сохранить карту гибки в PDF…": "Save bend instructions as PDF…",
+    "Карта гибки сохранена в PDF.": "Bend instructions saved as PDF.",
+    "Карта гибки": "Bend instructions",
+    "Разворот детали": "Part rotation",
+    "Установка перед гибом": "Setup before bending",
+    "Форма после гиба": "Shape after bending",
+    "Применённая раскладка": "Applied layout",
+    "Предложение по сегментам": "Suggested segments",
+    "Пунктир — линия оснастки. Точки — лапки заднего упора.": "Dashed line: tool axis. Dots: backgauge fingers.",
+    "Схема показывает ориентацию и форму детали и не подтверждает отсутствие коллизий.": "The diagrams show part orientation and shape. Verify collisions separately.",
+    "Не удалось сохранить PDF.": "Could not save the PDF.",
     "Поперечное сечение": "Cross-section",
     "Сечение недоступно": "Section unavailable",
     "Лимит времени, с": "Time limit, s",
