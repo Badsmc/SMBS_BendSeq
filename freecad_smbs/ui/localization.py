@@ -4,6 +4,10 @@ import locale
 
 
 TRANSLATIONS = {
+    "Импорт заднего упора": "Import backgauge",
+    "Удалить задний упор": "Remove backgauge",
+    "Выбрано: {tool}": "Selected: {tool}",
+    "Путь: {path}": "Path: {path}",
     "Две колонки": "Two columns",
     "Первая операция крупно, остальные в две колонки": "Large first operation, remaining operations in two columns",
     "Компоновка страницы": "Page layout",
