@@ -537,7 +537,7 @@ class ToolingPanel:
                     # Retain the operator's exact tool selection through
                     # catalog refresh (notably after saving 13 segment types).
                     # Clearing the list previously selected the first item,
-                    # so Preview could open 'puancon' instead of AP_1017.
+                    # so Preview could open a different tool instead of the selected model.
                     selected = self._current_descriptor()
                     selected_key = (
                         (selected.kind, selected.tool_id)

@@ -10,26 +10,8 @@ Machine Coordinate Space (X_m, Y_m, Z_m) Contract:
        Die top shoulder reference plane is at Z_m = 0.0 (die body extends into -Z_m).
        Punch tip is at Z_m = ram_z_mm (punch body extends into +Z_m from the tip).
 
-Deterministic, verified mappings from native CAD files & Tooling Library datums:
-- `toollibrary/punch/puancon.FCStd` & `ToolLibrary25D`:
-  Profile geometry extracted directly from CAD solids/sketches.
-  Working tip point: X = -403.5635478801571, Y = -3834.154260829799.
-  Tip radius: 0.8 mm, Included angle: 30.0 deg.
-  Extrusion length: 100 mm along CAD Z.
-  Machine Transform (det(R) = +1.0):
-    X_m = Z_cad - 50.0
-    Y_m = X_cad - (-403.5635478801571)
-    Z_m = (Y_cad - (-3834.154260829799)) + ram_z_mm
-
-- `toollibrary/die/matrica.FCStd` & `ToolLibrary25D`:
-  Profile geometry extracted directly from CAD solids/sketches.
-  V-groove center: X = -412.307718, top shoulder plane: Y = -3840.489599.
-  V-opening: 32.0 mm, Shoulder radius: 2.0 mm, Die angle: 85.0 deg.
-  Extrusion length: 100 mm along CAD Z.
-  Machine Transform (det(R) = +1.0):
-    X_m = Z_cad - 50.0
-    Y_m = X_cad - (-412.307718)
-    Z_m = Y_cad - (-3840.489599)
+Native CAD profiles are aligned using the selected tool's extracted datums.
+No fixed coordinates or legacy tool filenames participate in this mapping.
 """
 from __future__ import annotations
 

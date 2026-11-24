@@ -13,8 +13,8 @@ REPO_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 TOOL_LIBRARY_ROOT: Path = REPO_ROOT / "toollibrary"
 
 # Canonical paths for existing tooling assets
-PUNCH_PATH: Path = TOOL_LIBRARY_ROOT / "punch" / "puancon.FCStd"
-DIE_PATH: Path = TOOL_LIBRARY_ROOT / "die" / "matrica.FCStd"
+PUNCH_PATH: Path = TOOL_LIBRARY_ROOT / "punch" / "PUNCH_AP_1029_88°_H99,40_R0,6.FCStd"
+DIE_PATH: Path = TOOL_LIBRARY_ROOT / "die" / "T-Die_AT_3018_88°_V25_H80.FCStd"
 PRESS_PATH: Path = TOOL_LIBRARY_ROOT / "presses" / "cncbender.FCStd"
 
 # Missing tooling paths (per β1 — expected path conventions, missing until client provides)

@@ -51,7 +51,7 @@ Open **Tools → Addon Manager**. If SMBS BendSeq is available in your configure
 3. **Set the bend order.** Select bend lines or reorder operations in **Simulation**. To search for candidates, run **FAST**, select a sequence, and review the part orientation at each bend.
 4. **Check and document the sequence.** Run **Mesh 3D**. Open **Information** to review the bend table or export it to TechDraw.
 
-Sample models are available in [`demo/parts/`](demo/parts).
+Sample models are available in [`demo/parts/`](demo/parts); see the [demo index](demo/README.md) for names and historical collision examples.
 
 ## Collision checks
 
@@ -72,3 +72,5 @@ FAST proposes bend sequences. Mesh checks sampled positions of the part against 
 For a session linked to a SheetMetal unfold, saving the document in FreeCAD with **Ctrl+S** embeds SMBS session data in the `.FCStd`. Keep the external tooling files available when moving the project to another installation. See [FCStd save and restore](docs/FCSTD_NATIVE_AUTOSAVE.md) for details.
 
 To investigate an error, enable **Log SMBS activity and FreeCAD crashes** in SMBS settings and reproduce the problem. The desktop log is named `SMBS_debug_log.json`. Include the FreeCAD version, the SMBS commit, and the steps to reproduce the issue when reporting it. [Report an issue](https://github.com/Badsmc/SMBS_BendSeq/issues).
+
+Bundled profiles and their reference dimensions are listed in the [tooling library notes](toollibrary/README.md).

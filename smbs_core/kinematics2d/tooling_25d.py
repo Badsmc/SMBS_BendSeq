@@ -2945,7 +2945,7 @@ class ToolLibrary25D:
         raise ToolingError(f"Tool '{tid}' ({tk.value}) not found in {self.library_root}")
 
     def _load_legacy_fcstd_tool(self, fcstd_path: Path, kind: ToolKind) -> ToolProfile:
-        """Load an existing `.FCStd` tool (e.g. `puancon.FCStd` / `matrica.FCStd`) via FreeCAD.
+        """Load an existing `.FCStd` tool via FreeCAD.
 
         Critically preserves `App.ActiveDocument` and `Gui.ActiveDocument` so background
         library scanning never clobbers the user's open SheetMetal document in FreeCAD.

@@ -3394,29 +3394,21 @@ class _PreviewPanel:
                     return False
 
             def _auto_select_default_tooling(self):
-                """Auto-select verified default tooling (puancon / matrica) if none selected."""
+                """Select supplied default tools, then fall back to valid library entries."""
                 if self.tooling_setup.punch is not None and self.tooling_setup.die is not None:
                     return
                 try:
-                    tools = self.tool_library.list_tools()
-                    # First priority: verified baseline tools "puancon" and "matrica"
-                    for t in tools:
-                        if t.validation_status != ValidationStatus.INVALID:
-                            if self.tooling_setup.punch is None and t.kind == ToolKind.PUNCH:
-                                if t.tool_id.lower() == "puancon":
-                                    self.tooling_setup.select_punch(t)
-                            if self.tooling_setup.die is None and t.kind == ToolKind.DIE:
-                                if t.tool_id.lower() == "matrica":
-                                    self.tooling_setup.select_die(t)
-                    # Second priority: any other matching punch / die
-                    for t in tools:
-                        if t.validation_status != ValidationStatus.INVALID:
-                            if self.tooling_setup.punch is None and t.kind == ToolKind.PUNCH:
-                                if "punch" in t.tool_id.lower():
-                                    self.tooling_setup.select_punch(t)
-                            if self.tooling_setup.die is None and t.kind == ToolKind.DIE:
-                                if "die" in t.tool_id.lower():
-                                    self.tooling_setup.select_die(t)
+                    tools = sorted(self.tool_library.list_tools(), key=lambda tool: tool.tool_id)
+                    from freecad_smbs.resources.tooling_paths import PUNCH_PATH, DIE_PATH
+                    for tool in tools:
+                        if tool.validation_status == ValidationStatus.INVALID:
+                            continue
+                        if (self.tooling_setup.punch is None and tool.kind == ToolKind.PUNCH
+                                and tool.tool_id == PUNCH_PATH.stem):
+                            self.tooling_setup.select_punch(tool)
+                        if (self.tooling_setup.die is None and tool.kind == ToolKind.DIE
+                                and tool.tool_id == DIE_PATH.stem):
+                            self.tooling_setup.select_die(tool)
                     if self.tooling_setup.punch is None:
                         for t in tools:
                             if t.kind == ToolKind.PUNCH and t.validation_status != ValidationStatus.INVALID:

@@ -70,7 +70,7 @@ sampled advisory checks, not full 3D or transfer-path certification.
 ## FreeCAD regression: known B01 / P11 case
 
 1. Install only this full experimental branch as a FreeCAD Mod, restart
-   FreeCAD and open `2-1-3-4-(ok).FCStd`.
+   FreeCAD and open `four-bend-sequence.FCStd`.
 2. Select the same verified punch and die as the previous run.
 3. Run FAST; read `FAST_SEARCH_RESULT` and
    `FAST_25D_ORIENTATION_STAGE_B_DIAGNOSTIC` from Desktop's
