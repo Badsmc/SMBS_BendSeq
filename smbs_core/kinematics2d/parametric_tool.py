@@ -1,0 +1,155 @@
+"""Original generic tooling profiles; demonstration geometry, not manufacturing designs."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from math import atan2, cos, degrees, isfinite, radians, sin, tan
+from pathlib import Path
+import re
+
+from smbs_core.kinematics2d.tooling_25d import (
+    ArcSegment2D, Contour2D, LineSegment2D, has_self_intersection,
+)
+
+
+@dataclass(frozen=True)
+class ToolRecipe:
+    tool_id: str
+    kind: str = "punch"
+    height: float = 100.0
+    width: float = 40.0
+    angle: float = 88.0
+    radius: float = 0.8
+    opening: float = 12.0
+    length: float = 100.0
+    quantity: int = 0
+    shank_width: float = 20.0
+    shank_height: float = 15.0
+    relief_depth: float = 0.0
+    relief_height: float = 25.0
+
+    def validate(self):
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}", self.tool_id):
+            raise ValueError("Use an ASCII tool ID containing letters, digits, underscores or hyphens.")
+        if self.kind not in ("punch", "die"):
+            raise ValueError("Unknown tool kind")
+        for key in ("height", "width", "radius", "length"):
+            value = getattr(self, key)
+            if not isfinite(value) or value <= 0 or value > 5000:
+                raise ValueError(f"Invalid positive dimension: {key}")
+        if not isfinite(self.angle) or not 15 <= self.angle <= 120:
+            raise ValueError("Included angle must be between 15 and 120 degrees")
+        if type(self.quantity) is not int or not 0 <= self.quantity <= 10000:
+            raise ValueError("Quantity must be an integer between 0 and 10000")
+        if self.kind == "punch":
+            if not (0 < self.shank_width <= self.width and 0 < self.shank_height < self.height):
+                raise ValueError("Invalid mounting shank dimensions")
+            if not (0 <= self.relief_depth < self.width - 4 and self.relief_height > 0):
+                raise ValueError("Invalid relief dimensions")
+        elif not isfinite(self.opening) or not 0 < self.opening < self.width:
+            raise ValueError("V opening must be smaller than the body width")
+
+
+def _lines(points):
+    return [LineSegment2D(a, b) for a, b in zip(points, points[1:])]
+
+
+def build_contour(recipe: ToolRecipe) -> Contour2D:
+    """Build one closed XY profile; Z is the longitudinal extrusion axis."""
+    recipe.validate()
+    h, w, r = recipe.height, recipe.width / 2, recipe.radius
+    a = radians(recipe.angle / 2)
+    if recipe.kind == "punch":
+        x, y = r * cos(a), r * (1 - sin(a))
+        shoulder = y + (w - x) / tan(a)
+        top = h - recipe.shank_height
+        if x >= w or shoulder + 4 >= top:
+            raise ValueError("Punch body is too short or narrow for the tip and angle")
+        sw = recipe.shank_width / 2
+        right = [(x, y), (w, shoulder)]
+        if recipe.relief_depth:
+            low = shoulder + 2
+            high = low + recipe.relief_height
+            if high + 2 >= top:
+                raise ValueError("Relief does not fit between the tip and mounting shank")
+            inner = w - recipe.relief_depth
+            right += [(w, low), (inner, low + 1), (inner, high - 1), (w, high)]
+        right += [(w, top), (sw, top), (sw, h), (-sw, h), (-sw, top), (-w, top),
+                  (-w, shoulder), (-x, y)]
+        # Avoid zero-length lines when shank and body have the same width.
+        right = [p for i, p in enumerate(right) if i == 0 or p != right[i - 1]]
+        edges = [ArcSegment2D((-x, y), (x, y), (0, r), r, True)] + _lines(right)
+    else:
+        v = recipe.opening / 2
+        depth = v / tan(a)
+        center_x = v + r * (1 - sin(a)) / cos(a)
+        tx = center_x - r * cos(a)
+        ty = -r + r * sin(a)
+        if center_x + 1 >= w or tx <= 0 or depth + 2 >= h or ty <= -depth:
+            raise ValueError("V groove or shoulder radius does not fit the die body")
+        edges = _lines([(-w, -h), (w, -h), (w, 0), (center_x, 0)])
+        edges.append(ArcSegment2D((center_x, 0), (tx, ty), (center_x, -r), r, True))
+        edges += _lines([(tx, ty), (0, -depth), (-tx, ty)])
+        edges.append(ArcSegment2D((-tx, ty), (-center_x, 0), (-center_x, -r), r, True))
+        edges += _lines([(-center_x, 0), (-w, 0), (-w, -h)])
+    contour = Contour2D(segments=tuple(edges))
+    if not contour.is_closed(1e-7) or has_self_intersection(contour) or contour.area() <= 0:
+        raise ValueError("Generated profile is not a valid closed contour")
+    return contour
+
+
+def dxf_text(contour: Contour2D) -> str:
+    """Portable ASCII DXF with millimetre units and exact LINE/ARC entities."""
+    pairs = [(0,"SECTION"),(2,"HEADER"),(9,"$ACADVER"),(1,"AC1015"),
+             (9,"$INSUNITS"),(70,4),(0,"ENDSEC"),(0,"SECTION"),(2,"ENTITIES")]
+    for edge in contour.segments:
+        if isinstance(edge, ArcSegment2D):
+            start, end = (edge.start, edge.end) if edge.ccw else (edge.end, edge.start)
+            def angle(p):
+                return degrees(atan2(p[1]-edge.center[1], p[0]-edge.center[0])) % 360
+            pairs += [(0,"ARC"),(8,"0"),(10,edge.center[0]),(20,edge.center[1]),(30,0),
+                      (40,edge.radius),(50,angle(start)),(51,angle(end))]
+        else:
+            pairs += [(0,"LINE"),(8,"0"),(10,edge.start[0]),(20,edge.start[1]),(30,0),
+                      (11,edge.end[0]),(21,edge.end[1]),(31,0)]
+    pairs += [(0,"ENDSEC"),(0,"EOF")]
+    return "".join(f"{code}\n{value:.12g}\n" if isinstance(value,float)
+                   else f"{code}\n{value}\n" for code,value in pairs)
+
+
+def tooling_metadata(recipe: ToolRecipe) -> dict:
+    y = recipe.height if recipe.kind == "punch" else -recipe.height
+    punch = recipe.kind == "punch"
+    datums = {
+        "mounting_plane": {"kind":"plane","origin":[0,y,0],
+                           "normal":[0,-1 if punch else 1,0],"tolerance_mm":0.05},
+        "working_axis": {"kind":"axis","origin":[0,0,0],"direction":[0,0,1],
+                         "tolerance_mm":0.02},
+    }
+    if punch:
+        datums["tip_point"] = {"kind":"point","position":[0,0,0]}
+    else:
+        datums["v_center"] = {"kind":"axis","origin":[0,0,0],"direction":[0,0,1]}
+    metadata = {"angle_deg":recipe.angle,"height_mm":recipe.height,
+                "reference_length_mm":recipe.length,
+                "source_dxf":recipe.tool_id+".dxf",
+                "segments":[{"length_mm":recipe.length,"quantity":recipe.quantity}] if recipe.quantity else [],
+                "provenance":"Original SMBS parametric demonstration geometry",
+                "license":"CC-BY-SA-4.0", "manufacturing_certified":False}
+    if punch:
+        metadata.update(radius_mm=recipe.radius,working_height_mm=recipe.height-recipe.shank_height)
+    else:
+        metadata.update(v_width_mm=recipe.opening,shoulder_radius_mm=recipe.radius)
+    return {"schema_version":"1.0","id":recipe.tool_id,"kind":recipe.kind,
+            "source":recipe.tool_id+".FCStd","datums":datums,"metadata":metadata}
+
+
+def starter_recipes():
+    """Original starter recipes; zero quantity until the operator defines stock."""
+    yield ToolRecipe("SMBS_DEMO_P88", height=100, width=40)
+    yield ToolRecipe("SMBS_DEMO_P85", height=100, width=40, angle=85, radius=1)
+    yield ToolRecipe("SMBS_DEMO_P90", height=100, width=40, angle=90, radius=2)
+    yield ToolRecipe("SMBS_DEMO_P30", height=140, width=36, angle=30, radius=0.5)
+    yield ToolRecipe("SMBS_DEMO_GOOSENECK88", height=125, width=45, relief_depth=24, relief_height=35)
+    for opening in (6,8,10,12,16,20,25,32,40,50,80):
+        yield ToolRecipe(f"SMBS_DEMO_V{opening}", kind="die", opening=opening,
+                         width=max(24,opening+16), height=max(35,opening), radius=min(2,opening/6))

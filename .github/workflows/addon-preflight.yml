@@ -2,9 +2,9 @@ name: Addon preflight
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, 'feature/parametric-tool-generator']
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, 'feature/parametric-tool-generator']
   workflow_dispatch:
 
 permissions:

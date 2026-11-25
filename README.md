@@ -88,3 +88,5 @@ Original source code is licensed under [LGPL-2.1-or-later](LICENSE-Code) and ori
 Use FreeCAD's own Python environment. Part, the FreeCAD-provided Qt wrapper and Pivy/Coin3D are host components, not packages to install separately with pip. SheetMetal Workbench is optional for DXF use, required for SheetMetal unfolds; TechDraw is optional for drawing export. The addon does not install Python packages itself. PythonOCC is a legacy optional offline geometry reader, not needed for the native FreeCAD workflow. Named tooling sets use standard-library validation. See [submission preparation](docs/ADDON_INDEX_SUBMISSION.md) and [privacy](PRIVACY.md).
 
 To test through Addon Manager before official indexing, add `https://github.com/Badsmc/SMBS_BendSeq` with branch `main` as a custom repository in Addon Manager preferences. Remove other SMBS installations first. Restart FreeCAD after installation.
+
+Experimental original tooling generator: [guide](docs/PARAMETRIC_TOOL_GENERATOR.md).

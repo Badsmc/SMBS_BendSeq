@@ -1004,5 +1004,19 @@
   "y_mm_positions": "Y{}: {}, {:.1f} mm, {} positions",
   "yes": "YES",
   "z_center_mm": "Z center (mm)",
-  "z_mm_occ_collision": "{bend} · {phase} · Z={z:+.2f} mm · OCC collision"
+  "z_mm_occ_collision": "{bend} · {phase} · Z={z:+.2f} mm · OCC collision",
+  "parametric_tool_generator": "Generate tool",
+  "parametric_tool_notice": "Original demonstration geometry only. Not a certified tool or machine configuration. Existing tools will not be overwritten.",
+  "parametric_tool_id": "Tool ID",
+  "parametric_height": "Total height",
+  "parametric_width": "Body width",
+  "parametric_angle": "Included angle",
+  "parametric_radius": "Tip / shoulder radius",
+  "parametric_length": "Reference / segment length",
+  "parametric_shank_width": "Mounting shank width",
+  "parametric_shank_height": "Mounting shank height",
+  "parametric_relief_depth": "Relief depth",
+  "parametric_relief_height": "Relief height",
+  "parametric_opening": "V opening",
+  "parametric_quantity": "Stock quantity (0 = unspecified)"
 }

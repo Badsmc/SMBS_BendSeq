@@ -1004,5 +1004,19 @@
   "y_mm_positions": "Y{}: {}, {:.1f} мм, {} поз",
   "yes": "ДА",
   "z_center_mm": "Центр z (мм)",
-  "z_mm_occ_collision": "{bend} · {phase} · Z={z:+.2f} мм · коллизия OCC"
+  "z_mm_occ_collision": "{bend} · {phase} · Z={z:+.2f} мм · коллизия OCC",
+  "parametric_tool_generator": "Создать оснастку",
+  "parametric_tool_notice": "Собственная демонстрационная геометрия. Не сертифицированная оснастка или конфигурация станка. Существующие инструменты не перезаписываются.",
+  "parametric_tool_id": "Идентификатор инструмента",
+  "parametric_height": "Общая высота",
+  "parametric_width": "Ширина корпуса",
+  "parametric_angle": "Угол",
+  "parametric_radius": "Радиус вершины / плеча",
+  "parametric_length": "Длина модели / сегмента",
+  "parametric_shank_width": "Ширина хвостовика",
+  "parametric_shank_height": "Высота хвостовика",
+  "parametric_relief_depth": "Глубина выреза",
+  "parametric_relief_height": "Высота выреза",
+  "parametric_opening": "Раскрытие V",
+  "parametric_quantity": "Количество сегментов (0 = не задано)"
 }
