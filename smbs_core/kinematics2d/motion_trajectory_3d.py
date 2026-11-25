@@ -45,14 +45,13 @@ Architecture & Contracts:
 """
 from __future__ import annotations
 
-import copy
 import math
 import os
 import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from smbs_core.kinematics2d.coupled_kinematics_2d import CoupledAirBendingKinematics
 from smbs_core.kinematics2d.ram_cycle_geometry import ram_cycle_positions

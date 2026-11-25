@@ -15,7 +15,7 @@ All penalties are finite, non-negative, and dimensionless heuristic points.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from math import isfinite
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 

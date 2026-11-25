@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from math import isfinite
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Optional, List, Tuple
+from typing import List, Tuple
 
 DEFAULT_CLAMP_WIDTH_MM = 150.0
 DEFAULT_GAP_BETWEEN_MM = 50.0

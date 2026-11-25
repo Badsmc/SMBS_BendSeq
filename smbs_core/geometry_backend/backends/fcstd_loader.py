@@ -7,7 +7,7 @@ import os
 import json
 from enum import Enum
 from pathlib import Path
-from typing import Optional, List, Tuple, Dict, Any
+from typing import Optional, List, Tuple, Dict
 
 from smbs_core.models.tooling import Tooling, ToolingKind, DatumRole, Datum, GeometryStatus
 from smbs_core.geometry_backend.backends.fcstd_reader import read_fcstd

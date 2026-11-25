@@ -112,7 +112,6 @@ def screen_component_penetration(
 # BReps are transformed; separated bounding boxes never enter OCC Common.
 from contextlib import contextmanager
 from contextvars import ContextVar
-from math import sqrt
 from types import SimpleNamespace
 import time
 

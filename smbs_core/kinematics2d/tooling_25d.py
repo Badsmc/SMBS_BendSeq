@@ -24,12 +24,11 @@ from __future__ import annotations
 import json
 import math
 import re
-import shutil
 import time
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from .tooling_assembly import SectionSpans, ToolAssembly, has_native_sections
 

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from .tooling_assembly import native_section_options
 
-from math import isfinite
 from pathlib import Path
 from time import perf_counter
 from typing import Any

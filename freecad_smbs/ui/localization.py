@@ -20,7 +20,6 @@ def _catalog(language):
     return data
 
 
-TRANSLATIONS = _catalog("en")
 SOURCE_KEYS = json.loads(
     (Path(__file__).resolve().parents[1] / "translations" / "source_keys.json").read_text(encoding="utf-8")
 )

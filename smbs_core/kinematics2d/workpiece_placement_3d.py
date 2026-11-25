@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import List, Sequence, Tuple
 
 from smbs_core.kinematics2d.panel_kinematics import FoldState, RigidTransform
 

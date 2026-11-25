@@ -1,7 +1,6 @@
 """FreeCAD command embedding the real tooling library in the shared Task Panel."""
 from __future__ import annotations
 
-from pathlib import Path
 
 from freecad_smbs.ui.localization import tr
 
