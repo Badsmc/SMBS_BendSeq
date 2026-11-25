@@ -6,4 +6,4 @@ _repo_root = str(Path(__file__).resolve().parent.parent)
 if _repo_root not in sys.path:
     sys.path.insert(0, _repo_root)
 
-__version__ = "0.1.0"
+from smbs_core import __version__ as __version__

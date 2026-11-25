@@ -25,6 +25,8 @@ import time
 import uuid
 from collections.abc import Mapping
 
+from smbs_core import __version__ as _ADDON_VERSION
+
 _SCHEMA = "smbs.desktop_developer_debug.v1"
 _TAIL = b"\n]}\n"
 _JOURNAL = None
@@ -164,6 +166,7 @@ class DesktopDebugJournal:
         self._init()
         self.emit(
             "SMBS_SESSION_STARTED",
+            addon_version=_ADDON_VERSION,
             pid=os.getpid(),
             python=sys.version,
             platform=platform.platform(),

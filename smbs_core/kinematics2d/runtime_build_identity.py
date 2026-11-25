@@ -9,6 +9,8 @@ from __future__ import annotations
 from hashlib import sha256
 from pathlib import Path
 
+from smbs_core import __version__ as _ADDON_VERSION
+
 RUNTIME_FINGERPRINT_SCHEMA = "smbs.runtime_source_sha256.v1"
 NATIVE_SOURCE_PATHS = (
     "freecad_smbs/commands/pressbrake_2d.py",
@@ -102,6 +104,7 @@ def runtime_source_fingerprint(repo_root: str | Path) -> dict:
         composite = sha256(canonical.encode("utf-8")).hexdigest()
     return {
         "schema_version": RUNTIME_FINGERPRINT_SCHEMA,
+        "addon_version": _ADDON_VERSION,
         "algorithm": "sha256",
         "installed_source_sha256": files,
         "composite_source_sha256": composite,

@@ -1,6 +1,8 @@
-# SMBS BendSeq · PressBrakeSim
+# SMBS BendSeq · PressBrakeSim 0.1.0
 
 **SMBS BendSeq** is a FreeCAD workbench for planning press-brake operations. Start from a SheetMetal unfold or an ASCII DXF flat pattern, set the bend order manually or search for candidates with **FAST**, and preview the part and tooling in 3D. Use **Mesh 3D** to check the selected sequence for sampled tool collisions.
+
+**Version 0.1.0 — initial public preview.** This version has not completed full FreeCAD acceptance or manufacturing validation.
 
 [Requirements](#requirements) · [Installation](#installation) · [Quick start](#quick-start) · [Collision checks](#collision-checks) · [Tooling](#tooling)
 
@@ -31,7 +33,7 @@ Open **Tools → Addon Manager**. If SMBS BendSeq is available in your configure
 
 ### Manual installation
 
-1. Download the [ZIP for the `develop` branch](https://github.com/Badsmc/SMBS_BendSeq/archive/refs/heads/develop.zip).
+1. Download the [ZIP for the `main` branch (0.1.0)](https://github.com/Badsmc/SMBS_BendSeq/archive/refs/heads/main.zip). For ongoing development, use the [`develop` branch](https://github.com/Badsmc/SMBS_BendSeq/tree/develop).
 2. Find your user `Mod` directory by running this in FreeCAD's Python console:
 
    ```python
@@ -71,6 +73,12 @@ FAST proposes bend sequences. Mesh checks sampled positions of the part against 
 
 For a session linked to a SheetMetal unfold, saving the document in FreeCAD with **Ctrl+S** embeds SMBS session data in the `.FCStd`. Keep the external tooling files available when moving the project to another installation. See [FCStd save and restore](docs/FCSTD_NATIVE_AUTOSAVE.md) for details.
 
-To investigate an error, enable **Log SMBS activity and FreeCAD crashes** in SMBS settings and reproduce the problem. The desktop log is named `SMBS_debug_log.json`. Include the FreeCAD version, the SMBS commit, and the steps to reproduce the issue when reporting it. [Report an issue](https://github.com/Badsmc/SMBS_BendSeq/issues).
+To investigate an error, enable **Log SMBS activity and FreeCAD crashes** in SMBS settings and reproduce the problem. The desktop log is named `SMBS_debug_log.json`. Include the FreeCAD version, the SMBS version and commit, and the steps to reproduce the issue when reporting it. [Report an issue](https://github.com/Badsmc/SMBS_BendSeq/issues).
 
 Bundled profiles and their reference dimensions are listed in the [tooling library notes](toollibrary/README.md).
+
+## Development and licensing
+
+`main` is the public release branch and `develop` is the active development branch. Both start from version 0.1.0. See [branch architecture](BRANCH_ARCHITECTURE.md) and [changelog](CHANGELOG.md). Historical experiments are preserved in Git archive tags. Historical reference data and tooling are kept outside the active tooling library under `demo/`.
+
+A software license has not yet been declared by the repository owner. The Addon Manager metadata therefore uses `NOASSERTION`; this is not a license grant. Official Addon Manager listing and full runtime acceptance remain pending.

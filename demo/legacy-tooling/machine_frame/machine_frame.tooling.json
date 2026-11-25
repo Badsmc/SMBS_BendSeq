@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "id": "machine_frame",
+  "kind": "machine_frame",
+  "source": "machine_frame.FCStd",
+  "datums": {
+    "mounting_plane": {
+      "kind": "plane",
+      "origin": [0.0, 0.0, 0.0],
+      "normal": [0.0, 0.0, 1.0],
+      "tolerance_mm": 0.05
+    }
+  },
+  "metadata": {
+    "description": "User provided machine frame"
+  }
+}

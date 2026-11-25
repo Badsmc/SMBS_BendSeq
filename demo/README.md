@@ -20,3 +20,9 @@ These models are geometry examples, not certified manufacturing plans. Names con
 | `z-profile-10-20-10.FCStd` | `Z-10-20-10-(ok).FCStd` |
 | `box-100-inward-50-outward-expected-blocked.FCStd` | `box.100in-50out-(false).FCStd` |
 | `box-100-outward-50-inward.FCStd` | `box.100out-50in-(ok).FCStd` |
+
+## Historical reference data
+
+`SMBendTests/` contains the JSON reference outputs from the earlier main baseline. They use the old filenames and schemas; use the table above to map original part names to current models. They are not validated expected results for the current engine.
+
+`legacy-tooling/` retains old tooling models and sidecars separately from the active `toollibrary/`. Do not use these automatically in collision verification. The old executable batch runner and complete legacy implementation remain in the original main history.
