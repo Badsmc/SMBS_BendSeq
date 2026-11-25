@@ -13,8 +13,8 @@ class ToolingCommand:
     def GetResources(self):
         return {
             "Pixmap": str(ICON_PATH),
-            "MenuText": tr("Библиотека оснастки"),
-            "ToolTip": tr("Пуансоны, матрицы, станина, задний упор, зажимы"),
+            "MenuText": tr("tooling_library"),
+            "ToolTip": tr("punches_dies_frame_backgauge_and_clamps"),
         }
 
     def IsActive(self):
@@ -41,10 +41,10 @@ class ToolingCommand:
             library = ToolingLibrary(workspace.tool_library.library_root)
             panel = ToolingPanel(library, parent=workspace)
             embed_task_dialog(
-                workspace, panel, tr("Библиотека"), "full_tooling_library"
+                workspace, panel, tr("library"), "full_tooling_library"
             )
         except Exception as exc:
-            show_error(tr("PressBrakeSim: оснастка"), str(exc))
+            show_error(tr("pressbrakesim_tooling_9140dded"), str(exc))
 
 
 class ToolingSettingsCommand:
@@ -86,10 +86,10 @@ class ToolingSettingsCommand:
         tools = {f"{tr(kind)} · {tool.tool_id}": tool
                  for kind, entries in kinds for tool in entries}
         if not tools:
-            qt.QMessageBox.information(workspace, tr(self.label), tr("Добавьте оснастку в библиотеку."))
+            qt.QMessageBox.information(workspace, tr(self.label), tr("add_tooling_to_the_library"))
             return
         selected, accepted = qt.QInputDialog.getItem(
-            workspace, tr(self.label), tr("Инструмент"), list(tools), 0, False,
+            workspace, tr(self.label), tr("tool"), list(tools), 0, False,
         )
         if accepted:
             panel = ToolingPanel(library, parent=workspace)

@@ -301,7 +301,7 @@ def partition_flat_pattern(outline_shape, canonical, lines, bends,
         # Keep using the original outer boundary for the remaining holes.
         if (abs(sheet.common(hole).Area - hole.Area) > 1e-5
                 or outer_wire.distToShape(hole)[0] < 1e-6):
-            raise PanelBuildError(tr("Внутренние контуры должны лежать внутри внешнего контура и не пересекаться."))
+            raise PanelBuildError(tr("inner_contours_must_lie_within_the_outer_contour_and"))
         sheet = sheet.cut(hole)
     zone_extension = extension_mm if zone_extension_mm is None else zone_extension_mm
     axis_matches = match_bend_axes(canonical, lines)
@@ -346,7 +346,7 @@ def partition_flat_pattern(outline_shape, canonical, lines, bends,
             )
         zcutter = _strip(Part, App, a, b, zone.bend_allowance_mm, zone_extension)
         if any(hole.distToShape(zcutter)[0] < 1e-6 for hole in hole_faces):
-            raise PanelBuildError(tr("{bend}: отверстие попадает в зону гиба.", bend=bend.bend_id))
+            raise PanelBuildError(tr("a_hole_intersects_the_bend_zone", bend=bend.bend_id))
         zface = sheet.common(zcutter)
         if zface.Area <= 1e-5:
             raise PanelBuildError("Empty bend zone face for {}".format(bend.bend_id))
@@ -356,7 +356,7 @@ def partition_flat_pattern(outline_shape, canonical, lines, bends,
                 box = overlap.BoundBox
                 x, y = (box.XMin + box.XMax) / 2, (box.YMin + box.YMax) / 2
                 raise BendZoneOverlapError(
-                    tr("Зоны гибов {first} и {second} пересекаются возле X={x:.3f}, Y={y:.3f} мм. Площадь {area:.3f} мм². Ширина зон: {width1:.3f} и {width2:.3f} мм.",
+                    tr("bend_zones_and_overlap_near_x_y_mm_area",
                        first=prev_zone.bend_id, second=zone.bend_id, x=x, y=y,
                        area=overlap.Area, width1=prev_zone.bend_allowance_mm,
                        width2=zone.bend_allowance_mm)

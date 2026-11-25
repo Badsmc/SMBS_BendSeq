@@ -181,7 +181,7 @@ class SMBSWorkbench(Workbench):
             unfold = saved_session_unfold_selection(document)
         except Exception as exc:
             App.Console.PrintWarning(
-                tr("SMBS: FCStd автозагрузка отклонена: {error}\\n", error=exc)
+                tr("smbs_fcstd_automatic_loading_rejected_n", error=exc)
             )
             return
         if unfold:
@@ -193,7 +193,7 @@ class SMBSWorkbench(Workbench):
                 )
             except Exception as exc:
                 App.Console.PrintWarning(
-                    tr("SMBS: ошибка автоматического восстановления FCStd: {error}\\n", error=exc)
+                    tr("smbs_fcstd_automatic_restoration_failed_n", error=exc)
                 )
 
     def Deactivated(self) -> None:

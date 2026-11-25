@@ -1,5 +1,27 @@
 # SMBS translations
 
-Add `"Russian source text": "English translation"` to `en/catalog.json`. The Russian source is used by default; optional overrides can be placed in `ru/catalog.json`. Keep Python `{placeholders}` identical in both values. Restart FreeCAD after editing a catalog. The add-on follows FreeCAD General → Language; System uses the Qt system locale.
+The interface follows FreeCAD General → Language. System uses the Qt system locale.
 
-UI code calls `tr(source, **values)`. For errors already formatted by the headless core, the UI uses `tr_message(error)`. Add a template such as `"Гиб {} указан несколько раз.": "Bend {} is listed more than once."` to the same catalog. The core remains independent of FreeCAD; translators for generated labels are passed into it by the UI.
+Use an English identifier in Python:
+
+```python
+tr("simulation_stopped_reason", reason=reason)
+```
+
+Add the same key to both language catalogs.
+
+`en/catalog.json`
+
+```json
+{"simulation_stopped_reason": "Simulation stopped. {reason}"}
+```
+
+`ru/catalog.json`
+
+```json
+{"simulation_stopped_reason": "Симуляция остановлена. {reason}"}
+```
+
+Preserve formatting placeholders across languages. Restart FreeCAD after editing catalogs.
+
+The source_keys.json mapping supports existing source strings, saved diagnostics and headless core errors. New UI text should use English identifiers directly.

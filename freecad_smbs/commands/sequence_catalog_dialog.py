@@ -16,17 +16,17 @@ def show_sequence_catalog(workspace):
     QtCore, _, QtWidgets = _qt()
     dlg = QtWidgets.QDialog(workspace)
     dlg.setObjectName("SMBS_SequenceCatalog")
-    dlg.setWindowTitle(tr("SMBS — Последовательности"))
+    dlg.setWindowTitle(tr("smbs_sequences"))
     dlg.resize(1050, 630)
     root = QtWidgets.QVBoxLayout(dlg)
     intro = QtWidgets.QLabel(
-        tr("Загрузите JSON автоматического/ручного поиска. Штрафы относятся к весам на момент расчёта. Назначение перепроверяет порядок на текущей оснастке. 2D не подтверждает безопасность в 3D."))
+        tr("load_automatic_or_manual_search_results_from_json_penalties"))
     intro.setWordWrap(True)
     root.addWidget(intro)
     buttons = QtWidgets.QHBoxLayout()
-    load_btn = QtWidgets.QPushButton(tr("Загрузить JSON…"))
-    folder_btn = QtWidgets.QPushButton(tr("Загрузить папку…"))
-    refresh_btn = QtWidgets.QPushButton(tr("Обновить"))
+    load_btn = QtWidgets.QPushButton(tr("load_json"))
+    folder_btn = QtWidgets.QPushButton(tr("load_folder"))
+    refresh_btn = QtWidgets.QPushButton(tr("refresh"))
     buttons.addWidget(load_btn)
     buttons.addWidget(folder_btn)
     buttons.addWidget(refresh_btn)
@@ -35,7 +35,7 @@ def show_sequence_catalog(workspace):
     table = QtWidgets.QTableWidget(0, 6)
     table.setObjectName("SMBS_SequenceCatalogTable")
     table.setHorizontalHeaderLabels((
-        tr("Тип"), tr("Последовательность"), tr("Штраф"), tr("Предупреждения"), tr("2D статус"), tr("Файл")))
+        tr("type"), tr("sequence_83d6602a"), tr("penalty"), tr("warnings"), tr("2d_status"), tr("file")))
     table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
     table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
     table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
@@ -53,8 +53,8 @@ def show_sequence_catalog(workspace):
     root.addWidget(details)
     footer = QtWidgets.QHBoxLayout()
     summary = QtWidgets.QLabel()
-    assign_btn = QtWidgets.QPushButton(tr("Назначить для симуляции"))
-    close_btn = QtWidgets.QPushButton(tr("Закрыть"))
+    assign_btn = QtWidgets.QPushButton(tr("apply_to_simulation"))
+    close_btn = QtWidgets.QPushButton(tr("close"))
     footer.addWidget(summary, 1)
     footer.addWidget(assign_btn)
     footer.addWidget(close_btn)
@@ -80,14 +80,14 @@ def show_sequence_catalog(workspace):
         if entry is None:
             return
         details.setPlainText("\n".join((
-            tr("Порядок: ") + " → ".join(entry.sequence),
-            tr("Источник: ") + entry.source,
-            tr("Статус: {status}", status=entry.evidence),
-            tr("Штраф: {cost} {quality}", cost=(str(entry.cost) if entry.cost is not None else tr("неизвестен")),
-               quality=(tr("(полный)") if entry.cost_complete else tr("(не подтверждён)"))),
-            tr("Веса: ") + json.dumps(entry.weights or {}, ensure_ascii=False),
-            tr("Предупреждения: ") + ("; ".join(entry.warnings) or tr("нет в отчёте")),
-            tr("Штрафы шагов: ") + json.dumps(
+            tr("order") + " → ".join(entry.sequence),
+            tr("source") + entry.source,
+            tr("status_6daa099e", status=entry.evidence),
+            tr("penalty_5e32c861", cost=(str(entry.cost) if entry.cost is not None else tr("unknown")),
+               quality=(tr("complete") if entry.cost_complete else tr("unverified"))),
+            tr("weights") + json.dumps(entry.weights or {}, ensure_ascii=False),
+            tr("warnings_b4d36ab6") + ("; ".join(entry.warnings) or tr("not_in_report")),
+            tr("step_penalties") + json.dumps(
                 entry.cost_breakdown, ensure_ascii=False)[:12000],
         )))
     table.itemSelectionChanged.connect(display_details)
@@ -103,7 +103,7 @@ def show_sequence_catalog(workspace):
         manual_report = getattr(workspace, "_last_manual_sequence_report", None)
         if manual_report is not None:
             entries.extend(parse_diagnostic(
-                manual_report, tr("Текущий ручной порядок"), translate=tr_message))
+                manual_report, tr("current_manual_sequence"), translate=tr_message))
         entries[:] = list(dict((e.key, e) for e in entries).values())
         table.setRowCount(0)
         for entry in entries:
@@ -113,32 +113,32 @@ def show_sequence_catalog(workspace):
                 entry.origin,
                 " → ".join(entry.sequence),
                 "{:.2f}".format(entry.cost) if entry.cost_complete
-                else tr("н/д"),
-                ", ".join(entry.warning_bends) or tr("нет"),
+                else tr("n_a"),
+                ", ".join(entry.warning_bends) or tr("none"),
                 entry.evidence,
                 entry.source,
             )
             for col, value in enumerate(values):
                 table.setItem(row, col, QtWidgets.QTableWidgetItem(value))
-        summary.setText(tr("Вариантов: {variants} | источников: {sources} | ошибок: {errors}",
+        summary.setText(tr("candidates_sources_errors",
                            variants=len(entries), sources=len(paths), errors=len(failures)))
         if failures:
-            details.setPlainText(tr("Не удалось прочитать:\n") + "\n".join(failures[:12]))
+            details.setPlainText(tr("could_not_read_f64bf0ee") + "\n".join(failures[:12]))
         elif entries:
             table.selectRow(0)
         else:
-            details.setPlainText(tr("Добавьте JSON отчёты поиска или ручной проверки."))
+            details.setPlainText(tr("add_json_search_or_manual_check_reports"))
 
     def import_files():
         files, _ = QtWidgets.QFileDialog.getOpenFileNames(
-            dlg, tr("Выбрать отчёты SMBS"), str(Path.home()), "JSON (*.json)")
+            dlg, tr("select_smbs_reports"), str(Path.home()), "JSON (*.json)")
         for path in files:
             record_path(path)
         reload()
 
     def import_folder():
         folder = QtWidgets.QFileDialog.getExistingDirectory(
-            dlg, tr("Папка с диагностикой JSON"), str(Path.home()))
+            dlg, tr("json_diagnostics_folder"), str(Path.home()))
         if folder:
             for path in sorted(Path(folder).glob("*.json")):
                 record_path(path)
@@ -152,7 +152,7 @@ def show_sequence_catalog(workspace):
             workspace.assign_catalog_sequence(entry)
         except Exception as exc:
             QtWidgets.QMessageBox.warning(
-                dlg, tr("Порядок не назначен"), str(exc))
+                dlg, tr("no_sequence_assigned"), str(exc))
             return
         dlg.accept()
 
@@ -163,4 +163,4 @@ def show_sequence_catalog(workspace):
     table.itemDoubleClicked.connect(lambda _item: assign_selected())
     close_btn.clicked.connect(dlg.reject)
     reload()
-    embed_task_dialog(workspace, dlg, tr("Последовательности"), "catalog")
+    embed_task_dialog(workspace, dlg, tr("sequences"), "catalog")

@@ -85,22 +85,22 @@ def show_pipeline_result(result: Any) -> None:
             if isinstance(ang, dict):
                 ang = ang.get("value", "")
             ang_str = f" {ang}°" if ang != "" else ""
-            steps_lines.append(tr("  Шаг {step}: {bend} ({direction}{angle})", step=step_no, bend=bid, direction=direction, angle=ang_str))
-        steps_text = "\n".join(steps_lines) if steps_lines else tr("  (нет шагов)")
+            steps_lines.append(tr("step", step=step_no, bend=bid, direction=direction, angle=ang_str))
+        steps_text = "\n".join(steps_lines) if steps_lines else tr("no_steps")
 
         if planning_status == "SUCCESS":
             elig_str = "Готово к производству (production_eligible=true)" if prod_elig else "Не подтверждено для производства (production_eligible=false)"
-            msg = tr("Последовательность успешно рассчитана!\n\nПорядок гибки ({count} шагов):\n{steps}\n\nВерификация: {verification}\nСтатус: {eligibility}\nДиректория запуска: {directory}\n\nМетки шагов нанесены на развёртку детали.\nКоманды Симуляция и Верификация готовы к работе.", count=len(seq), steps=steps_text, verification=verif_status, eligibility=tr(elig_str), directory=run_dir)
-            show_info(tr("SMBS: Расчёт завершён"), msg)
+            msg = tr("sequence_calculated_successfully_bending_order_steps_verification_status_run", count=len(seq), steps=steps_text, verification=verif_status, eligibility=tr(elig_str), directory=run_dir)
+            show_info(tr("smbs_calculation_complete"), msg)
         else:  # PARTIAL (EXPLORATORY / without physical tooling)
-            msg = tr("Геометрическая последовательность гибки найдена!\n\nПорядок гибки ({count} шагов):\n{steps}\n\nВерификация: {verification} (EXPLORATORY / без оснастки)\nСтатус: Предварительный расчёт (production_eligible=false)\nДиректория запуска: {directory}\n\nМетки шагов нанесены на развёртку детали.\nКоманды Симуляция и Верификация готовы к работе.\n\nПримечание: Для полной производственной сертификации выберите инструмент в меню «Оснастка».", count=len(seq), steps=steps_text, verification=verif_status, directory=run_dir)
-            show_info(tr("SMBS: Геометрический расчёт (EXPLORATORY)"), msg)
+            msg = tr("a_geometric_bending_sequence_was_found_bending_order_steps", count=len(seq), steps=steps_text, verification=verif_status, directory=run_dir)
+            show_info(tr("smbs_geometric_calculation_exploratory"), msg)
     elif planning_status == "NO_SOLUTION":
-        msg = tr("Последовательность гибки не найдена (NO_SOLUTION).\n\nПричина:\n{reason}\n\nДиректория запуска: {directory}\nПодробные логи доступны в 11_run_report.json.", reason=err_msg or tr("Все траектории гибки приводят к столкновению или недопустимы"), directory=run_dir)
-        show_unverified_warning(tr("SMBS: Решение не найдено"), msg)
+        msg = tr("no_bending_sequence_found_no_solution_reason_run_directory", reason=err_msg or tr("all_bending_paths_collide_or_are_invalid"), directory=run_dir)
+        show_unverified_warning(tr("smbs_no_solution_found"), msg)
     else:
-        msg = tr("Расчёт завершился с ошибкой ({status}).\n\nДетали:\n{details}\n\nПроверьте корректность модели листового металла в верстаке SheetMetal и вывод в панели отчётов FreeCAD (Report view).", status=planning_status, details=err_msg or tr("Неизвестная ошибка"))
-        show_error(tr("SMBS: Ошибка расчёта"), msg)
+        msg = tr("calculation_failed_details_check_the_sheet_metal_model_in", status=planning_status, details=err_msg or tr("unknown_error"))
+        show_error(tr("smbs_calculation_error"), msg)
 
 
 class ProgressContext:

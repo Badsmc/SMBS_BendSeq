@@ -21,6 +21,9 @@ def _catalog(language):
 
 
 TRANSLATIONS = _catalog("en")
+SOURCE_KEYS = json.loads(
+    (Path(__file__).resolve().parents[1] / "translations" / "source_keys.json").read_text(encoding="utf-8")
+)
 
 
 def resolve_language(freecad_language="", system_language="en"):
@@ -57,7 +60,8 @@ def interface_language():
 
 def tr(source, *, language=None, **values):
     language = interface_language() if language is None else language
-    source = _catalog(language).get(source, source)
+    key = SOURCE_KEYS.get(source, source)
+    source = _catalog(language).get(key, _catalog("en").get(key, source))
     if language == "en" and values:
         diagnostic_fields = {"error", "reason", "details", "warning", "message", "text"}
         values = {
@@ -73,7 +77,8 @@ def _message_patterns():
     """Match already formatted diagnostics from the headless core."""
     patterns = []
     formatter = Formatter()
-    for source, translated in _catalog("en").items():
+    for source, key in SOURCE_KEYS.items():
+        translated = _catalog("en")[key]
         if "{" not in source or not re.search(r"[А-Яа-яЁё]", source):
             continue
         try:
@@ -99,7 +104,7 @@ def tr_message(message, *, language=None):
         return value
     if value.startswith("UNVERIFIED: "):
         return "UNVERIFIED: " + tr_message(value[len("UNVERIFIED: "):], language=language)
-    exact = _catalog("en").get(value)
+    exact = _catalog("en").get(SOURCE_KEYS.get(value, value))
     if exact is not None:
         return exact
     for _, pattern, chunks, translated in _message_patterns():

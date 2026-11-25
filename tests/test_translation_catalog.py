@@ -31,7 +31,7 @@ class TranslationCatalogTest(unittest.TestCase):
             for node in ast.walk(tree):
                 if (isinstance(node, ast.Constant) and isinstance(node.value, str)
                         and RUSSIAN.search(node.value)
-                        and node.value not in catalog and node.value not in fragments):
+                        and node.value not in catalog and node.value not in json.loads((ROOT / "translations/source_keys.json").read_text()) and node.value not in fragments):
                     missing.append(f"{source_file.relative_to(CORE)}:{node.lineno}: {node.value[:90]}")
         self.assertEqual(missing, [])
 
@@ -48,7 +48,7 @@ class TranslationCatalogTest(unittest.TestCase):
             for node in ast.walk(tree):
                 if (isinstance(node, ast.Constant) and isinstance(node.value, str)
                         and RUSSIAN.search(node.value)
-                        and node.value not in catalog and node.value not in internal):
+                        and node.value not in catalog and node.value not in json.loads((ROOT / "translations/source_keys.json").read_text()) and node.value not in internal):
                     missing.append(f"{source_file.relative_to(ROOT)}:{node.lineno}: {node.value[:90]}")
         self.assertEqual(missing, [])
 
@@ -106,7 +106,9 @@ class TranslationCatalogTest(unittest.TestCase):
     def test_catalog_format_fields_match_sources(self):
         catalog = json.loads((ROOT / "translations/en/catalog.json").read_text(encoding="utf-8"))
         formatter = string.Formatter()
-        for source, translation in catalog.items():
+        russian = json.loads((ROOT / "translations/ru/catalog.json").read_text(encoding="utf-8"))
+        for key, translation in catalog.items():
+            source = russian[key]
             with self.subTest(source=source[:90]):
                 self.assertFalse(RUSSIAN.search(translation))
                 source_fields = sorted(field for _, field, _, _ in formatter.parse(source) if field is not None)

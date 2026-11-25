@@ -173,7 +173,7 @@ def _tool_line(setup, kind, segments):
         return "—"
     title = tool.name if tool.name == tool.tool_id else f"{tool.name} ({tool.tool_id})"
     spans = getattr(setup, f"{kind}_section_spans_xm")
-    status = tr("Применённая раскладка") if spans else tr("Предложение по сегментам")
+    status = tr("applied_layout") if spans else tr("suggested_segments")
     return f"{title} · {status} — {tr(segments)}"
 
 
@@ -202,9 +202,9 @@ def operation_page_slots(count, width, height, *, large_first=False):
 
 def _bend_direction(angle):
     if angle > 0:
-        return "↑ " + tr("Вверх")
+        return "↑ " + tr("up")
     if angle < 0:
-        return "↓ " + tr("Вниз")
+        return "↓ " + tr("down")
     return "—"
 
 
@@ -268,14 +268,14 @@ def _overview_html(session, operations, rows, tooling, core, gui, diagrams):
     from freecad_smbs.ui.tool_section_preview import draw_tool_section
 
     diagrams.append(("smbs-flat.png", _flat_pattern_image(session, operations, core, gui)))
-    html = (f'<h1>{escape(tr("Развёртка и оснастка"))}</h1>'
+    html = (f'<h1>{escape(tr("flat_pattern_and_tooling"))}</h1>'
             f'<h2>{escape(session.part_label)}</h2>'
             f'<p><img width="650" height="{diagrams[-1][1].height() * 650 / diagrams[-1][1].width():.0f}" src="smbs-flat.png"></p>'
-            f'<p>{escape(tr("Номер — порядок операции. ↑ / ↓ — направление по знаку угла развёртки; это не направление подачи детали."))}</p>'
+            f'<p>{escape(tr("numbers_indicate_operation_order_indicate_the_signed_flat_pattern"))}</p>'
             '<table border="1" cellspacing="0" cellpadding="4" width="100%">'
-            f'<tr><th>{escape(tr("№ операции"))}</th><th>{escape(tr("Линия"))}</th>'
-            f'<th>{escape(tr("Этап"))}</th><th>{escape(tr("Угол гиба"))}</th>'
-            f'<th>{escape(tr("Направление гиба"))}</th>'
+            f'<tr><th>{escape(tr("operation_no"))}</th><th>{escape(tr("line"))}</th>'
+            f'<th>{escape(tr("stage"))}</th><th>{escape(tr("bend_angle"))}</th>'
+            f'<th>{escape(tr("bend_direction"))}</th>'
             '<th>Backgauge S, mm</th><th>Flat flange, mm</th></tr>')
     for index, (op, row) in enumerate(zip(operations, rows, strict=True), 1):
         html += (f'<tr><td>{index}</td><td>{escape(op.bend_id)}</td>'
@@ -296,7 +296,7 @@ def _overview_html(session, operations, rows, tooling, core, gui, diagrams):
             column = -2 if kind == "punch" else -1
             for segments in dict.fromkeys(row[column] for row in rows):
                 numbers = ", ".join(str(i) for i, row in enumerate(rows, 1) if row[column] == segments)
-                html += (f'<p>{escape(tr("№ операции"))}: {numbers}<br>'
+                html += (f'<p>{escape(tr("operation_no"))}: {numbers}<br>'
                          f'{escape(_tool_line(tooling, kind, segments))}</p>')
         else:
             html += '<p>—</p>'
@@ -314,7 +314,7 @@ def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positio
     if prefix and not session.controller.has_stages:
         operations = operations[:len(prefix)]
     if not operations:
-        raise ValueError(tr("Нет выбранных гибов."))
+        raise ValueError(tr("no_bends_selected"))
 
     orientations = workspace._effective_operation_orientation_map()
     state = FoldState(session.graph, session.fixed_panel)
@@ -331,14 +331,14 @@ def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positio
         frame, beam, rest_z, _ = load_frame_meshes(library)
     except _CAD_ERRORS:
         frame = beam = None
-        warnings.append(tr("Модель станины недоступна."))
+        warnings.append(tr("machine_frame_model_unavailable"))
     model = workspace.backgauge_model
     gauge = None
     if model is not None and model.cad_geometry_enabled:
         try:
             gauge = load_gauge_mesh(library)
         except _CAD_ERRORS:
-            warnings.append(tr("Модель заднего упора недоступна."))
+            warnings.append(tr("backgauge_model_unavailable"))
     try:
         clamp_height = load_clamp_config(library).height_mm
     except (OSError, ValueError, ClampValidatorError):
@@ -424,20 +424,20 @@ def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positio
         )
         next_page = ""
         pages.append(
-            f'<h1{next_page}>{escape(tr("Карта гибки"))} · {index + 1}/{len(operations)}</h1>'
+            f'<h1{next_page}>{escape(tr("bend_instructions"))} · {index + 1}/{len(operations)}</h1>'
             f'<h2>{escape(session.part_label)} · {escape(operation.operation_id)} · {escape(_stage_name(operation))}</h2>'
-            f'<p>{escape(tr("Угол гиба"))} <b>{initial_angle:+.2f}° → {operation.target_angle_deg:+.2f}°</b>'
-            f' · {escape(tr("Разворот детали"))} <b>{180 if reverse else 0}°</b></p>'
-            f'<p><b>{escape(tr("Пуансон"))}</b> {escape(_tool_line(workspace.tooling_setup, "punch", row[-2]))}</p>'
-            f'<p><b>{escape(tr("Матрица"))}</b> {escape(_tool_line(workspace.tooling_setup, "die", row[-1]))}</p>'
-            f'<p><b>{escape(tr("Задний упор"))}</b> {escape(gauge_text)} {escape(tr(note))}</p>'
-            f'<h2>{escape(tr("Установка перед гибом"))}</h2>'
+            f'<p>{escape(tr("bend_angle"))} <b>{initial_angle:+.2f}° → {operation.target_angle_deg:+.2f}°</b>'
+            f' · {escape(tr("part_rotation"))} <b>{180 if reverse else 0}°</b></p>'
+            f'<p><b>{escape(tr("punch"))}</b> {escape(_tool_line(workspace.tooling_setup, "punch", row[-2]))}</p>'
+            f'<p><b>{escape(tr("die"))}</b> {escape(_tool_line(workspace.tooling_setup, "die", row[-1]))}</p>'
+            f'<p><b>{escape(tr("backgauge"))}</b> {escape(gauge_text)} {escape(tr(note))}</p>'
+            f'<h2>{escape(tr("setup_before_bending"))}</h2>'
             f'<p><img width="600" height="270" src="smbs-{index}-before.png"></p>'
-            f'<h2>{escape(tr("Форма после гиба"))}</h2>'
+            f'<h2>{escape(tr("shape_after_bending"))}</h2>'
             f'<p><img width="600" height="270" src="smbs-{index}-after.png"></p>'
-            f'<p class="muted">{escape(tr("Слева — рабочая зона, справа — деталь с текущим гибом, выделенным оранжевым."))}</p>'
+            f'<p class="muted">{escape(tr("working_area_on_the_left_part_with_the_current"))}</p>'
             + (f'<p class="muted">{escape(" ".join(warnings))}</p>' if warnings else "")
-            + f'<p class="muted">{escape(tr("Схема показывает ориентацию и форму детали и не подтверждает отсутствие коллизий."))}</p>'
+            + f'<p class="muted">{escape(tr("the_diagrams_show_part_orientation_and_shape_verify_collisions"))}</p>'
         )
 
     document.setHtml("<html><body></body></html>")
@@ -452,11 +452,11 @@ def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positio
             gui.QPageSize(gui.QPageSize.A4), gui.QPageLayout.Portrait,
             qt_core.QMarginsF(12, 12, 12, 12),
         ))
-        writer.setTitle(tr("Карта гибки") + " · " + session.part_label)
+        writer.setTitle(tr("bend_instructions") + " · " + session.part_label)
         document.setTextWidth(700)
         painter = gui.QPainter(writer)
         if not painter.isActive():
-            raise OSError(tr("Не удалось сохранить PDF."))
+            raise OSError(tr("could_not_save_the_pdf"))
         try:
             available = writer.pageLayout().paintRectPixels(writer.resolution())
             document.setHtml("<html><body>" + overview + "</body></html>")
@@ -468,11 +468,11 @@ def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positio
             document.drawContents(painter)
             painter.restore()
             if not writer.newPage():
-                raise OSError(tr("Не удалось сохранить PDF."))
+                raise OSError(tr("could_not_save_the_pdf"))
             for index, html in enumerate(pages):
                 slot = index % positions_per_page
                 if index and slot == 0 and not writer.newPage():
-                    raise OSError(tr("Не удалось сохранить PDF."))
+                    raise OSError(tr("could_not_save_the_pdf"))
                 start = index - slot
                 page_count = min(positions_per_page, len(pages) - start)
                 slots = operation_page_slots(
@@ -493,5 +493,5 @@ def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positio
             painter.end()
         del writer
         if not output.is_file() or output.stat().st_size == 0:
-            raise OSError(tr("Не удалось сохранить PDF."))
+            raise OSError(tr("could_not_save_the_pdf"))
         output.replace(destination)

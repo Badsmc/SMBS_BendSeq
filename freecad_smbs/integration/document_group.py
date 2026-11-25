@@ -33,7 +33,7 @@ def group_document_objects(document):
         group = document.addObject("App::DocumentObjectGroup", GROUP_NAME)
         group.Label = "SMBS"
     elif group.TypeId != "App::DocumentObjectGroup":
-        raise ValueError(tr("{name} уже используется объектом другого типа.", name=GROUP_NAME))
+        raise ValueError(tr("is_already_used_by_an_object_of_a_different", name=GROUP_NAME))
     for obj in owned:
         if obj not in group.Group:
             group.addObject(obj)

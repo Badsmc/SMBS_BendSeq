@@ -73,7 +73,7 @@ def bend_rows(workspace):
             elif getattr(setup, kind) is None:
                 tools.append("—")
             else:
-                tools.append(tr("Нет раскладки") if inputs is not None else error)
+                tools.append(tr("no_layout") if inputs is not None else error)
         rows.append((str(index + 1), bend_id, operation.operation_id,
                      tr(OPERATION_NAMES[operation.kind]),
                      f"{stop.s_mm:.2f}" if stop is not None else "—",
@@ -101,13 +101,13 @@ def _flat_techdraw_views(document, drawing):
         return views
 
     page = document.addObject("TechDraw::DrawPage", "SMBS_BendPage")
-    page.Label = tr("SMBS — чертёж гибки")
+    page.Label = tr("smbs_bend_drawing")
     template = document.addObject("TechDraw::DrawSVGTemplate", "SMBS_BendTemplate")
     template.Template = str(Path(__file__).resolve().parents[1] /
                             "resources/templates/SMBS_A3_Landscape.svg")
     page.Template = template
     view = document.addObject("TechDraw::DrawViewPart", "SMBS_BendView")
-    view.Label = tr("Развёртка с линиями гиба")
+    view.Label = tr("flat_pattern_with_bend_lines")
     view.Direction = App.Vector(0, 0, 1)
     view.XDirection = App.Vector(1, 0, 0)
     view.Source = [drawing]
@@ -185,14 +185,14 @@ def export_bend_information(document, session, rows, *, create_page=True):
         edges.append(Part.makeLine(App.Vector(*start), App.Vector(*end)))
     shape = Part.makeCompound(edges)
 
-    document.openTransaction(tr("SMBS — таблица гибов и развёртка"))
+    document.openTransaction(tr("smbs_bend_table_and_flat_pattern"))
     try:
         sheet = document.getObject("SMBS_BendSchedule")
         if sheet is None:
             sheet = document.addObject("Spreadsheet::Sheet", "SMBS_BendSchedule")
         else:
             sheet.clearAll()
-        sheet.Label = tr("SMBS — таблица гибов")
+        sheet.Label = tr("smbs_bend_table")
         columns = ascii_uppercase[:len(HEADERS)]
         for line, row in enumerate((tuple(tr(label) for label in HEADERS), *rows), 1):
             for column, value in zip(columns, row):
@@ -203,7 +203,7 @@ def export_bend_information(document, session, rows, *, create_page=True):
         drawing = document.getObject("SMBS_BendDrawing")
         if drawing is None:
             drawing = document.addObject("Part::Feature", "SMBS_BendDrawing")
-        drawing.Label = tr("SMBS — развёртка с последовательностью гибов")
+        drawing.Label = tr("smbs_flat_pattern_with_bend_sequence")
         drawing.Shape = shape
         drawing.Visibility = True
         page = None
@@ -237,10 +237,10 @@ def show_bend_information(workspace, embed):
             table.setItem(row, col, qt.QTableWidgetItem(value))
     table.resizeColumnsToContents()
     layout.addWidget(table)
-    prepare = qt.QPushButton(tr("Подготовить развёртку для TechDraw"))
-    prepare.setToolTip(tr("Создать контур и линии гиба для стандартной команды TechDraw «Вставить вид»."))
+    prepare = qt.QPushButton(tr("prepare_flat_pattern_for_techdraw"))
+    prepare.setToolTip(tr("create_the_outline_and_bend_lines_for_the_standard"))
     layout.addWidget(prepare)
-    export = qt.QPushButton(tr("Создать / обновить и открыть TechDraw"))
+    export = qt.QPushButton(tr("create_update_and_open_techdraw"))
     layout.addWidget(export)
     feedback = qt.QLabel()
     feedback.setWordWrap(True)
@@ -256,7 +256,7 @@ def show_bend_information(workspace, embed):
         try:
             document = workspace._bound_smbs_document()
             if document is None:
-                raise ValueError(tr("Документ детали закрыт. Загрузите деталь заново."))
+                raise ValueError(tr("the_part_document_is_closed_load_the_part_again"))
             page = export_bend_information(
                 document, workspace.session, bend_rows(workspace), create_page=create_page
             )
@@ -268,26 +268,26 @@ def show_bend_information(workspace, embed):
             debug_event("TECHDRAW_EXPORT_ERROR", error=detail, traceback=format_exc())
             App.Console.PrintError(format_exc())
             feedback.setText(detail)
-            qt.QMessageBox.warning(dialog, tr("SMBS — экспорт TechDraw"), detail)
+            qt.QMessageBox.warning(dialog, tr("smbs_techdraw_export"), detail)
         else:
             if not create_page:
                 App.setActiveDocument(document.Name)
                 Gui.Selection.clearSelection()
                 Gui.Selection.addSelection(document.getObject("SMBS_BendDrawing"))
                 Gui.activateWorkbench("TechDrawWorkbench")
-                feedback.setText(tr("Развёртка выделена. В TechDraw выберите лист и выполните «Вставить вид». Для вида сверху задайте направление (0, 0, 1)."))
+                feedback.setText(tr("the_flat_pattern_is_selected_in_techdraw_select_a"))
                 return
-            feedback.setText(tr("Обновлены развёртка, таблица и подписи на листе TechDraw."))
+            feedback.setText(tr("flat_pattern_table_and_labels_updated_on_the_techdraw"))
             try:
                 App.setActiveDocument(document.Name)
                 Gui.getDocument(document.Name).setEdit(page.Name)
             except Exception as exc:
                 debug_event("TECHDRAW_OPEN_ERROR", error=str(exc), traceback=format_exc())
-                feedback.setText(tr("Лист создан. Откройте его двойным щелчком в папке SMBS."))
+                feedback.setText(tr("page_created_double_click_it_in_the_smbs_folder"))
         finally:
             export.setEnabled(True)
             prepare.setEnabled(True)
 
     prepare.clicked.connect(lambda: save(create_page=False))
     export.clicked.connect(lambda: save())
-    embed(workspace, dialog, tr("Информация о гибах"), "bend_information")
+    embed(workspace, dialog, tr("bend_information"), "bend_information")
