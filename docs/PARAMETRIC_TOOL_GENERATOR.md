@@ -60,3 +60,15 @@ Previously saved tools are not rewritten; create a new tool ID to regenerate
 a model using the revised offset definition.
 The technical drawing uses a dedicated dark background, yellow dimensions
 and white active dimension, independently of the host UI theme.
+
+## Machine frame placement
+
+The Coin3D machine frame uses one bed-based coordinate system for all CAD
+bodies. In the supplied assembly, lh/rh/down/up stay fixed; only Body004
+(label z) and the clamp row share the vertical ram translation. The original
+XY placement of z is preserved. The attachment plane is the downward-facing
+bottom of z, not up. A legacy sidecar is migrated in memory by finding the
+unique z label. Editing the CAD file or its sidecar invalidates the display
+mesh cache. The existing punch trajectory is unchanged; the static frame
+remains registered to the selected die bottom, and clamps to the punch top.
+This is a visual placement fix, not a new collision certification.
