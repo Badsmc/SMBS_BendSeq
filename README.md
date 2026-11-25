@@ -31,7 +31,7 @@ Open **Tools → Addon Manager**. If SMBS BendSeq is available in your configure
 
 ### Manual installation
 
-1. Download the [ZIP for the `smbs` branch](https://github.com/Badsmc/SMBS_BendSeq/archive/refs/heads/smbs.zip).
+1. Download the [ZIP for the `develop` branch](https://github.com/Badsmc/SMBS_BendSeq/archive/refs/heads/develop.zip).
 2. Find your user `Mod` directory by running this in FreeCAD's Python console:
 
    ```python
