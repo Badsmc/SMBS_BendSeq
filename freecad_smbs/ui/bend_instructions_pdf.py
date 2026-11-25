@@ -129,10 +129,12 @@ def _diagram(core, gui, faces, extent, part_extent, axis, *, sheet_faces, active
                 if kind in ("punch", "die") and getattr(options, kind + "_segments"):
                     color = gui.QColor.fromRgbF(*segment_color(kind, face.section_index)).name()
                 highlighted = offset > 0 and face.identifier == active_bend
-                fill = gui.QColor("#ee9850" if highlighted else color or "#bdd2ea")
+                if face.kind == "collision_conditional":
+                    color = "#ef8c32"
+                fill = gui.QColor("#ee9850" if highlighted and layer != "collision" else color or "#bdd2ea")
                 fill.setAlpha(options.alpha(layer))
                 painter.setBrush(fill)
-                ink = gui.QColor("#bb1111" if layer == "collision" else "#283748" if color else "#476389")
+                ink = gui.QColor(("#b96510" if face.kind == "collision_conditional" else "#bb1111") if layer == "collision" else "#283748" if color else "#476389")
                 ink.setAlpha(options.alpha(layer))
                 outline = (layer in ("part", "collision") or
                            layer in ("punch", "die") and getattr(options, layer + "_segments"))
@@ -360,7 +362,8 @@ def _scene_extent(scenes, sheets, axis, options):
 
 def _collision_page(workspace, hit, tooling, options, core, gui, diagrams, index,
                     *, bed_faces, beam, bed_z, rest_z, punch_outline, punch_top,
-                    clamp_spans, clamp_height, clamp_depth, native_by_length):
+                    clamp_spans, clamp_height, clamp_depth, native_by_length, group=()):
+    from smbs_core.kinematics2d.collision_groups import projected_zones, component_colors, BOX_FACES
     from smbs_core.kinematics2d.workpiece_placement_3d import PlacementTransform3D
     session = workspace.session
     pose = hit["sampled_machine_pose"]
@@ -398,11 +401,42 @@ def _collision_page(workspace, hit, tooling, options, core, gui, diagrams, index
             pass
     if not box:
         overlap_label = "Overlap geometry unavailable; recorded collision metadata only."
+    if hit.get("conditional"):
+        box = tuple(replace(face,kind="collision_conditional") for face in box)
+    if options.group_collisions and group:
+        zones = projected_zones(session.graph,session.fixed_panel,group,hit)
+        box = []
+        marks = component_colors(zones)
+        for zone in zones:
+            kind = "collision_conditional" if zone["conditional"] else "collision"
+            corners = tuple((-y,x,z) for x,y,z in zone["corners_xyz"])
+            if corners:
+                box.extend(PreviewFace3D(tuple(corners[i] for i in ids),kind,zone["component"])
+                           for ids in BOX_FACES)
+        for face in sheet:
+            if face.identifier in marks:
+                box.append(replace(face,kind="collision" if marks[face.identifier]==1 else "collision_conditional"))
+        box = tuple(box)
+        overlap_label = ("Combined material-attached map: red = confirmed, orange = conditional. "
+                         "Boxes are recorded overlap bounds mapped to a reference pose; "
+                         "whole-component marks are used where the bend zone deforms. "
+                         "Findings did not necessarily occur simultaneously.")
     faces = (*bed_faces,*mounts,*clamps,*sheet,*tools,*box)
     name = f"smbs-collision-{index}.png"
     diagrams.append((name,_diagram(core,gui,faces,_scene_extent((faces,),(sheet,),axis,options),
                                    _extent(sheet,axis),axis,sheet_faces=sheet,active_bend=bid,options=options)))
     status = "Conditional finding" if hit.get("conditional") else "Confirmed sampled collision"
+    if options.group_collisions and group:
+        confirmed = sum(not h.get("conditional") for h in group)
+        entries = "".join(f'<tr><td>{i+1}</td><td>{escape(str(h["phase"]))}</td><td>{escape(str(h["tool"]))}</td>'
+                          f'<td>{escape(str(h["component"]))}</td><td>{"Conditional" if h.get("conditional") else "Confirmed"}</td>'
+                          f'<td>{float(h["occ_overlap_volume_mm3"]):.6g}</td></tr>' for i,h in enumerate(group))
+        return (f'<h1>Collision map · {escape(str(hit["operation"]))}</h1>'
+                f'<p>Confirmed: {confirmed} · Conditional: {len(group)-confirmed} · Reference: {escape(str(hit["phase"]))}, {float(hit["angle_deg"]):.2f}°</p>'
+                f'<p><img width="600" height="270" src="{name}"></p>'
+                '<table border="1" cellspacing="0" cellpadding="3" width="100%"><tr><th>No.</th><th>Phase</th><th>Tool</th><th>Component</th><th>Finding</th><th>mm³</th></tr>'
+                + entries + '</table><p>'+escape(overlap_label)+'</p>'
+                '<p>Backgauge omitted: exact sample position not recorded. Not a continuous clearance verdict.</p>')
     return (f'<h1>{escape(status)} · {escape(str(hit["operation"]))}</h1>'
             f'<p>{escape(str(hit["phase"]))} · {escape(str(hit["tool"]))} · {escape(str(hit["component"]))}</p>'
             f'<p>Overlap volume: {float(hit["occ_overlap_volume_mm3"]):.6g} mm³ · Ram Z: {float(hit["ram_z_mm"]):.3f} mm</p>'
@@ -567,16 +601,17 @@ def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positio
         pages.append(html)
     collision_pages = []
     if options.shows("collision"):
-        hits = current_collision_hits(workspace)
-        selected_ids = {op.operation_id for op in operations}
-        for index, hit in enumerate(hits):
-            if hit.get("operation") not in selected_ids:
-                continue
+        from smbs_core.kinematics2d.collision_groups import collision_groups, representative_hit
+        selected_ids = tuple(op.operation_id for op in operations)
+        hits = tuple(h for h in current_collision_hits(workspace) if h.get("operation") in selected_ids)
+        groups = collision_groups(hits,grouped=options.group_collisions,operation_order=selected_ids)
+        for index, group in enumerate(groups):
+            hit = representative_hit(group)
             try:
                 collision_pages.append(_collision_page(workspace,hit,tooling,options,qt_core,gui,diagrams,index,
                     bed_faces=bed_faces,beam=beam,bed_z=bed_z,rest_z=rest_z,
                     punch_outline=punch_outline,punch_top=punch_top,clamp_spans=clamp_spans,
-                    clamp_height=clamp_height,clamp_depth=clamp_depth,native_by_length=native_by_length))
+                    clamp_height=clamp_height,clamp_depth=clamp_depth,native_by_length=native_by_length,group=group))
             except _CAD_ERRORS as exc:
                 collision_pages.append(f'<h1>Sampled collision · {escape(str(hit.get("operation","")))}</h1>'
                                        f'<p>Evidence image unavailable: {escape(str(exc))}</p>')

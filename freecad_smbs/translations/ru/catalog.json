@@ -1079,5 +1079,6 @@
   "mesh_next_view": "Следующий кадр коллизий",
   "mesh_group_summary": "{operation}: подтверждённых {confirmed}, условных {conditional}",
   "mesh_group_reference": "Общая карта; кадр {phase}, {angle}°; не одновременно",
-  "mesh_component_only": "Некоторые зоны выделены целиком по затронутому элементу"
+  "mesh_component_only": "Некоторые зоны выделены целиком по затронутому элементу",
+  "pdf_group_collisions": "Одна карта коллизий на операцию"
 }

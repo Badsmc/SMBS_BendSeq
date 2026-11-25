@@ -1079,5 +1079,6 @@
   "mesh_next_view": "Next collision view",
   "mesh_group_summary": "{operation}: confirmed {confirmed}, conditional {conditional}",
   "mesh_group_reference": "Combined map; reference {phase}, {angle}°; not simultaneous",
-  "mesh_component_only": "Some zones marked by entire affected component"
+  "mesh_component_only": "Some zones marked by entire affected component",
+  "pdf_group_collisions": "One collision map per operation"
 }

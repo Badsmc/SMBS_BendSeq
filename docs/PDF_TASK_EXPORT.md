@@ -27,3 +27,15 @@ the native file picker. Existing files require a second explicit Generate click.
 Headless tests cover configuration, alpha/visibility, crop, AABB coordinates,
 stale evidence and legacy startup. Real FreeCAD/Qt PDF rendering, transparency
 appearance, and TaskPanel lifecycle still need interactive acceptance.
+
+## Grouped collision evidence
+
+Mesh Tasks offers By bend (default) or Exact sample. Each staged operation is
+separate. The grouped reference is the largest confirmed finding, or largest
+conditional finding if none confirmed. Recorded AABB corners are transferred
+through source and reference panel rigid transforms; changed deformable bend
+zones are marked as whole components, not invented exact overlaps. Red is
+confirmed, orange conditional. The map is not simultaneous collision geometry.
+Part and tool transparency controls affect collision viewing only. PDF export
+uses the same grouping by default, lists each finding, and can be switched to
+individual samples. The Mesh checking algorithm is unchanged.

@@ -66,6 +66,8 @@ def show_pdf_export_task(workspace, embed):
     layers.addWidget(punch_segments,len(LAYERS)+1,0,1,2)
     layers.addWidget(die_segments,len(LAYERS)+2,0,1,2)
     layout.addWidget(layers_box)
+    grouped = qt.QCheckBox(tr("pdf_group_collisions"))
+    layout.addWidget(grouped)
     content_box = qt.QGroupBox(tr("pdf_document_content"))
     content_layout = qt.QVBoxLayout(content_box)
     content = {}
@@ -91,12 +93,13 @@ def show_pdf_export_task(workspace, embed):
             content={k:w.isChecked() for k,w in content.items()},
             positions_per_page=count.value(),large_first=large.isChecked(),
             punch_segments=punch_segments.isChecked(),die_segments=die_segments.isChecked(),
-            fit_machine=fit.isChecked(),landscape=landscape.isChecked())
+            fit_machine=fit.isChecked(),landscape=landscape.isChecked(),group_collisions=grouped.isChecked())
 
     def load(options):
         count.setValue(options.positions_per_page)
         large.setChecked(options.large_first)
         landscape.setChecked(options.landscape)
+        grouped.setChecked(options.group_collisions)
         fit.setChecked(options.fit_machine)
         punch_segments.setChecked(options.punch_segments)
         die_segments.setChecked(options.die_segments)
@@ -108,6 +111,7 @@ def show_pdf_export_task(workspace, embed):
             w.setChecked(options.content[k])
 
     def update_notice(*_):
+        grouped.setEnabled(checks["collision"].isChecked())
         hits = current_collision_hits(workspace)
         notice.setText(tr("pdf_collision_notice",count=len(hits)))
         for k in ("punch","die"):
