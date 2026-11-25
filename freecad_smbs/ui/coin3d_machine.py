@@ -78,6 +78,57 @@ def _mesh_node(coin, mesh, color, transparency=0.0):
     return root
 
 
+def _frame_file_key(library_root):
+    """Reload edited CAD/metadata on the next scene update, not just on restart."""
+    path = resolve_machine_frame_fcstd(library_root)
+    if path is None:
+        return (library_root, None)
+    def stamp(file):
+        try:
+            stat = file.stat()
+            return stat.st_mtime_ns, stat.st_size
+        except OSError:
+            return None
+    return (library_root, path.resolve(), stamp(path), stamp(path.with_suffix(".tooling.json")))
+
+
+def _moving_body(doc, bodies, mount):
+    # Legacy sidecars incorrectly called the fixed 'up' body the ram.
+    # Prefer an explicitly registered moving object; migrate old 'z' assemblies
+    # by unique label rather than silently using the old ram_object field.
+    name = mount.get("moving_object")
+    if name:
+        body = doc.getObject(name)
+        if body not in bodies:
+            raise ValueError("Registered moving object is missing")
+        return body
+    matches = [body for body in bodies if str(body.Label).strip().casefold() == "z"]
+    if len(matches) != 1:
+        raise ValueError("Register a unique moving_object (the z layer) in machine_frame.tooling.json")
+    return matches[0]
+
+
+def _moving_mount_face(shape, preferred):
+    """Find the lower mounting plane even after a face-number change."""
+    bottom = shape.BoundBox.ZMin
+    candidates = []
+    for index, face in enumerate(shape.Faces, 1):
+        if (getattr(face.Surface, "TypeId", "") == "Part::GeomPlane"
+                and float(face.normalAt(0, 0).z) < -0.999
+                and abs(face.CenterOfMass.z-bottom) < 0.1):
+            candidates.append((f"Face{index}", face))
+    if not candidates:
+        raise ValueError("Moving z layer has no horizontal downward mounting face")
+    for name, face in candidates:
+        if name == preferred:
+            return face
+    # Fall back only to an unambiguous largest lower plane.
+    candidates.sort(key=lambda item: item[1].Area, reverse=True)
+    if len(candidates)>1 and abs(candidates[0][1].Area-candidates[1][1].Area)<1e-6:
+        raise ValueError("Ambiguous moving z mounting plane; register moving_face")
+    return candidates[0][1]
+
+
 def load_frame_meshes(library_root):
     path = resolve_machine_frame_fcstd(library_root)
     if path is None:
@@ -97,19 +148,27 @@ def load_frame_meshes(library_root):
     with _machine_document(path) as doc:
         assembly = doc.getObject(mount["assembly_object"])
         bed = doc.getObject(mount["bed_object"])
-        ram = doc.getObject(mount["ram_object"])
         bodies = [body for body in assembly.Group
                   if body.TypeId == "PartDesign::Body" and not body.Shape.isNull()]
-        if bed not in bodies or ram not in bodies or bed == ram:
-            raise ValueError("bed or ram is missing in the registered CAD assembly")
+        ram = _moving_body(doc, bodies, mount)
+        if bed not in bodies or bed == ram:
+            raise ValueError("bed or moving layer is missing in the registered CAD assembly")
         shapes = {body.Name: _global_shape(body) for body in bodies}
         bed_origin = _mount_origin(shapes[bed.Name], mount["bed_face"], 1)
-        ram_origin = _mount_origin(shapes[ram.Name], mount["ram_face"], -1)
-        frame = _cad_mesh((shapes[body.Name] for body in bodies if body != ram),
-                          at_origin(bed_origin))
-        beam = _cad_mesh((shapes[ram.Name],), at_origin(ram_origin))
-        ram_width = shapes[ram.Name].getElement(mount["ram_face"]).BoundBox.XLength
-    return frame, beam, float(ram_origin.z - bed_origin.z), float(ram_width)
+        face = _moving_mount_face(shapes[ram.Name], mount.get("moving_face", "Face1"))
+        ram_origin = face.CenterOfMass
+        rest_z = float(ram_origin.z-bed_origin.z)
+        common = at_origin(bed_origin)
+        # Both fixed and moving meshes use one XY origin. Only the moving
+        # mesh's Z is expressed relative to its lower attachment plane.
+        # Editing any fixed body, including up, cannot change that datum.
+        frame = _cad_mesh((shapes[body.Name] for body in bodies if body != ram), common)
+        def moving_point(point):
+            x,y,z = common(point)
+            return x,y,z-rest_z
+        beam = _cad_mesh((shapes[ram.Name],), moving_point)
+        ram_width = face.BoundBox.XLength
+    return frame, beam, rest_z, float(ram_width)
 
 
 def load_gauge_mesh(library_root):
@@ -165,6 +224,8 @@ class CoinMachineScene:
         self.clamp_height = CLAMP_HEIGHT_MM
         self.clamp_depth = CLAMP_DEPTH_MM
         self.beam_z = 0.0
+        self.bed_z = 0.0
+        self.last_ram_z = 0.0
         self.ram_mount_width = 0.0
         self.frame.setName("SMBS_MachineFrame")
         self.gauges.setName("SMBS_Backgauges")
@@ -214,10 +275,8 @@ class CoinMachineScene:
                     count = int((self.ram_mount_width + config.gap_between_mm)
                                 / (config.width_mm + config.gap_between_mm))
                     config = replace(config, clamp_count=count)
-                if self.punch_top is not None and config.height_mm != self.clamp_height:
-                    self.beam_z += config.height_mm - self.clamp_height
-                    self.ram_motion.translation.setValue(0.0, 0.0, self.beam_z)
                 self.clamp_height, self.clamp_depth = config.height_mm, config.depth_mm
+                self._position_ram()
                 self.clamp_spans = clamp_spans_for_centres(config.centres_mm, config.width_mm)
         except (OSError, ClampValidatorError) as exc:
             self.clamp_config_error = tr("clamps_baec283a", error=exc)
@@ -236,10 +295,17 @@ class CoinMachineScene:
         self.clamps.whichChild.setValue(self.coin.SO_SWITCH_ALL)
         return ""
 
+    def _position_ram(self):
+        # Absolute placement, never accumulate offsets on successive frames.
+        self.beam_z = (self.last_ram_z + self.punch_top + self.clamp_height
+                       if self.punch_top is not None else self.bed_z + self.rest_z)
+        self.ram_motion.translation.setValue(0.0, 0.0, self.beam_z)
+
     def update_frame(self, library_root, tooling, ram_z, visible):
-        if self.frame_key != library_root:
+        source_key = _frame_file_key(library_root)
+        if self.frame_key != source_key:
             self.frame.removeAllChildren()
-            self.frame_key = library_root
+            self.frame_key = source_key
             self.mount_key = None
             self.rest_z = self.ram_mount_width = 0.0
             try:
@@ -269,9 +335,8 @@ class CoinMachineScene:
             self.punch_top = (max(z for _, z in punch_outline) - tooling.ram_z_mm
                               if punch_outline else None)
             self.mount_key = key
-        self.beam_z = (float(ram_z) + self.punch_top + self.clamp_height
-                       if self.punch_top is not None else self.bed_z + self.rest_z)
-        self.ram_motion.translation.setValue(0.0, 0.0, self.beam_z)
+        self.last_ram_z = float(ram_z)
+        self._position_ram()
         return self.frame_error if visible else ""
 
     def update_gauges(self, library_root, stations, contact):

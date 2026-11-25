@@ -1,8 +1,8 @@
 """
 freecad_bootstrap.py - Centralized runtime environment bootstrapper for FreeCAD and SheetMetal.
 
-Dynamically locates and injects FreeCAD shared libraries and SheetMetal workbench modules
-into sys.path across platforms (macOS, Linux, Windows, Conda, CI) before importing FreeCAD/Part.
+Reports candidate installation locations for diagnostics. Never modifies the
+FreeCAD or standalone Python import path.
 """
 from __future__ import annotations
 
@@ -103,20 +103,11 @@ def get_sheetmetal_mod_candidates() -> List[str]:
 
 
 def ensure_freecad_paths() -> bool:
-    """
-    Injects valid FreeCAD library and SheetMetal paths into sys.path.
-    Returns True if a FreeCAD library path was detected on the filesystem.
-    """
-    found_lib = False
-    for p in get_freecad_lib_candidates():
-        if p and os.path.isdir(p) and p not in sys.path:
-            sys.path.append(p)
-            found_lib = True
-        elif p and os.path.isdir(p):
-            found_lib = True
-
-    for p in get_sheetmetal_mod_candidates():
-        if p and os.path.isdir(p) and p not in sys.path:
-            sys.path.append(p)
-
-    return found_lib
+    """Check host availability without path injection."""
+    import importlib.util
+    if "FreeCAD" in sys.modules:
+        return True
+    try:
+        return importlib.util.find_spec("FreeCAD") is not None
+    except (ImportError, ValueError):
+        return False

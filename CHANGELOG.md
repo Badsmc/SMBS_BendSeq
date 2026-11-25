@@ -17,4 +17,11 @@ Initial public preview of the current PressBrakeSim implementation.
 Limitations: full FreeCAD acceptance, continuous machine collision verification,
 manufacturing certification and official Addon Manager listing are pending.
 
+- Addon Index preparation: canonical SheetMetal dependency, native Part, FreeCAD Qt wrappers, host-managed import paths and standard-library tooling-set validation.
+
 Licensing: LGPL-2.1-or-later for original code and CC-BY-SA-4.0 for original assets, with full license texts and a separate CAD provenance review.
+
+## Development updates (not yet released)
+
+- Parametric punch and die editor with live dimensioned drawing, DXF and FCStd export, centered punch tip and shank with adjustable body offset.
+- Coin3D machine frame: fixed lh/rh/down/up bodies; moving z layer and clamps follow the existing ram trajectory.

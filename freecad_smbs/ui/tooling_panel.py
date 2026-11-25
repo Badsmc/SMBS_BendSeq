@@ -120,10 +120,12 @@ class ToolingPanel:
                     self.import_tool_button = QtWidgets.QPushButton()
                     self.remove_tool_button = QtWidgets.QPushButton()
                     self.segments_button = QtWidgets.QPushButton()
+                    self.generate_tool_button = QtWidgets.QPushButton(tr("parametric_tool_generator"))
                     for button, callback in (
                         (self.import_tool_button, self._import_selected_kind),
                         (self.remove_tool_button, self._remove_selected_kind),
                         (self.segments_button, self._configure_selected_kind),
+                        (self.generate_tool_button, self._generate_tool),
                     ):
                         button.clicked.connect(callback)
                         btn_layout.addWidget(style_action(button))
@@ -654,6 +656,7 @@ class ToolingPanel:
                     tool_tab = index in (0, 1, 3)
                     self.info_group.setVisible(tool_tab)
                     self.tool_actions.setVisible(tool_tab)
+                    self.generate_tool_button.setVisible(index in (0, 1))
                     if not tool_tab:
                         if index == 2:
                             self.clamp_preview.fitInView(
@@ -675,6 +678,7 @@ class ToolingPanel:
                         )
                         self._show_picture(self.tool_picture, path, backgauge=True)
                         return
+                    self.generate_tool_button.setText(tr(("parametric_create_punch", "parametric_create_die")[index]))
                     self.import_tool_button.setText(tr(("import_punch", "import_die")[index]))
                     self.remove_tool_button.setText(tr(("remove_punch", "remove_die")[index]))
                     self.segments_button.setText(tr(("punch_segments", "die_segments")[index]))
@@ -715,6 +719,23 @@ class ToolingPanel:
                         tr("metadata_segments_path",
                            metadata=meta_str, segments=inventory_text, path=desc.fcstd_path)
                     )
+
+                def _generate_tool(self):
+                    if not self.library or self.tabs.currentIndex() not in (0, 1):
+                        return
+                    from freecad_smbs.ui.parametric_tool_dialog import show_generator
+                    kind = ("punch", "die")[self.tabs.currentIndex()]
+                    path = show_generator(self, self.library.library_root, kind)
+                    if path is None:
+                        return
+                    self._refresh_lists()
+                    widget = self.punch_list if kind == "punch" else self.die_list
+                    for index in range(widget.count()):
+                        if widget.item(index).data(QtCore.Qt.UserRole).tool_id == path.stem:
+                            widget.setCurrentRow(index)
+                            break
+                    if self._workspace is not None:
+                        self._workspace._refresh_tooling_combos()
 
                 def _on_add_tool(self) -> None:
                     if not self.library:

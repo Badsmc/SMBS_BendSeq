@@ -18,9 +18,12 @@
   <tag>Simulation</tag>
   <content>
     <workbench>
+      <name>PressBrakeSim</name>
+      <icon>freecad_smbs/resources/icons/gui_workbench.svg</icon>
       <classname>SMBSWorkbench</classname>
       <subdirectory>./</subdirectory>
-      <depend type="addon" optional="true">SheetMetal</depend>
+      <depend type="addon" optional="true">SheetMetal Workbench</depend>
+      <depend type="internal">part</depend>
       <depend type="internal" optional="true">techdraw</depend>
     </workbench>
   </content>

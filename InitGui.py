@@ -58,8 +58,13 @@ if _loaded_package is not None:
                 "{}; current checkout: {}. Keep one SMBS installation and "
                 "restart FreeCAD.".format(_loaded_root, _REPO_ROOT)
             )
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
+# FreeCAD registers legacy addon paths. Check them without changing sys.path.
+import importlib.util
+from pathlib import Path
+for _module_name in ("freecad_smbs", "smbs_core"):
+    _spec = importlib.util.find_spec(_module_name)
+    if _spec is None or not _spec.origin or Path(_spec.origin).resolve().parent.parent != _REPO_ROOT:
+        raise ImportError("SMBS: missing or conflicting package " + _module_name + "; keep one installation.")
 
 try:
     from freecad_smbs.InitGui import *  # noqa: F401,F403

@@ -12,7 +12,7 @@
 | --- | --- |
 | **FreeCAD 1.1.x desktop** | Run the **PressBrakeSim** workbench and open or save `.FCStd` files. |
 | **Pivy with Coin3D (`pivy.coin`)** | Render the 3D simulation. Use a FreeCAD build that provides Pivy in its own Python environment. |
-| **SheetMetal workbench** | Load a SheetMetal unfold. Install **SheetMetal** from the Addon Manager and use its **Unfold** command to prepare the part. The SMBS ASCII DXF workflow does not require SheetMetal. |
+| **SheetMetal Workbench (optional addon)** | Load a SheetMetal unfold. Install **SheetMetal** from the Addon Manager and use its **Unfold** command to prepare the part. The SMBS ASCII DXF workflow does not require SheetMetal. |
 | **TechDraw workbench** | Optional. Required to create a TechDraw page from the bend table. |
 
 To check Pivy, run this in **FreeCAD's Python console**:
@@ -82,3 +82,11 @@ Bundled profiles and their reference dimensions are listed in the [tooling libra
 `main` is the public release branch and `develop` is the active development branch. Both start from version 0.1.0. See [branch architecture](BRANCH_ARCHITECTURE.md) and [changelog](CHANGELOG.md). Historical experiments are preserved in Git archive tags. Historical reference data and tooling are kept outside the active tooling library under `demo/`.
 
 Original source code is licensed under [LGPL-2.1-or-later](LICENSE-Code) and original non-code resources under [CC-BY-SA-4.0](LICENSE-Assets). See [licensing and attribution](LICENSE.md). Third-party CAD redistribution rights still require confirmation; official Addon Manager listing and full runtime acceptance remain pending.
+
+## Dependencies and privacy
+
+Use FreeCAD's own Python environment. Part, the FreeCAD-provided Qt wrapper and Pivy/Coin3D are host components, not packages to install separately with pip. SheetMetal Workbench is optional for DXF use, required for SheetMetal unfolds; TechDraw is optional for drawing export. The addon does not install Python packages itself. PythonOCC is a legacy optional offline geometry reader, not needed for the native FreeCAD workflow. Named tooling sets use standard-library validation. See [submission preparation](docs/ADDON_INDEX_SUBMISSION.md) and [privacy](PRIVACY.md).
+
+To test through Addon Manager before official indexing, add `https://github.com/Badsmc/SMBS_BendSeq` with branch `main` as a custom repository in Addon Manager preferences. Remove other SMBS installations first. Restart FreeCAD after installation.
+
+Development tooling editor: [guide](docs/PARAMETRIC_TOOL_GENERATOR.md). Create original demonstration punches and dies with a live dimensioned preview. The updated machine frame keeps the fixed bodies stationary and moves the z layer with the clamps.

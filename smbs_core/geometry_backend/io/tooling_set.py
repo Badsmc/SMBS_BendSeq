@@ -9,6 +9,7 @@ enforcement/substitution is requirement 4).
 """
 from __future__ import annotations
 import json
+from math import isfinite
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -94,31 +95,28 @@ class ToolingSet:
 
 
 def _validate_data_against_schema(data: dict) -> None:
-    """Internal. Validates data dict against tooling_set schema. Raises ToolingSetError.
-
-    Used by both validate_set_dict (load path) and save_set_file (write path) —
-    same guarantee: no silent skip if schema missing, no uncaught exceptions.
-    """
-    try:
-        import jsonschema
-    except ImportError as e:
-        raise ToolingSetError(
-            "jsonschema is required for tooling_set validation. "
-            "FreeCAD python has it preinstalled; for other environments install jsonschema."
-        ) from e
-
-    schema_path = Path(__file__).resolve().parent.parent.parent / "contracts" / "schemas" / "tooling_set.schema.json"
-    if not schema_path.exists():
-        raise ToolingSetError(f"ToolingSet schema not found: {schema_path}")
-
-    try:
-        with open(schema_path, "r", encoding="utf-8") as f:
-            schema = json.load(f)
-        jsonschema.validate(instance=data, schema=schema)
-    except jsonschema.ValidationError as e:
-        raise ToolingSetError(f"ToolingSet schema validation failed: {e.message}") from e
-    except Exception as e:
-        raise ToolingSetError(f"Unexpected error during schema validation: {e}") from e
+    """Enforce the historical tooling-set v1 schema using the standard library."""
+    required = {"schema_version", "set_id", "punch_id", "die_id", "clamp_positions_mm"}
+    allowed = required | {"description", "metadata"}
+    if not isinstance(data, dict) or not required.issubset(data) or set(data) - allowed:
+        raise ToolingSetError("Invalid tooling set fields")
+    if data["schema_version"] != DEFAULT_SET_SCHEMA_VERSION:
+        raise ToolingSetError("Unsupported tooling set schema version")
+    for key in ("set_id", "punch_id", "die_id"):
+        if not isinstance(data[key], str) or not data[key]:
+            raise ToolingSetError(f"{key} must be a non-empty string")
+    if len(data["set_id"]) > 128:
+        raise ToolingSetError("set_id exceeds 128 characters")
+    description = data.get("description", "")
+    if not isinstance(description, str) or len(description) > 1024:
+        raise ToolingSetError("Invalid tooling set description")
+    positions = data["clamp_positions_mm"]
+    if not isinstance(positions, list) or any(
+        type(value) not in (int, float) or not isfinite(value) for value in positions
+    ):
+        raise ToolingSetError("Clamp positions must be a list of finite numbers")
+    if not isinstance(data.get("metadata", {}), dict):
+        raise ToolingSetError("Tooling set metadata must be an object")
 
 
 def validate_set_dict(data: dict) -> ToolingSet:

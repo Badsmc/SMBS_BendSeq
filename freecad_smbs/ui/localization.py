@@ -68,13 +68,7 @@ def interface_language():
     try:
         from PySide import QtCore
     except ImportError:
-        try:
-            from PySide6 import QtCore
-        except ImportError:
-            try:
-                from PySide2 import QtCore
-            except ImportError:
-                QtCore = None
+        QtCore = None
     system_language = QtCore.QLocale().name() if QtCore is not None else (locale.getlocale()[0] or "en")
     return resolve_language(preference, system_language)
 
