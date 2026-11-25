@@ -31,3 +31,13 @@ class PdfOptionsTest(unittest.TestCase):
         self.assertEqual(current_collision_hits(ws),())
         ws._mesh_collision_identity="new"
         self.assertEqual(len(current_collision_hits(ws)),1)
+
+    def test_working_area_does_not_fit_entire_machine_by_default(self):
+        from freecad_smbs.ui.bend_instructions_pdf import _scene_extent,_extent
+        from smbs_core.kinematics2d.preview_mesh_3d import PreviewFace3D
+        sheet=PreviewFace3D(((0,0,0),(1,0,0),(0,1,0)),"panel_top","p")
+        frame=PreviewFace3D(((0,0,0),(0,1000,0),(0,0,1000)),"frame","f")
+        clamp=PreviewFace3D(((0,-1000,0),(0,1000,0),(0,0,20)),"clamps","c")
+        axis=((0,-1,0),(0,1,0))
+        self.assertEqual(_scene_extent(((sheet,frame,clamp),),((sheet,),),axis,PdfOptions()),_extent((sheet,),axis))
+        self.assertEqual(_scene_extent(((sheet,frame,clamp),),((sheet,),),axis,PdfOptions(fit_machine=True)),_extent((sheet,frame,clamp),axis))

@@ -45,7 +45,7 @@ def tool_section_rings(path, *, backgauge=False):
     return rings
 
 
-def draw_tool_section(rings, color, QtCore, QtGui, *, mirrored=False):
+def draw_tool_section(rings, color, QtCore, QtGui, *, mirrored=False, opacity=None):
     """Fit the section to the preview, preserving scale and internal holes."""
     width, height, margin = 220, 145, 8
     path = QtGui.QPainterPath()
@@ -70,9 +70,12 @@ def draw_tool_section(rings, color, QtCore, QtGui, *, mirrored=False):
     try:
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
         fill = QtGui.QColor(color)
-        fill.setAlpha(45)
+        fill.setAlpha(45 if opacity is None else int(opacity))
+        ink = QtGui.QColor(color)
+        if opacity is not None:
+            ink.setAlpha(int(opacity))
         painter.setBrush(fill)
-        painter.setPen(QtGui.QPen(color, 1.4))
+        painter.setPen(QtGui.QPen(ink, 1.4))
         painter.drawPath(transform.map(path))
     finally:
         painter.end()

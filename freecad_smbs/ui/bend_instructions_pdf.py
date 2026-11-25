@@ -312,7 +312,8 @@ def _overview_html(session, operations, rows, tooling, core, gui, diagrams, opti
             if tool is not None:
                 outer,holes = getattr(tooling,kind+"_polygons_machine")()
                 if outer:
-                    image = draw_tool_section((outer,*holes),gui.QColor(_COLORS[kind]),core,gui)
+                    image = draw_tool_section((outer,*holes),gui.QColor(_COLORS[kind]),core,gui,
+                                              opacity=options.alpha(kind))
                     name = f"smbs-{kind}-section.png"
                     diagrams.append((name,image.toImage()))
                     html += f'<p><img width="220" height="145" src="{name}"></p>'
@@ -343,14 +344,23 @@ def _clamp_faces(spans, height, depth, beam_z):
 def _scene_extent(scenes, sheets, axis, options):
     # Keep the working-area crop by default, but fit every enabled layer
     # including the full machine when explicitly requested.
-    faces = tuple(f for scene in scenes for f in visible_faces(scene,options)
-                  if options.fit_machine or face_layer(f) != "frame")
-    if not faces:
-        faces = tuple(f for sheet in sheets for f in sheet)
+    visible = tuple(f for scene in scenes for f in visible_faces(scene,options))
+    # The default focuses on the part/bending area, not a full-length
+    # machine or clamp row. Fit full machine includes every visible layer.
+    if options.fit_machine:
+        faces = visible
+    else:
+        faces = tuple(f for f in visible if face_layer(f) in ("part","gauge","collision"))
+        if not faces:
+            faces = tuple(f for f in visible if face_layer(f) in ("punch","die"))
+        if not faces:
+            faces = visible
     return _extent(faces,axis)
 
 
-def _collision_page(workspace, hit, tooling, options, core, gui, diagrams, index):
+def _collision_page(workspace, hit, tooling, options, core, gui, diagrams, index,
+                    *, bed_faces, beam, bed_z, rest_z, punch_outline, punch_top,
+                    clamp_spans, clamp_height, clamp_depth, native_by_length):
     from smbs_core.kinematics2d.workpiece_placement_3d import PlacementTransform3D
     session = workspace.session
     pose = hit["sampled_machine_pose"]
@@ -364,20 +374,42 @@ def _collision_page(workspace, hit, tooling, options, core, gui, diagrams, index
         machine_placement=placement,panel_meshes=getattr(session.unfold_data,"panel_meshes",None))
     length = dist(*state.bends[bid].axis_xyz)
     axis = ((0,-length/2,0),(0,length/2,0))
-    tools = build_tool_preview_faces(tooling,active_bend_length_mm=length,punch_ram_z_mm=float(hit["ram_z_mm"]))
+    ram_z = float(hit["ram_z_mm"])
+    virtual_length = length if tooling.match_active_bend_length else None
+    meshes = native_by_length.get(virtual_length, ())
+    tools = _tools_for_diagram(tooling,length,ram_z,meshes)
+    beam_z = ram_z+punch_top+clamp_height if punch_outline else bed_z+rest_z
+    mounts = _mesh_faces(beam,"frame",(0,0,beam_z)) if beam else ()
+    clamps = _clamp_faces(clamp_spans,clamp_height,clamp_depth,beam_z) if options.shows("clamps") else ()
     box = collision_box_faces(hit.get("overlap_bbox_xyz_mm"))
-    faces = (*sheet,*tools,*box)
+    # Use the actual confirmed intersection solid when it is retained for
+    # this exact sample. Other findings retain only the reported AABB.
+    overlap_label = "Red box: recorded overlap bounding box, not exact intersection solid."
+    latest = getattr(workspace,"_latest_mesh_collision",None)
+    if latest and latest[0] == hit:
+        try:
+            vertices,triangles = latest[3].tessellate(0.2)
+            exact = tuple(PreviewFace3D(tuple((-vertices[i].y,vertices[i].x,vertices[i].z) for i in triangle),
+                                        "collision","overlap_solid") for triangle in triangles)
+            if exact:
+                box = exact
+                overlap_label = "Red geometry: tessellated confirmed intersection solid for this sample."
+        except _CAD_ERRORS:
+            pass
+    if not box:
+        overlap_label = "Overlap geometry unavailable; recorded collision metadata only."
+    faces = (*bed_faces,*mounts,*clamps,*sheet,*tools,*box)
     name = f"smbs-collision-{index}.png"
-    diagrams.append((name,_diagram(core,gui,faces,_extent(visible_faces(faces,options),axis),
+    diagrams.append((name,_diagram(core,gui,faces,_scene_extent((faces,),(sheet,),axis,options),
                                    _extent(sheet,axis),axis,sheet_faces=sheet,active_bend=bid,options=options)))
     status = "Conditional finding" if hit.get("conditional") else "Confirmed sampled collision"
     return (f'<h1>{escape(status)} · {escape(str(hit["operation"]))}</h1>'
             f'<p>{escape(str(hit["phase"]))} · {escape(str(hit["tool"]))} · {escape(str(hit["component"]))}</p>'
             f'<p>Overlap volume: {float(hit["occ_overlap_volume_mm3"]):.6g} mm³ · Ram Z: {float(hit["ram_z_mm"]):.3f} mm</p>'
             f'<p><img width="600" height="270" src="{name}"></p>'
-            '<p>Red box: recorded overlap bounding box, not exact intersection solid. '
-            'Sheet pose is the recorded Mesh sample; tooling is a profile preview. '
-            'Machine and backgauge are omitted on collision evidence pages. '
+            f'<p>{escape(overlap_label)} Sheet pose is the recorded Mesh sample; '
+            'tooling uses the available native mesh or profile preview. '
+            'Backgauge omitted: its exact sample pose is not recorded. '
             'Sampled findings do not certify continuous collision clearance.</p>')
 
 
@@ -541,7 +573,10 @@ def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positio
             if hit.get("operation") not in selected_ids:
                 continue
             try:
-                collision_pages.append(_collision_page(workspace,hit,tooling,options,qt_core,gui,diagrams,index))
+                collision_pages.append(_collision_page(workspace,hit,tooling,options,qt_core,gui,diagrams,index,
+                    bed_faces=bed_faces,beam=beam,bed_z=bed_z,rest_z=rest_z,
+                    punch_outline=punch_outline,punch_top=punch_top,clamp_spans=clamp_spans,
+                    clamp_height=clamp_height,clamp_depth=clamp_depth,native_by_length=native_by_length))
             except _CAD_ERRORS as exc:
                 collision_pages.append(f'<h1>Sampled collision · {escape(str(hit.get("operation","")))}</h1>'
                                        f'<p>Evidence image unavailable: {escape(str(exc))}</p>')

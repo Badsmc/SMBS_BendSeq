@@ -14,7 +14,10 @@ def show_pdf_export_task(workspace, embed):
     core, gui, qt = _qt()
     prefs = core.QSettings("SMBS","BendSeq")
     try:
-        saved = PdfOptions(**json.loads(prefs.value("pdf/options_v2","{}",type=str)))
+        stored = prefs.value("pdf/options_v2","",type=str)
+        saved = (PdfOptions(**json.loads(stored)) if stored else
+                 PdfOptions(positions_per_page=max(1,min(10,prefs.value("pdf/positions_per_page",1,type=int))),
+                            large_first=prefs.value("pdf/large_first",False,type=bool)))
     except (ValueError,TypeError):
         saved = PdfOptions()
     dialog = qt.QDialog(workspace)
@@ -104,9 +107,15 @@ def show_pdf_export_task(workspace, embed):
         for k,w in content.items():
             w.setChecked(options.content[k])
 
-    def update_notice():
+    def update_notice(*_):
         hits = current_collision_hits(workspace)
         notice.setText(tr("pdf_collision_notice",count=len(hits)))
+        for k in ("punch","die"):
+            (punch_segments if k=="punch" else die_segments).setEnabled(checks[k].isChecked())
+        for k in ("flat_pattern","schedule"):
+            content[k].setEnabled(content["overview"].isChecked())
+        content["segment_text"].setEnabled(content["tool_details"].isChecked())
+        content["part_inset"].setEnabled(checks["part"].isChecked())
 
     def save(*_):
         if workspace.session is None or workspace._task_progress_busy or workspace.timer.isActive():
@@ -151,7 +160,9 @@ def show_pdf_export_task(workspace, embed):
     def changed(*_):
         dialog._confirmed_path = None
     path.textChanged.connect(changed)
-    reset.clicked.connect(lambda: load(PdfOptions()))
+    reset.clicked.connect(lambda: (load(PdfOptions()),update_notice()))
+    for w in (*checks.values(),content["overview"],content["tool_details"]):
+        w.toggled.connect(update_notice)
     export.clicked.connect(save)
     load(saved)
     update_notice()
