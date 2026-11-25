@@ -2,7 +2,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from math import cos, radians, sin, tan
-from smbs_core.kinematics2d.parametric_tool import ToolRecipe, build_contour
+from smbs_core.kinematics2d.parametric_tool import ToolRecipe, build_contour, punch_layout
 
 
 @dataclass(frozen=True)
@@ -24,28 +24,28 @@ def drawing_model(recipe: ToolRecipe):
     def add(key,code,value,axis,p,q,lane=1):
         dims.append(Dimension(key,code,value,axis,p,q,lane))
     if recipe.kind == "punch":
-        sw = recipe.shank_width/2
-        top = h-recipe.shank_height
-        add("height","H2",h,"v",(0,0),(sw,h),2)
-        add("working_height","H1",top,"v",(0,0),(w,top),1)
-        add("width","L6",2*w,"h",(-w,top),(w,top),-2)
-        add("shank_width","L5",2*sw,"h",(-sw,h),(sw,h),-1)
-        add("shank_height","H2-H1",recipe.shank_height,"v",(-sw,top),(-sw,h),-1)
+        x,y,lx,rx,ly,ry,top,sl,sr = punch_layout(recipe)
+        offset = recipe.punch_offset
+        add("height","H2",h,"v",(0,0),(sr,h),2)
+        add("working_height","H1",top,"v",(0,0),(rx,top),1)
+        add("width","L6",2*w,"h",(lx,top),(rx,top),-2)
+        add("shank_width","L5",recipe.shank_width,"h",(sl,h),(sr,h),-1)
+        add("punch_offset","ΔX",offset,"h",(0,h),(offset,h),-3)
+        add("shank_height","H2-H1",recipe.shank_height,"v",(sl,top),(sl,h),-1)
         add("radius","r",r,"leader",(0,0),(0,0),-1)
-        add("angle","α",recipe.angle,"leader",(r*cos(a),r*(1-sin(a))),(0,0),1)
-        x,y = r*cos(a),r*(1-sin(a))
-        shoulder = y+(w-x)/tan(a)
+        add("angle","α",recipe.angle,"leader",(x,y),(0,0),1)
         sign = -1 if recipe.relief_side=="left" else 1
-        add("tip_height","L1",shoulder,"v",(0,0),(sign*w,shoulder),-1)
+        wall, shoulder, other = (lx,ly,rx) if sign==-1 else (rx,ry,lx)
+        add("tip_height","L1",shoulder,"v",(0,0),(wall,shoulder),-1)
         if recipe.relief_depth:
             low = shoulder+recipe.relief_start
             high = low+recipe.relief_height
-            inner = sign*(w-recipe.relief_depth)
-            add("relief_start","L2",recipe.relief_start,"v",(sign*w,shoulder),(sign*w,low),-2)
-            add("relief_height","L3",recipe.relief_height,"v",(sign*w,low),(sign*w,high),-2)
-            add("relief_transition","L4",recipe.relief_transition,"v",(sign*w,low),(inner,low+recipe.relief_transition),-3)
-            add("relief_depth","L7",recipe.relief_depth,"local_h",(inner,low+recipe.relief_transition),(sign*w,low+recipe.relief_transition),1)
-            add("remaining_width","L8",2*w-recipe.relief_depth,"local_h",(-sign*w,(low+high)/2),(inner,(low+high)/2),-1)
+            inner = wall-sign*recipe.relief_depth
+            add("relief_start","L2",recipe.relief_start,"v",(wall,shoulder),(wall,low),-2)
+            add("relief_height","L3",recipe.relief_height,"v",(wall,low),(wall,high),-2)
+            add("relief_transition","L4",recipe.relief_transition,"v",(wall,low),(inner,low+recipe.relief_transition),-3)
+            add("relief_depth","L7",recipe.relief_depth,"local_h",(inner,low+recipe.relief_transition),(wall,low+recipe.relief_transition),1)
+            add("remaining_width","L8",2*w-recipe.relief_depth,"local_h",(other,(low+high)/2),(inner,(low+high)/2),-1)
     else:
         left,right = recipe.body_offset-w,recipe.body_offset+w
         b = recipe.base_width/2 if recipe.base_width else w

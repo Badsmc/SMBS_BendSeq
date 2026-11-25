@@ -53,6 +53,7 @@ def show_generator(parent, library_root, kind):
     if kind == "punch":
         dimensions += [("working_height","H1","parametric_working_height",1,5000),
                        ("width","L6","parametric_width",1,5000),
+                       ("punch_offset","ΔX","parametric_punch_offset",-2500,2500),
                        ("shank_width","L5","parametric_shank_width",1,5000),
                        ("relief_start","L2","parametric_relief_start",0,5000),
                        ("relief_height","L3","parametric_relief_height",1,5000),
@@ -96,7 +97,7 @@ def show_generator(parent, library_root, kind):
     splitter.addWidget(right_panel)
     splitter.setStretchFactor(0,0)
     splitter.setStretchFactor(1,1)
-    splitter.setSizes([360,640])
+    splitter.setSizes([345,655])
     status = qt.QLabel()
     status.setWordWrap(True)
     layout.addWidget(status)

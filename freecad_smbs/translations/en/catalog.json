@@ -1037,5 +1037,6 @@
   "parametric_right_width": "Right upper half-width",
   "parametric_base_left": "Left base half-width",
   "parametric_base_right": "Right base half-width",
-  "parametric_right_base_height": "Right base height (0 = rectangular)"
+  "parametric_right_base_height": "Right base height (0 = rectangular)",
+  "parametric_punch_offset": "Body / shank offset from tip axis"
 }

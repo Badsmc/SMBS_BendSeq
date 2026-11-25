@@ -45,3 +45,14 @@ are not a direct import format for the photographed CNC controller. Reset
 restores the current preset. DXF export is explicit and refuses to overwrite
 an existing file; Save new tool uses the native validated library export.
 Controller force and safety fields are intentionally not simulated.
+
+## Punch transverse offset and drawing contrast
+
+The signed ΔX parameter moves the body and mounting shank horizontally:
+positive right, negative left. The working tip stays at (0,0); the original
+tangent flanks retain the included angle and radius, and intersect the body
+sides at different heights. The relief dimensions reference the chosen side.
+Offsets that leave insufficient flank geometry or violate closure are rejected.
+The mounting datum follows the shank; the working axis remains unchanged.
+The technical drawing uses a dedicated dark background, yellow dimensions
+and white active dimension, independently of the host UI theme.

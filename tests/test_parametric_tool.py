@@ -101,3 +101,36 @@ class ParametricToolTest(unittest.TestCase):
             profile=import_tool_from_dxf(path,"punch")
             self.assertEqual(profile.validation_status,ValidationStatus.GEOMETRY_VERIFIED)
         self.assertRaises(ValueError,build_contour,replace(recipe,relief_transition=20))
+
+    def test_punch_offset_keeps_tip_and_angle(self):
+        from smbs_core.kinematics2d.parametric_tool_drawing import drawing_model
+        for offset in (-12,-5,0,5,12):
+            for relief in ("left","right"):
+                with self.subTest(offset=offset,relief=relief):
+                    recipe = ToolRecipe("offset",height=150,width=45,shank_width=20,
+                                        relief_depth=18,relief_height=30,relief_start=5,
+                                        relief_side=relief,punch_offset=offset)
+                    contour,dims = drawing_model(recipe)
+                    arc = next(e for e in contour.segments if isinstance(e,ArcSegment2D))
+                    self.assertEqual(arc.center,(0,recipe.radius))
+                    self.assertAlmostEqual(arc.midpoint()[0],0,places=8)
+                    self.assertAlmostEqual(arc.midpoint()[1],0,places=8)
+                    self.assertAlmostEqual(contour.bbox()[0],offset-recipe.width/2)
+                    self.assertAlmostEqual(contour.bbox()[2],offset+recipe.width/2)
+                    dim = next(d for d in dims if d.key=="punch_offset")
+                    self.assertEqual(dim.end[0],offset)
+                    meta = tooling_metadata(recipe)
+                    self.assertEqual(meta["datums"]["tip_point"]["position"],[0,0,0])
+                    self.assertEqual(meta["datums"]["mounting_plane"]["origin"][0],offset)
+                    with TemporaryDirectory() as tmp:
+                        path=Path(tmp)/"punch.dxf"
+                        path.write_text(dxf_text(contour),encoding="ascii")
+                        profile=import_tool_from_dxf(path,"punch")
+                        self.assertEqual(profile.validation_status,ValidationStatus.GEOMETRY_VERIFIED)
+                        self.assertAlmostEqual(profile.punch_datums.working_tip[0],0,places=5)
+                        self.assertAlmostEqual(profile.punch_datums.working_tip[1],0,places=5)
+                        self.assertAlmostEqual(float(profile.punch_datums.included_angle_deg),recipe.angle,places=3)
+                        self.assertAlmostEqual(float(profile.tip_radius_mm),recipe.radius,places=5)
+        for offset in (-23,23,float("nan")):
+            with self.subTest(offset=offset), self.assertRaises(ValueError):
+                build_contour(ToolRecipe("invalid",punch_offset=offset))

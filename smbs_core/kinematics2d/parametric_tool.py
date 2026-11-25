@@ -34,6 +34,7 @@ class ToolRecipe:
     relief_start: float = 2.0
     relief_transition: float = 1.0
     relief_side: str = "right"
+    punch_offset: float = 0.0
 
     def validate(self):
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}", self.tool_id):
@@ -53,6 +54,8 @@ class ToolRecipe:
                 raise ValueError("Invalid mounting shank dimensions")
             if not (0 <= self.relief_depth < self.width - 4 and self.relief_height > 0):
                 raise ValueError("Invalid relief dimensions")
+            if not isfinite(self.punch_offset):
+                raise ValueError("Punch body offset must be finite")
             if self.relief_side not in ("left", "right"):
                 raise ValueError("Invalid relief side")
             if not (isfinite(self.relief_start) and self.relief_start >= 0
@@ -87,38 +90,51 @@ def _lines(points):
     return [LineSegment2D(a, b) for a, b in zip(points, points[1:])]
 
 
+def punch_layout(recipe: ToolRecipe):
+    """Shared coordinates: tip and tangent flanks stay fixed on the working axis.
+
+    The body and shank translate by punch_offset. Their vertical sides meet
+    the original tangent flanks at potentially different heights.
+    """
+    w, r = recipe.width/2, recipe.radius
+    a = radians(recipe.angle/2)
+    x, y = r*cos(a), r*(1-sin(a))
+    left, right = recipe.punch_offset-w, recipe.punch_offset+w
+    top = recipe.height-recipe.shank_height
+    if left >= -x or right <= x:
+        raise ValueError("Punch offset is too large for the fixed tip")
+    ly, ry = y+(-left-x)/tan(a), y+(right-x)/tan(a)
+    # Both tangent flank lines need a usable length for the native datum extractor.
+    if min(-left-x, right-x)/sin(a) < 2.1:
+        raise ValueError("Punch offset leaves an insufficient tip flank")
+    if max(ly,ry)+4 >= top:
+        raise ValueError("Punch body is too short or narrow for the tip and angle")
+    sw = recipe.shank_width/2
+    return x,y,left,right,ly,ry,top,recipe.punch_offset-sw,recipe.punch_offset+sw
+
+
 def build_contour(recipe: ToolRecipe) -> Contour2D:
     """Build one closed XY profile; Z is the longitudinal extrusion axis."""
     recipe.validate()
     h, w, r = recipe.height, recipe.width / 2, recipe.radius
     a = radians(recipe.angle / 2)
     if recipe.kind == "punch":
-        x, y = r * cos(a), r * (1 - sin(a))
-        shoulder = y + (w - x) / tan(a)
-        top = h - recipe.shank_height
-        if x >= w or shoulder + 4 >= top:
-            raise ValueError("Punch body is too short or narrow for the tip and angle")
-        sw = recipe.shank_width / 2
-        right = [(x, y), (w, shoulder)]
-        if recipe.relief_depth:
-            low = shoulder + recipe.relief_start
-            high = low + recipe.relief_height
-            if high + 2 >= top:
-                raise ValueError("Relief does not fit between the tip and mounting shank")
-            inner = w - recipe.relief_depth
-            t = recipe.relief_transition
-            right += [(w, low), (inner, low + t), (inner, high - t), (w, high)]
-        right += [(w, top), (sw, top), (sw, h), (-sw, h), (-sw, top), (-w, top),
-                  (-w, shoulder), (-x, y)]
-        # Avoid zero-length lines when shank and body have the same width.
-        right = [p for i, p in enumerate(right) if i == 0 or p != right[i - 1]]
-        edges = [ArcSegment2D((-x, y), (x, y), (0, r), r, True)] + _lines(right)
-        if recipe.relief_side == "left":
-            def mirror(p):
-                return (-p[0], p[1])
-            edges = [ArcSegment2D(mirror(e.end), mirror(e.start), mirror(e.center), e.radius, e.ccw)
-                     if isinstance(e, ArcSegment2D) else LineSegment2D(mirror(e.end), mirror(e.start))
-                     for e in reversed(edges)]
+        x,y,lx,rx,ly,ry,top,sl,sr = punch_layout(recipe)
+        def side(bottom, wall_x, shoulder, shank_x, sign):
+            points = [bottom,(wall_x,shoulder)]
+            if recipe.relief_depth and recipe.relief_side == ("right" if sign==1 else "left"):
+                low = shoulder+recipe.relief_start
+                high = low+recipe.relief_height
+                if high+2 >= top:
+                    raise ValueError("Relief does not fit between the tip and mounting shank")
+                inner = wall_x-sign*recipe.relief_depth
+                t = recipe.relief_transition
+                points += [(wall_x,low),(inner,low+t),(inner,high-t),(wall_x,high)]
+            points += [(wall_x,top),(shank_x,top),(shank_x,h)]
+            return [p for i,p in enumerate(points) if i==0 or p!=points[i-1]]
+        right = side((x,y),rx,ry,sr,1)
+        left = side((-x,y),lx,ly,sl,-1)
+        edges = [ArcSegment2D((-x,y),(x,y),(0,r),r,True)] + _lines(right+list(reversed(left)))
     else:
         v = recipe.opening / 2
         depth = v / tan(a)
@@ -172,7 +188,7 @@ def tooling_metadata(recipe: ToolRecipe) -> dict:
     y = recipe.height if recipe.kind == "punch" else -recipe.height
     punch = recipe.kind == "punch"
     datums = {
-        "mounting_plane": {"kind":"plane","origin":[0,y,0],
+        "mounting_plane": {"kind":"plane","origin":[recipe.punch_offset if punch else 0,y,0],
                            "normal":[0,-1 if punch else 1,0],"tolerance_mm":0.05},
         "working_axis": {"kind":"axis","origin":[0,0,0],"direction":[0,0,1],
                          "tolerance_mm":0.02},
@@ -189,7 +205,8 @@ def tooling_metadata(recipe: ToolRecipe) -> dict:
                 "license":"CC-BY-SA-4.0", "manufacturing_certified":False,
                 "parametric_recipe":asdict(recipe)}
     if punch:
-        metadata.update(radius_mm=recipe.radius,working_height_mm=recipe.height-recipe.shank_height)
+        metadata.update(radius_mm=recipe.radius,working_height_mm=recipe.height-recipe.shank_height,
+                        punch_offset_mm=recipe.punch_offset)
     else:
         metadata.update(v_width_mm=recipe.opening,shoulder_radius_mm=recipe.radius,
                         base_width_mm=recipe.base_width,base_height_mm=recipe.base_height)

@@ -1037,5 +1037,6 @@
   "parametric_right_width": "Ширина верхней части справа",
   "parametric_base_left": "Ширина основания слева",
   "parametric_base_right": "Ширина основания справа",
-  "parametric_right_base_height": "Высота основания справа (0 = прямоугольная)"
+  "parametric_right_base_height": "Высота основания справа (0 = прямоугольная)",
+  "parametric_punch_offset": "Смещение корпуса и хвостовика от оси"
 }
