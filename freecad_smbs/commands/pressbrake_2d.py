@@ -3480,46 +3480,12 @@ class _PreviewPanel:
             def _save_bend_instructions_pdf(self):
                 if self.session is None or self._task_progress_busy:
                     return
+                if activate_task_dialog(self, "pdf_export"):
+                    return
                 if not self._apply_typed_manual_order():
                     return
-
-                from freecad_smbs.ui.bend_information import bend_rows
-                from freecad_smbs.ui.bend_instructions_pdf import export_bend_instructions_pdf, suggested_pdf_path
-
-                title = tr("save_bend_instructions_as_pdf")
-                preferences = QtCore.QSettings("SMBS", "BendSeq")
-                count, accepted = QtWidgets.QInputDialog.getInt(
-                    self, title, tr("operations_per_page"),
-                    preferences.value("pdf/positions_per_page", 1, type=int), 1, 10,
-                )
-                if not accepted:
-                    return
-                layouts = (tr("two_columns"), tr("large_first_operation_remaining_operations_in_two_columns"))
-                selected_layout, accepted = QtWidgets.QInputDialog.getItem(
-                    self, title, tr("page_layout"), layouts,
-                    int(preferences.value("pdf/large_first", False, type=bool)), False,
-                )
-                if not accepted:
-                    return
-                large_first = selected_layout == layouts[1]
-                preferences.setValue("pdf/large_first", large_first)
-                preferences.setValue("pdf/positions_per_page", count)
-                path, _ = QtWidgets.QFileDialog.getSaveFileName(
-                    self, title, suggested_pdf_path(self), "PDF (*.pdf)",
-                )
-                if not path:
-                    return
-                if not path.lower().endswith(".pdf"):
-                    path += ".pdf"
-                try:
-                    export_bend_instructions_pdf(
-                        self, path, QtCore, QtGui, bend_rows(self), positions_per_page=count,
-                        large_first=large_first,
-                    )
-                except (OSError, ValueError, RuntimeError, AttributeError, TypeError) as exc:
-                    QtWidgets.QMessageBox.warning(self, title, tr_message(exc))
-                else:
-                    self.status.setText(tr("bend_instructions_saved_as_pdf"))
+                from freecad_smbs.ui.pdf_export_task import show_pdf_export_task
+                show_pdf_export_task(self, embed_task_dialog)
 
             def _tool_assembly_inputs(self, *, require_pair=True):
                 from smbs_core.geometry_backend.io.clamp_validator import load_clamp_config

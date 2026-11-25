@@ -2,9 +2,9 @@ name: Addon preflight
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, 'feature/pdf-task-export']
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, 'feature/pdf-task-export']
   workflow_dispatch:
 
 permissions:

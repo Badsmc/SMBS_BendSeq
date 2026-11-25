@@ -5,6 +5,9 @@ from math import dist
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from freecad_smbs.ui.pdf_export_options import (
+    PdfOptions, face_layer, visible_faces, current_collision_hits, collision_box_faces,
+)
 from freecad_smbs.ui.tool_segment_display import native_display_sections, segment_color, suggested_sections
 from freecad_smbs.ui.coin3d_machine import CLAMP_HEIGHT_MM, load_frame_meshes, load_gauge_mesh
 from freecad_smbs.ui.localization import tr as _translate, tr_message
@@ -68,6 +71,7 @@ def _operation_faces(session, state, bend_id, phase, reverse, rear_frame, suppor
 
 _COLORS = {
     "punch": "#ab6855", "die": "#598b7c", "gauge": "#d58a39", "frame": "#a1a9b5",
+    "clamps": "#9aa6b9", "collision": "#e12c2c",
 }
 _CAD_ERRORS = (OSError, ValueError, RuntimeError, TypeError, AttributeError, KeyError)
 
@@ -84,21 +88,22 @@ def _extent(faces, axis):
     return min(xs), min(ys), max(xs), max(ys)
 
 
-def _diagram(core, gui, faces, extent, part_extent, axis, *, sheet_faces, active_bend):
+def _diagram(core, gui, faces, extent, part_extent, axis, *, sheet_faces, active_bend, options):
     image = gui.QImage(600, 270, gui.QImage.Format_RGB32)
     image.fill(gui.QColor("#f3f6fa"))
     painter = gui.QPainter(image)
-    ordered = sorted(faces, key=lambda f: sum(
+    ordered = sorted(visible_faces(faces, options), key=lambda f: sum(
         -s + 0.55 * x + 0.623 * z for s, x, z in f.vertices
     ) / len(f.vertices))
     try:
         painter.setRenderHint(gui.QPainter.Antialiasing)
-        for offset, width, bounds, visible in (
-            (0, 420, extent, ordered),
-            (428, 172, part_extent, sorted(sheet_faces, key=lambda f: sum(
+        inset = options.includes("part_inset") and options.shows("part") and bool(sheet_faces)
+        views = [(0, 420 if inset else 600, extent, ordered)]
+        if inset:
+            views.append((428, 172, part_extent, sorted(visible_faces(sheet_faces, options), key=lambda f: sum(
                 -s + 0.55 * x + 0.623 * z for s, x, z in f.vertices
-            ) / len(f.vertices))),
-        ):
+            ) / len(f.vertices))))
+        for offset, width, bounds, visible in views:
             left, top, right, bottom = bounds
             scale = min((width - 24) / max(1, right - left), 246 / max(1, bottom - top))
 
@@ -108,7 +113,12 @@ def _diagram(core, gui, faces, extent, part_extent, axis, *, sheet_faces, active
                                     135 + (y - (top + bottom) / 2) * scale)
 
             painter.setClipRect(offset, 0, width, 270)
+            # Draw reported overlap boxes last so their outline stays visible.
+            visible = sorted(visible, key=lambda face: face_layer(face) == "collision")
             for face in visible:
+                layer = face_layer(face)
+                if face.kind.endswith("_seam") and not getattr(options, layer + "_segments", True):
+                    continue
                 path = gui.QPainterPath()
                 path.setFillRule(core.Qt.OddEvenFill)
                 for ring in (face.vertices, *face.holes):
@@ -116,20 +126,23 @@ def _diagram(core, gui, faces, extent, part_extent, axis, *, sheet_faces, active
                     path.closeSubpath()
                 kind = face.kind.split("_", 1)[0]
                 color = _COLORS.get(kind)
-                if kind in ("punch", "die"):
+                if kind in ("punch", "die") and getattr(options, kind + "_segments"):
                     color = gui.QColor.fromRgbF(*segment_color(kind, face.section_index)).name()
                 highlighted = offset > 0 and face.identifier == active_bend
                 fill = gui.QColor("#ee9850" if highlighted else color or "#bdd2ea")
-                if face.kind == "frame":
-                    fill.setAlpha(150)
+                fill.setAlpha(options.alpha(layer))
                 painter.setBrush(fill)
-                painter.setPen(gui.QPen(gui.QColor("#283748"), 0.4) if kind in ("punch", "die")
-                               else core.Qt.NoPen if color else gui.QPen(gui.QColor("#476389"), 0.75))
+                ink = gui.QColor("#bb1111" if layer == "collision" else "#283748" if color else "#476389")
+                ink.setAlpha(options.alpha(layer))
+                outline = (layer in ("part", "collision") or
+                           layer in ("punch", "die") and getattr(options, layer + "_segments"))
+                painter.setPen(gui.QPen(ink, 1.2 if layer == "collision" else 0.6)
+                               if outline else core.Qt.NoPen)
                 painter.drawPath(path)
-            if offset == 0:
+            if offset == 0 and options.includes("bend_axis"):
                 painter.setPen(gui.QPen(gui.QColor("#147363"), 1.4, core.Qt.DashLine))
                 painter.drawLine(*(point(v) for v in axis))
-            else:
+            elif offset > 0:
                 painter.setPen(gui.QColor("#914418"))
                 painter.drawText(core.QRectF(offset, 2, width, 20), core.Qt.AlignCenter, active_bend)
     finally:
@@ -167,11 +180,13 @@ def _tooling_positions(tooling, state, bid, angle, clearance):
     return positions["retract_end_z_mm"], positions["bottom_z_mm"], stroke
 
 
-def _tool_line(setup, kind, segments):
+def _tool_line(setup, kind, segments, *, segment_text=True):
     tool = getattr(setup, kind)
     if tool is None:
         return "—"
     title = tool.name if tool.name == tool.tool_id else f"{tool.name} ({tool.tool_id})"
+    if not segment_text:
+        return title
     spans = getattr(setup, f"{kind}_section_spans_xm")
     status = tr("applied_layout") if spans else tr("suggested_segments")
     return f"{title} · {status} — {tr(segments)}"
@@ -264,48 +279,112 @@ def _flat_pattern_image(session, operations, core, gui):
     return image
 
 
-def _overview_html(session, operations, rows, tooling, core, gui, diagrams):
+def _overview_html(session, operations, rows, tooling, core, gui, diagrams, options):
     from freecad_smbs.ui.tool_section_preview import draw_tool_section
+    html = f'<h1>{escape(tr("flat_pattern_and_tooling"))}</h1><h2>{escape(session.part_label)}</h2>'
+    if options.includes("flat_pattern"):
+        diagrams.append(("smbs-flat.png", _flat_pattern_image(session, operations, core, gui)))
+        html += (f'<p><img width="650" height="{diagrams[-1][1].height()*650/diagrams[-1][1].width():.0f}" src="smbs-flat.png"></p>'
+                 f'<p>{escape(tr("numbers_indicate_operation_order_indicate_the_signed_flat_pattern"))}</p>')
+    if options.includes("schedule"):
+        html += ('<table border="1" cellspacing="0" cellpadding="4" width="100%">'
+                 f'<tr><th>{escape(tr("operation_no"))}</th><th>{escape(tr("line"))}</th>'
+                 f'<th>{escape(tr("stage"))}</th><th>{escape(tr("bend_angle"))}</th>'
+                 f'<th>{escape(tr("bend_direction"))}</th>')
+        if options.includes("gauge_text"):
+            html += '<th>Backgauge S, mm</th><th>Flat flange, mm</th>'
+        html += '</tr>'
+        for index,(op,row) in enumerate(zip(operations,rows,strict=True),1):
+            html += (f'<tr><td>{index}</td><td>{escape(op.bend_id)}</td>'
+                     f'<td>{escape(_stage_name(op))}</td><td>{op.target_angle_deg:+.2f}°</td>'
+                     f'<td>{escape(_bend_direction(op.target_angle_deg))}</td>')
+            if options.includes("gauge_text"):
+                html += f'<td>{escape(row[4])}</td><td>{escape(row[5])}</td>'
+            html += '</tr>'
+        html += '</table>'
+    if options.includes("tool_details"):
+        kinds = [kind for kind in ("punch","die") if options.shows(kind)]
+        if kinds:
+            html += '<table width="100%"><tr>'
+        for kind in kinds:
+            tool = getattr(tooling,kind)
+            html += f'<td width="{100//len(kinds)}%"><h2>{escape(tr(kind))}</h2>'
+            if tool is not None:
+                outer,holes = getattr(tooling,kind+"_polygons_machine")()
+                if outer:
+                    image = draw_tool_section((outer,*holes),gui.QColor(_COLORS[kind]),core,gui)
+                    name = f"smbs-{kind}-section.png"
+                    diagrams.append((name,image.toImage()))
+                    html += f'<p><img width="220" height="145" src="{name}"></p>'
+                column = -2 if kind=="punch" else -1
+                if options.includes("segment_text"):
+                    for segments in dict.fromkeys(row[column] for row in rows):
+                        numbers = ", ".join(str(i) for i,row in enumerate(rows,1) if row[column]==segments)
+                        html += f'<p>{escape(tr("operation_no"))}: {numbers}<br>{escape(_tool_line(tooling,kind,segments))}</p>'
+                else:
+                    html += f'<p>{escape(_tool_line(tooling,kind,"",segment_text=False))}</p>'
+            else:
+                html += '<p>—</p>'
+            html += '</td>'
+        if kinds:
+            html += '</tr></table>'
+    return html
 
-    diagrams.append(("smbs-flat.png", _flat_pattern_image(session, operations, core, gui)))
-    html = (f'<h1>{escape(tr("flat_pattern_and_tooling"))}</h1>'
-            f'<h2>{escape(session.part_label)}</h2>'
-            f'<p><img width="650" height="{diagrams[-1][1].height() * 650 / diagrams[-1][1].width():.0f}" src="smbs-flat.png"></p>'
-            f'<p>{escape(tr("numbers_indicate_operation_order_indicate_the_signed_flat_pattern"))}</p>'
-            '<table border="1" cellspacing="0" cellpadding="4" width="100%">'
-            f'<tr><th>{escape(tr("operation_no"))}</th><th>{escape(tr("line"))}</th>'
-            f'<th>{escape(tr("stage"))}</th><th>{escape(tr("bend_angle"))}</th>'
-            f'<th>{escape(tr("bend_direction"))}</th>'
-            '<th>Backgauge S, mm</th><th>Flat flange, mm</th></tr>')
-    for index, (op, row) in enumerate(zip(operations, rows, strict=True), 1):
-        html += (f'<tr><td>{index}</td><td>{escape(op.bend_id)}</td>'
-                 f'<td>{escape(_stage_name(op))}</td><td>{op.target_angle_deg:+.2f}°</td>'
-                 f'<td>{escape(_bend_direction(op.target_angle_deg))}</td>'
-                 f'<td>{escape(row[4])}</td><td>{escape(row[5])}</td></tr>')
-    html += '</table><table width="100%"><tr>'
-    for kind, title in (("punch", "punch"), ("die", "die")):
-        tool = getattr(tooling, kind)
-        html += f'<td width="50%"><h2>{escape(tr(title))}</h2>'
-        if tool is not None:
-            outer, holes = getattr(tooling, kind + "_polygons_machine")()
-            if outer:
-                image = draw_tool_section((outer, *holes), gui.QColor(_COLORS[kind]), core, gui)
-                name = f"smbs-{kind}-section.png"
-                diagrams.append((name, image.toImage()))
-                html += f'<p><img width="220" height="145" src="{name}"></p>'
-            column = -2 if kind == "punch" else -1
-            for segments in dict.fromkeys(row[column] for row in rows):
-                numbers = ", ".join(str(i) for i, row in enumerate(rows, 1) if row[column] == segments)
-                html += (f'<p>{escape(tr("operation_no"))}: {numbers}<br>'
-                         f'{escape(_tool_line(tooling, kind, segments))}</p>')
-        else:
-            html += '<p>—</p>'
-        html += '</td>'
-    return html + '</tr></table>'
+
+def _clamp_faces(spans, height, depth, beam_z):
+    faces = []
+    for left,right in spans:
+        bounds = dict(xmin=left,xmax=right,ymin=-depth/2,ymax=depth/2,
+                      zmin=beam_z-height,zmax=beam_z)
+        faces.extend(replace(face,kind="clamps",identifier="clamp") for face in collision_box_faces(bounds))
+    return tuple(faces)
 
 
-def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positions_per_page=1, large_first=False):
+def _scene_extent(scenes, sheets, axis, options):
+    # Keep the working-area crop by default, but fit every enabled layer
+    # including the full machine when explicitly requested.
+    faces = tuple(f for scene in scenes for f in visible_faces(scene,options)
+                  if options.fit_machine or face_layer(f) != "frame")
+    if not faces:
+        faces = tuple(f for sheet in sheets for f in sheet)
+    return _extent(faces,axis)
+
+
+def _collision_page(workspace, hit, tooling, options, core, gui, diagrams, index):
+    from smbs_core.kinematics2d.workpiece_placement_3d import PlacementTransform3D
+    session = workspace.session
+    pose = hit["sampled_machine_pose"]
+    bid = hit["bend"]
+    state = FoldState(session.graph,session.fixed_panel)
+    for bend,angle in pose["angles_deg"].items():
+        state.set_angle(bend,angle)
+    placement = PlacementTransform3D(rotation=tuple(tuple(row) for row in pose["rotation"]),
+                                     translation=tuple(pose["translation"]))
+    sheet = build_sheet_preview_faces(state,session.panel_vertices_xy,bid,None,
+        machine_placement=placement,panel_meshes=getattr(session.unfold_data,"panel_meshes",None))
+    length = dist(*state.bends[bid].axis_xyz)
+    axis = ((0,-length/2,0),(0,length/2,0))
+    tools = build_tool_preview_faces(tooling,active_bend_length_mm=length,punch_ram_z_mm=float(hit["ram_z_mm"]))
+    box = collision_box_faces(hit.get("overlap_bbox_xyz_mm"))
+    faces = (*sheet,*tools,*box)
+    name = f"smbs-collision-{index}.png"
+    diagrams.append((name,_diagram(core,gui,faces,_extent(visible_faces(faces,options),axis),
+                                   _extent(sheet,axis),axis,sheet_faces=sheet,active_bend=bid,options=options)))
+    status = "Conditional finding" if hit.get("conditional") else "Confirmed sampled collision"
+    return (f'<h1>{escape(status)} · {escape(str(hit["operation"]))}</h1>'
+            f'<p>{escape(str(hit["phase"]))} · {escape(str(hit["tool"]))} · {escape(str(hit["component"]))}</p>'
+            f'<p>Overlap volume: {float(hit["occ_overlap_volume_mm3"]):.6g} mm³ · Ram Z: {float(hit["ram_z_mm"]):.3f} mm</p>'
+            f'<p><img width="600" height="270" src="{name}"></p>'
+            '<p>Red box: recorded overlap bounding box, not exact intersection solid. '
+            'Sheet pose is the recorded Mesh sample; tooling is a profile preview. '
+            'Machine and backgauge are omitted on collision evidence pages. '
+            'Sampled findings do not certify continuous collision clearance.</p>')
+
+
+def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positions_per_page=1, large_first=False, options=None):
     """Export one setup page per operation without modifying the active document."""
+    options = options or PdfOptions(positions_per_page=positions_per_page,large_first=large_first)
+    positions_per_page,large_first = options.positions_per_page,options.large_first
     if isinstance(positions_per_page, bool) or not isinstance(positions_per_page, int) or not 1 <= positions_per_page <= 10:
         raise ValueError("positions_per_page must be an integer from 1 to 10")
     session = workspace.session
@@ -327,22 +406,34 @@ def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positio
     tooling = replace(workspace.tooling_setup, visible=True)
     library = workspace.tool_library.library_root
     warnings = []
-    try:
-        frame, beam, rest_z, _ = load_frame_meshes(library)
-    except _CAD_ERRORS:
-        frame = beam = None
-        warnings.append(tr("machine_frame_model_unavailable"))
+    frame = beam = None
+    rest_z = ram_width = 0.0
+    if options.shows("frame") or options.shows("clamps"):
+        try:
+            frame, beam, rest_z, ram_width = load_frame_meshes(library)
+        except _CAD_ERRORS:
+            if options.shows("frame"):
+                warnings.append(tr("machine_frame_model_unavailable"))
     model = workspace.backgauge_model
     gauge = None
-    if model is not None and model.cad_geometry_enabled:
+    if options.shows("gauge") and model is not None and model.cad_geometry_enabled:
         try:
             gauge = load_gauge_mesh(library)
         except _CAD_ERRORS:
             warnings.append(tr("backgauge_model_unavailable"))
+    clamp_height = CLAMP_HEIGHT_MM
+    clamp_depth = 50.0
+    clamp_spans = ()
     try:
-        clamp_height = load_clamp_config(library).height_mm
+        config = getattr(workspace,"_project_clamp_config",None) or load_clamp_config(library)
+        if not config.centres_mm and ram_width > 0:
+            config = replace(config,clamp_count=int((ram_width+config.gap_between_mm)/(config.width_mm+config.gap_between_mm)))
+        from smbs_core.kinematics2d.tooling_assembly import clamp_spans_for_centres
+        clamp_spans = clamp_spans_for_centres(config.centres_mm,config.width_mm)
+        clamp_height,clamp_depth = config.height_mm,config.depth_mm
     except (OSError, ValueError, ClampValidatorError):
-        clamp_height = CLAMP_HEIGHT_MM
+        if options.shows("clamps"):
+            warnings.append("Clamp configuration unavailable.")
     die_outline, _ = tooling.die_polygons_machine() if tooling.die is not None else ((), ())
     punch_outline, _ = tooling.punch_polygons_machine() if tooling.punch is not None else ((), ())
     bed_z = min((z for _, z in die_outline), default=0.0)
@@ -351,8 +442,8 @@ def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positio
     native_by_length = {}
     pages = []
     diagrams = []
-    overview = _overview_html(session, operations, rows[:len(operations)], tooling,
-                              qt_core, gui, diagrams)
+    overview = (_overview_html(session, operations, rows[:len(operations)], tooling,
+                              qt_core, gui, diagrams, options) if options.includes("overview") else "")
     for index, (operation, row) in enumerate(zip(operations, rows[:len(operations)], strict=True)):
         bid = operation.bend_id
         length = dist(*state.bends[bid].axis_xyz)
@@ -400,45 +491,62 @@ def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positio
                             for face in _mesh_faces(gauge, "gauge", (stop.s_mm, x, stop.z_mm))
                             ) if gauge and stop is not None else ()
         axis = ((0, -length / 2, 0), (0, length / 2, 0))
-        extent = _extent((*before, *after, *gauge_faces), axis)
         scenes = []
         for sheet, ram_z in ((before, upper_z), (after, bottom_z)):
             mounts = ()
+            beam_z = ram_z + punch_top + clamp_height if punch_outline else bed_z + rest_z
             if beam:
-                beam_z = ram_z + punch_top + clamp_height if punch_outline else bed_z + rest_z
                 mounts = _mesh_faces(beam, "frame", (0, 0, beam_z))
+            clamps = _clamp_faces(clamp_spans,clamp_height,clamp_depth,beam_z) if options.shows("clamps") else ()
             tools = (build_tool_preview_faces(
                 tooling, active_bend_length_mm=length, punch_ram_z_mm=ram_z,
                 section_preview=section_preview,
             ) if section_preview else _tools_for_diagram(tooling, length, ram_z, meshes))
-            scenes.append((*bed_faces, *mounts, *tools, *gauge_faces, *sheet))
+            scenes.append((*bed_faces, *mounts, *clamps, *tools, *gauge_faces, *sheet))
+        extent = _scene_extent(scenes,(before,after),axis,options)
         part_extent = _extent((*before, *after), axis)
         for label, faces, sheet in zip(("before", "after"), scenes, (before, after)):
+            if not options.includes(label):
+                continue
             name = f"smbs-{index}-{label}.png"
             diagrams.append((name, _diagram(qt_core, gui, faces, extent, part_extent, axis,
-                                             sheet_faces=sheet, active_bend=bid)))
+                                             sheet_faces=sheet, active_bend=bid, options=options)))
 
         gauge_text = "—" if stop is None else (
             f"S = {stop.s_mm:.2f} mm · Z = {stop.z_mm:+.2f} mm"
             + (" · X = " + ", ".join(f"{x:+.2f}" for x in stations) + " mm" if stations else "")
         )
-        next_page = ""
-        pages.append(
-            f'<h1{next_page}>{escape(tr("bend_instructions"))} · {index + 1}/{len(operations)}</h1>'
-            f'<h2>{escape(session.part_label)} · {escape(operation.operation_id)} · {escape(_stage_name(operation))}</h2>'
-            f'<p>{escape(tr("bend_angle"))} <b>{initial_angle:+.2f}° → {operation.target_angle_deg:+.2f}°</b>'
-            f' · {escape(tr("part_rotation"))} <b>{180 if reverse else 0}°</b></p>'
-            f'<p><b>{escape(tr("punch"))}</b> {escape(_tool_line(workspace.tooling_setup, "punch", row[-2]))}</p>'
-            f'<p><b>{escape(tr("die"))}</b> {escape(_tool_line(workspace.tooling_setup, "die", row[-1]))}</p>'
-            f'<p><b>{escape(tr("backgauge"))}</b> {escape(gauge_text)} {escape(tr(note))}</p>'
-            f'<h2>{escape(tr("setup_before_bending"))}</h2>'
-            f'<p><img width="600" height="270" src="smbs-{index}-before.png"></p>'
-            f'<h2>{escape(tr("shape_after_bending"))}</h2>'
-            f'<p><img width="600" height="270" src="smbs-{index}-after.png"></p>'
-            f'<p class="muted">{escape(tr("working_area_on_the_left_part_with_the_current"))}</p>'
-            + (f'<p class="muted">{escape(" ".join(warnings))}</p>' if warnings else "")
-            + f'<p class="muted">{escape(tr("the_diagrams_show_part_orientation_and_shape_verify_collisions"))}</p>'
-        )
+        html = (f'<h1>{escape(tr("bend_instructions"))} · {index+1}/{len(operations)}</h1>'
+                f'<h2>{escape(session.part_label)} · {escape(operation.operation_id)} · {escape(_stage_name(operation))}</h2>'
+                f'<p>{escape(tr("bend_angle"))} <b>{initial_angle:+.2f}° → {operation.target_angle_deg:+.2f}°</b>'
+                f' · {escape(tr("part_rotation"))} <b>{180 if reverse else 0}°</b></p>')
+        if options.includes("tool_details"):
+            for kind,column in (("punch",-2),("die",-1)):
+                if options.shows(kind):
+                    html += f'<p><b>{escape(tr(kind))}</b> {escape(_tool_line(tooling,kind,row[column],segment_text=options.includes("segment_text")))}</p>'
+        if options.includes("gauge_text"):
+            html += f'<p><b>{escape(tr("backgauge"))}</b> {escape(gauge_text)} {escape(tr(note))}</p>'
+        for label,title in (("before","setup_before_bending"),("after","shape_after_bending")):
+            if options.includes(label):
+                html += f'<h2>{escape(tr(title))}</h2><p><img width="600" height="270" src="smbs-{index}-{label}.png"></p>'
+        if warnings:
+            html += f'<p class="muted">{escape(" ".join(warnings))}</p>'
+        html += f'<p class="muted">{escape(tr("the_diagrams_show_part_orientation_and_shape_verify_collisions"))}</p>'
+        pages.append(html)
+    collision_pages = []
+    if options.shows("collision"):
+        hits = current_collision_hits(workspace)
+        selected_ids = {op.operation_id for op in operations}
+        for index, hit in enumerate(hits):
+            if hit.get("operation") not in selected_ids:
+                continue
+            try:
+                collision_pages.append(_collision_page(workspace,hit,tooling,options,qt_core,gui,diagrams,index))
+            except _CAD_ERRORS as exc:
+                collision_pages.append(f'<h1>Sampled collision · {escape(str(hit.get("operation","")))}</h1>'
+                                       f'<p>Evidence image unavailable: {escape(str(exc))}</p>')
+        if not collision_pages:
+            collision_pages.append('<h1>Collision evidence</h1><p>No matching recorded findings for the current setup. This is not a clearance verdict. Run Mesh to obtain current sampled evidence.</p>')
 
     document.setHtml("<html><body></body></html>")
     for name, image in diagrams:
@@ -449,7 +557,7 @@ def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positio
         writer = gui.QPdfWriter(str(output))
         writer.setResolution(96)
         writer.setPageLayout(gui.QPageLayout(
-            gui.QPageSize(gui.QPageSize.A4), gui.QPageLayout.Portrait,
+            gui.QPageSize(gui.QPageSize.A4), gui.QPageLayout.Landscape if options.landscape else gui.QPageLayout.Portrait,
             qt_core.QMarginsF(12, 12, 12, 12),
         ))
         writer.setTitle(tr("bend_instructions") + " · " + session.part_label)
@@ -459,16 +567,17 @@ def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positio
             raise OSError(tr("could_not_save_the_pdf"))
         try:
             available = writer.pageLayout().paintRectPixels(writer.resolution())
-            document.setHtml("<html><body>" + overview + "</body></html>")
-            size = document.size()
-            scale = min((available.width() - 8) / size.width(),
-                        (available.height() - 8) / size.height())
-            painter.save()
-            painter.scale(scale, scale)
-            document.drawContents(painter)
-            painter.restore()
-            if not writer.newPage():
-                raise OSError(tr("could_not_save_the_pdf"))
+            if overview:
+                document.setHtml("<html><body>" + overview + "</body></html>")
+                size = document.size()
+                scale = min((available.width() - 8) / size.width(),
+                            (available.height() - 8) / size.height())
+                painter.save()
+                painter.scale(scale, scale)
+                document.drawContents(painter)
+                painter.restore()
+                if not writer.newPage():
+                    raise OSError(tr("could_not_save_the_pdf"))
             for index, html in enumerate(pages):
                 slot = index % positions_per_page
                 if index and slot == 0 and not writer.newPage():
@@ -487,6 +596,16 @@ def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positio
                 painter.translate(x + (slot_width - size.width() * scale) / 2,
                                   y + (slot_height - size.height() * scale) / 2)
                 painter.scale(scale, scale)
+                document.drawContents(painter)
+                painter.restore()
+            for html in collision_pages:
+                if not writer.newPage():
+                    raise OSError(tr("could_not_save_the_pdf"))
+                document.setHtml("<html><body>"+html+"</body></html>")
+                size = document.size()
+                scale = min((available.width()-8)/size.width(),(available.height()-8)/size.height())
+                painter.save()
+                painter.scale(scale,scale)
                 document.drawContents(painter)
                 painter.restore()
         finally:
