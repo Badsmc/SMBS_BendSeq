@@ -1,0 +1,28 @@
+name: Addon preflight
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  headless:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Inspect runtime dependencies and manifest
+        run: python scripts/addon_preflight.py
+      - name: Run headless regression tests
+        run: python -m unittest discover -s tests -v
