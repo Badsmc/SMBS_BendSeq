@@ -68,3 +68,36 @@ class ParametricToolTest(unittest.TestCase):
         for width,height in ((60,0),(0,18),(10,18),(60,100)):
             with self.subTest(width=width,height=height), self.assertRaises(ValueError):
                 build_contour(ToolRecipe("bad",kind="die",base_width=width,base_height=height))
+
+    def test_independent_die_dimensions(self):
+        from smbs_core.kinematics2d.parametric_tool_drawing import drawing_model
+        recipe = ToolRecipe("asymmetric",kind="die",width=36,opening=25,height=80,
+                            body_offset=1,base_width=64,base_offset=2,
+                            base_height=17,base_right_height=20,radius=1)
+        contour,dims = drawing_model(recipe)
+        values={d.key:d.value for d in dims}
+        self.assertEqual((values["left_width"],values["right_width"]),(17,19))
+        self.assertEqual((values["base_left"],values["base_right"]),(30,34))
+        self.assertEqual((values["upper_left"],values["upper_right"]),(63,60))
+        with TemporaryDirectory() as tmp:
+            path=Path(tmp)/"die.dxf"
+            path.write_text(dxf_text(contour),encoding="ascii")
+            profile=import_tool_from_dxf(path,"die")
+            self.assertEqual(profile.validation_status,ValidationStatus.GEOMETRY_VERIFIED)
+            self.assertAlmostEqual(float(profile.v_opening_mm),25,places=5)
+
+    def test_mirror_and_relief_controls(self):
+        from smbs_core.kinematics2d.parametric_tool_drawing import drawing_model
+        recipe = ToolRecipe("relief",height=150,width=45,relief_depth=24,
+                            relief_height=35,relief_start=8,relief_transition=3)
+        right,dims=drawing_model(recipe)
+        left,_=drawing_model(replace(recipe,relief_side="left"))
+        self.assertAlmostEqual(right.area,left.area,places=5)
+        self.assertNotEqual(dxf_text(right),dxf_text(left))
+        self.assertEqual(next(d.value for d in dims if d.key=="relief_start"),8)
+        with TemporaryDirectory() as tmp:
+            path=Path(tmp)/"punch.dxf"
+            path.write_text(dxf_text(left),encoding="ascii")
+            profile=import_tool_from_dxf(path,"punch")
+            self.assertEqual(profile.validation_status,ValidationStatus.GEOMETRY_VERIFIED)
+        self.assertRaises(ValueError,build_contour,replace(recipe,relief_transition=20))

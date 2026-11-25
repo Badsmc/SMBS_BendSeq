@@ -678,6 +678,7 @@ class ToolingPanel:
                         )
                         self._show_picture(self.tool_picture, path, backgauge=True)
                         return
+                    self.generate_tool_button.setText(tr(("parametric_create_punch", "parametric_create_die")[index]))
                     self.import_tool_button.setText(tr(("import_punch", "import_die")[index]))
                     self.remove_tool_button.setText(tr(("remove_punch", "remove_die")[index]))
                     self.segments_button.setText(tr(("punch_segments", "die_segments")[index]))

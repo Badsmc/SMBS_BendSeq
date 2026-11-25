@@ -1,9 +1,7 @@
-"""Dimension geometry for the live editor, independent of Qt and FreeCAD."""
+"""Dimensions anchored to the exact exported profile, independent of Qt."""
 from __future__ import annotations
-
 from dataclasses import dataclass
 from math import cos, radians, sin, tan
-
 from smbs_core.kinematics2d.parametric_tool import ToolRecipe, build_contour
 
 
@@ -19,45 +17,58 @@ class Dimension:
 
 
 def drawing_model(recipe: ToolRecipe):
-    """Return the exact export contour plus dimension anchors in CAD XY.
-
-    Positive lanes are right/bottom and negative lanes left/top in the preview.
-    Angle and radius annotations use leaders rather than false scale dimensions.
-    """
     contour = build_contour(recipe)
-    h, w, r = recipe.height, recipe.width / 2, recipe.radius
-    a = radians(recipe.angle / 2)
+    h,w,r = recipe.height,recipe.width/2,recipe.radius
+    a = radians(recipe.angle/2)
     dims = []
-    def add(key, code, value, axis, p, q, lane=1):
-        dims.append(Dimension(key, code, value, axis, p, q, lane))
+    def add(key,code,value,axis,p,q,lane=1):
+        dims.append(Dimension(key,code,value,axis,p,q,lane))
     if recipe.kind == "punch":
-        sw = recipe.shank_width / 2
-        top = h - recipe.shank_height
-        add("height", "H2", h, "v", (0,0), (sw,h), 2)
-        add("working_height", "H1", top, "v", (0,0), (w,top), 1)
-        add("width", "W", 2*w, "h", (-w,top), (w,top), -2)
-        add("shank_width", "S", 2*sw, "h", (-sw,h), (sw,h), -1)
-        add("shank_height", "H2-H1", recipe.shank_height, "v", (-sw,top), (-sw,h), -1)
-        add("radius", "R", r, "leader", (0,0), (0,0), -1)
-        add("angle", "α", recipe.angle, "leader", (r*cos(a),r*(1-sin(a))), (0,0), 1)
+        sw = recipe.shank_width/2
+        top = h-recipe.shank_height
+        add("height","H2",h,"v",(0,0),(sw,h),2)
+        add("working_height","H1",top,"v",(0,0),(w,top),1)
+        add("width","L6",2*w,"h",(-w,top),(w,top),-2)
+        add("shank_width","L5",2*sw,"h",(-sw,h),(sw,h),-1)
+        add("shank_height","H2-H1",recipe.shank_height,"v",(-sw,top),(-sw,h),-1)
+        add("radius","r",r,"leader",(0,0),(0,0),-1)
+        add("angle","α",recipe.angle,"leader",(r*cos(a),r*(1-sin(a))),(0,0),1)
+        x,y = r*cos(a),r*(1-sin(a))
+        shoulder = y+(w-x)/tan(a)
+        sign = -1 if recipe.relief_side=="left" else 1
+        add("tip_height","L1",shoulder,"v",(0,0),(sign*w,shoulder),-1)
         if recipe.relief_depth:
-            x, y = r*cos(a), r*(1-sin(a))
-            shoulder = y + (w-x)/tan(a)
-            low, high = shoulder+2, shoulder+2+recipe.relief_height
-            add("relief_depth", "D", recipe.relief_depth, "h",
-                (w-recipe.relief_depth, low+1), (w,low+1), 1)
-            add("relief_height", "C", recipe.relief_height, "v", (w,low), (w,high), -2)
+            low = shoulder+recipe.relief_start
+            high = low+recipe.relief_height
+            inner = sign*(w-recipe.relief_depth)
+            add("relief_start","L2",recipe.relief_start,"v",(sign*w,shoulder),(sign*w,low),-2)
+            add("relief_height","L3",recipe.relief_height,"v",(sign*w,low),(sign*w,high),-2)
+            add("relief_transition","L4",recipe.relief_transition,"v",(sign*w,low),(inner,low+recipe.relief_transition),-3)
+            add("relief_depth","L7",recipe.relief_depth,"local_h",(inner,low+recipe.relief_transition),(sign*w,low+recipe.relief_transition),1)
+            add("remaining_width","L8",2*w-recipe.relief_depth,"local_h",(-sign*w,(low+high)/2),(inner,(low+high)/2),-1)
     else:
+        left,right = recipe.body_offset-w,recipe.body_offset+w
         b = recipe.base_width/2 if recipe.base_width else w
+        bl,br = (recipe.base_offset-b,recipe.base_offset+b) if recipe.base_width else (left,right)
         v = recipe.opening/2
         depth = v/tan(a)
         center = v+r*(1-sin(a))/cos(a)
-        add("height", "H", h, "v", (b,-h), (w,0), 2)
-        add("width", "W", 2*w, "h", (-w,0), (w,0), -2)
-        add("opening", "V", recipe.opening, "h", (-v,0), (v,0), -1)
-        add("radius", "R", r, "leader", (center-r*cos(a),-r+r*sin(a)), (0,0), -1)
-        add("angle", "α", recipe.angle, "leader", (0,-depth), (0,0), 1)
+        add("height","H",h,"v",(br,-h),(right,0),2)
+        add("width","W",2*w,"h",(left,0),(right,0),-3)
+        add("left_width","L1",-left,"h",(left,0),(0,0),-2)
+        add("right_width","L2",right,"h",(0,0),(right,0),-2)
+        add("opening","V",recipe.opening,"h",(-v,0),(v,0),-1)
+        add("radius","r",r,"leader",(center-r*cos(a),-r+r*sin(a)),(0,0),-1)
+        add("angle","α",recipe.angle,"leader",(0,-depth),(0,0),1)
+        add("groove_depth","L7",depth,"v",(0,-depth),(right,0),1)
         if recipe.base_width:
-            add("base_width", "B", recipe.base_width, "h", (-b,-h), (b,-h), 1)
-            add("base_height", "T", recipe.base_height, "v", (-b,-h), (-b,-h+recipe.base_height), -1)
-    return contour, tuple(dims)
+            lh=recipe.base_height
+            rh=lh if recipe.base_right_height is None else recipe.base_right_height
+            add("base_width","B",recipe.base_width,"h",(bl,-h),(br,-h),2)
+            add("base_left","L3",-bl,"h",(bl,-h),(0,-h),1)
+            add("base_right","L4",br,"h",(0,-h),(br,-h),1)
+            add("base_height","L5",lh,"v",(bl,-h),(bl,-h+lh),-1)
+            add("base_right_height","L6",rh,"v",(br,-h),(br,-h+rh),1)
+            add("upper_left","L8",h-lh,"v",(left,-h+lh),(left,0),-1)
+            add("upper_right","L9",h-rh,"v",(right,-h+rh),(right,0),1)
+    return contour,tuple(dims)

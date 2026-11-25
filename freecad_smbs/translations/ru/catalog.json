@@ -1025,5 +1025,17 @@
   "parametric_live_drawing": "Динамический профиль · размеры в мм",
   "parametric_preview_stock": "Длина модели: {length} мм | Количество сегментов: {quantity}",
   "parametric_invalid_profile": "Некорректный профиль: {error}",
-  "parametric_valid_profile": "Контур замкнут и корректен. Перед сохранением будет проверено 3D-тело."
+  "parametric_valid_profile": "Контур замкнут и корректен. Перед сохранением будет проверено 3D-тело.",
+  "parametric_create_punch": "Создать пуансон",
+  "parametric_create_die": "Создать матрицу",
+  "parametric_save_new": "Сохранить новый инструмент",
+  "parametric_export_dxf": "Экспорт DXF",
+  "parametric_relief_start": "Начало выреза над скосом",
+  "parametric_relief_transition": "Высота перехода выреза",
+  "parametric_mirror_relief": "Вырез слева",
+  "parametric_left_width": "Ширина верхней части слева",
+  "parametric_right_width": "Ширина верхней части справа",
+  "parametric_base_left": "Ширина основания слева",
+  "parametric_base_right": "Ширина основания справа",
+  "parametric_right_base_height": "Высота основания справа (0 = прямоугольная)"
 }

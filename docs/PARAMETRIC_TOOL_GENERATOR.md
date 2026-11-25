@@ -33,3 +33,15 @@ set both to zero for a rectangular die. Dimension symbols are SMBS conventions,
 not a claim of compatibility with a specific CNC controller's L1–L9 schema.
 No controller safety or force settings are copied. The diagrams are screen
 previews; the exported circular arcs are exact.
+
+## Extended editor controls
+
+H1 and H2 are independently editable; the mounting shank height is derived.
+The punch relief has editable starting position, height, transition and depth,
+and can be mirrored left/right. The die supports independent left/right upper
+widths, base widths and base heights. L7 groove depth and L8/L9 upper heights
+are derived dimensions, not independent constraints. The SMBS dimension codes
+are not a direct import format for the photographed CNC controller. Reset
+restores the current preset. DXF export is explicit and refuses to overwrite
+an existing file; Save new tool uses the native validated library export.
+Controller force and safety fields are intentionally not simulated.

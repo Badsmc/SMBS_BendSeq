@@ -34,8 +34,8 @@ def make_preview(QtCore, QtGui, QtWidgets, parent=None):
             contour, dimensions = self.model
             x0,y0,x1,y1 = contour.bbox()
             # Keep annotation lanes outside the fitted profile. Use one scale for X/Y.
-            margin_x = min(128.0, self.width()*0.29)
-            margin_y = min(85.0, self.height()*0.22)
+            margin_x = min(155.0, self.width()*0.32)
+            margin_y = min(105.0, self.height()*0.24)
             scale = min((self.width()-2*margin_x)/max(x1-x0,1e-6),
                         (self.height()-2*margin_y)/max(y1-y0,1e-6))
             if scale <= 0:
@@ -95,15 +95,17 @@ def make_preview(QtCore, QtGui, QtWidgets, parent=None):
                 p.setPen(QtGui.QPen(active if selected else normal, 1.8 if selected else 1))
                 text = f"{dim.code} {dim.value:g}" + ("°" if dim.key=="angle" else "")
                 a,b = pt(dim.start),pt(dim.end)
-                if dim.axis == "h":
-                    # Relief depth is an internal measurement; use a local lane.
-                    if dim.key == "relief_depth":
-                        y = a.y()+17
+                if dim.axis in ("h","local_h"):
+                    if dim.axis == "local_h":
+                        y = a.y()+dim.lane*14
                     else:
                         y = (top if dim.lane<0 else bottom)+dim.lane*23
                     aa,bb = QtCore.QPointF(a.x(),y),QtCore.QPointF(b.x(),y)
                     line(a,aa); line(b,bb); line(aa,bb); arrow(aa,bb); arrow(bb,aa)
-                    label((aa.x()+bb.x())/2,y-8,text)
+                    mid=(aa.x()+bb.x())/2
+                    if abs(aa.x()-bb.x()) < p.fontMetrics().horizontalAdvance(text)+10:
+                        mid += (-1 if mid < axis_x else 1)*28
+                    label(mid,y-8,text)
                 elif dim.axis == "v":
                     x = (left if dim.lane<0 else right)+dim.lane*33
                     aa,bb = QtCore.QPointF(x,a.y()),QtCore.QPointF(x,b.y())

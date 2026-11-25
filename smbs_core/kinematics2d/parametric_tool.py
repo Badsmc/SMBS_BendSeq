@@ -1,7 +1,7 @@
 """Original generic tooling profiles; demonstration geometry, not manufacturing designs."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from math import atan2, cos, degrees, isfinite, radians, sin, tan
 from pathlib import Path
 import re
@@ -28,6 +28,12 @@ class ToolRecipe:
     relief_height: float = 25.0
     base_width: float = 0.0
     base_height: float = 0.0
+    body_offset: float = 0.0
+    base_offset: float = 0.0
+    base_right_height: float | None = None
+    relief_start: float = 2.0
+    relief_transition: float = 1.0
+    relief_side: str = "right"
 
     def validate(self):
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}", self.tool_id):
@@ -47,6 +53,12 @@ class ToolRecipe:
                 raise ValueError("Invalid mounting shank dimensions")
             if not (0 <= self.relief_depth < self.width - 4 and self.relief_height > 0):
                 raise ValueError("Invalid relief dimensions")
+            if self.relief_side not in ("left", "right"):
+                raise ValueError("Invalid relief side")
+            if not (isfinite(self.relief_start) and self.relief_start >= 0
+                    and isfinite(self.relief_transition) and self.relief_transition > 0
+                    and 2*self.relief_transition < self.relief_height):
+                raise ValueError("Invalid relief position or transition")
         else:
             if not isfinite(self.opening) or not 0 < self.opening < self.width:
                 raise ValueError("V opening must be smaller than the body width")
@@ -55,6 +67,20 @@ class ToolRecipe:
             if self.base_width or self.base_height:
                 if not (self.width < self.base_width <= 5000 and 0 < self.base_height < self.height):
                     raise ValueError("Stepped die requires a wider base and a positive base height")
+            right_height = self.base_height if self.base_right_height is None else self.base_right_height
+            if not all(isfinite(v) for v in (self.body_offset, self.base_offset, right_height)):
+                raise ValueError("Non-finite die dimensions")
+            if abs(self.body_offset) >= self.width/2:
+                raise ValueError("Die body must straddle the working axis")
+            if self.base_width:
+                if not (0 < right_height < self.height
+                        and self.base_width/2-abs(self.base_offset) > 0):
+                    raise ValueError("Invalid right base height or offset")
+                if (self.base_width/2-self.base_offset <= self.width/2-self.body_offset
+                        or self.base_width/2+self.base_offset <= self.width/2+self.body_offset):
+                    raise ValueError("Both base ledges must extend beyond the upper body")
+            elif self.base_offset or right_height:
+                raise ValueError("Base dimensions require a stepped die")
 
 
 def _lines(points):
@@ -75,33 +101,43 @@ def build_contour(recipe: ToolRecipe) -> Contour2D:
         sw = recipe.shank_width / 2
         right = [(x, y), (w, shoulder)]
         if recipe.relief_depth:
-            low = shoulder + 2
+            low = shoulder + recipe.relief_start
             high = low + recipe.relief_height
             if high + 2 >= top:
                 raise ValueError("Relief does not fit between the tip and mounting shank")
             inner = w - recipe.relief_depth
-            right += [(w, low), (inner, low + 1), (inner, high - 1), (w, high)]
+            t = recipe.relief_transition
+            right += [(w, low), (inner, low + t), (inner, high - t), (w, high)]
         right += [(w, top), (sw, top), (sw, h), (-sw, h), (-sw, top), (-w, top),
                   (-w, shoulder), (-x, y)]
         # Avoid zero-length lines when shank and body have the same width.
         right = [p for i, p in enumerate(right) if i == 0 or p != right[i - 1]]
         edges = [ArcSegment2D((-x, y), (x, y), (0, r), r, True)] + _lines(right)
+        if recipe.relief_side == "left":
+            def mirror(p):
+                return (-p[0], p[1])
+            edges = [ArcSegment2D(mirror(e.end), mirror(e.start), mirror(e.center), e.radius, e.ccw)
+                     if isinstance(e, ArcSegment2D) else LineSegment2D(mirror(e.end), mirror(e.start))
+                     for e in reversed(edges)]
     else:
         v = recipe.opening / 2
         depth = v / tan(a)
         center_x = v + r * (1 - sin(a)) / cos(a)
         tx = center_x - r * cos(a)
         ty = -r + r * sin(a)
-        if center_x + 1 >= w or tx <= 0 or depth + 2 >= h or ty <= -depth:
+        left_x, right_x = recipe.body_offset-w, recipe.body_offset+w
+        if center_x + 1 >= min(-left_x, right_x) or tx <= 0 or depth + 2 >= h or ty <= -depth:
             raise ValueError("V groove or shoulder radius does not fit the die body")
         if recipe.base_width:
             b = recipe.base_width / 2
-            level = -h + recipe.base_height
-            right_body = [(-b, -h), (b, -h), (b, level), (w, level), (w, 0), (center_x, 0)]
-            left_body = [(-center_x, 0), (-w, 0), (-w, level), (-b, level), (-b, -h)]
+            bl, br = recipe.base_offset-b, recipe.base_offset+b
+            ll = -h + recipe.base_height
+            rr = -h + (recipe.base_height if recipe.base_right_height is None else recipe.base_right_height)
+            right_body = [(bl,-h),(br,-h),(br,rr),(right_x,rr),(right_x,0),(center_x,0)]
+            left_body = [(-center_x,0),(left_x,0),(left_x,ll),(bl,ll),(bl,-h)]
         else:
-            right_body = [(-w, -h), (w, -h), (w, 0), (center_x, 0)]
-            left_body = [(-center_x, 0), (-w, 0), (-w, -h)]
+            right_body = [(left_x,-h),(right_x,-h),(right_x,0),(center_x,0)]
+            left_body = [(-center_x,0),(left_x,0),(left_x,-h)]
         edges = _lines(right_body)
         edges.append(ArcSegment2D((center_x, 0), (tx, ty), (center_x, -r), r, True))
         edges += _lines([(tx, ty), (0, -depth), (-tx, ty)])
@@ -150,7 +186,8 @@ def tooling_metadata(recipe: ToolRecipe) -> dict:
                 "source_dxf":recipe.tool_id+".dxf",
                 "segments":[{"length_mm":recipe.length,"quantity":recipe.quantity}] if recipe.quantity else [],
                 "provenance":"Original SMBS parametric demonstration geometry",
-                "license":"CC-BY-SA-4.0", "manufacturing_certified":False}
+                "license":"CC-BY-SA-4.0", "manufacturing_certified":False,
+                "parametric_recipe":asdict(recipe)}
     if punch:
         metadata.update(radius_mm=recipe.radius,working_height_mm=recipe.height-recipe.shank_height)
     else:

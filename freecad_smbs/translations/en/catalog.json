@@ -1025,5 +1025,17 @@
   "parametric_live_drawing": "Live profile · dimensions in mm",
   "parametric_preview_stock": "Reference length: {length} mm | Stock quantity: {quantity}",
   "parametric_invalid_profile": "Invalid profile: {error}",
-  "parametric_valid_profile": "Closed profile is valid. Native solid will be checked before saving."
+  "parametric_valid_profile": "Closed profile is valid. Native solid will be checked before saving.",
+  "parametric_create_punch": "Create punch",
+  "parametric_create_die": "Create die",
+  "parametric_save_new": "Save new tool",
+  "parametric_export_dxf": "Export DXF",
+  "parametric_relief_start": "Relief start above tip flank",
+  "parametric_relief_transition": "Relief transition height",
+  "parametric_mirror_relief": "Relief on left side",
+  "parametric_left_width": "Left upper half-width",
+  "parametric_right_width": "Right upper half-width",
+  "parametric_base_left": "Left base half-width",
+  "parametric_base_right": "Right base half-width",
+  "parametric_right_base_height": "Right base height (0 = rectangular)"
 }
