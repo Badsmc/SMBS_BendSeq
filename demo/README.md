@@ -23,6 +23,4 @@ These models are geometry examples, not certified manufacturing plans. Names con
 
 ## Historical reference data
 
-`SMBendTests/` contains the JSON reference outputs from the earlier main baseline. They use the old filenames and schemas; use the table above to map original part names to current models. They are not validated expected results for the current engine.
-
-`legacy-tooling/` retains only non-punch/die fixture metadata. Historical punch/die geometry and tooling sets have been removed. Historical bend sequence JSON records describe operations, not tooling model geometry. The old executable batch runner and complete legacy implementation remain in the original main history.
+Historical bend-sequence JSON and diagnostic scenes were removed from all published branch and tag histories together with punch/die CAD files and tooling sets. The demo sheet-metal parts remain available. `legacy-tooling/` contains only remaining fixture metadata, not punches or dies.
