@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import sys
 
+from freecad_smbs.ui.localization import tr, tr_message
+
 
 def _print_fallback(prefix: str, title: str, msg: str) -> None:
     try:
@@ -22,6 +24,7 @@ def _print_fallback(prefix: str, title: str, msg: str) -> None:
 
 def show_info(title: str, msg: str) -> None:
     """Display an informative message dialog."""
+    title, msg = tr_message(title), tr_message(msg)
     try:
         from PySide6 import QtWidgets
         app = QtWidgets.QApplication.instance()
@@ -35,6 +38,7 @@ def show_info(title: str, msg: str) -> None:
 
 def show_error(title: str, msg: str) -> None:
     """Display an error message dialog."""
+    title, msg = tr_message(title), tr_message(msg)
     try:
         from PySide6 import QtWidgets
         app = QtWidgets.QApplication.instance()
@@ -48,6 +52,7 @@ def show_error(title: str, msg: str) -> None:
 
 def show_unverified_warning(title: str, msg: str) -> None:
     """Display a warning dialog regarding unverified or failed sequence."""
+    title, msg = tr_message(title), tr_message(msg)
     try:
         from PySide6 import QtWidgets
         app = QtWidgets.QApplication.instance()
@@ -80,51 +85,22 @@ def show_pipeline_result(result: Any) -> None:
             if isinstance(ang, dict):
                 ang = ang.get("value", "")
             ang_str = f" {ang}°" if ang != "" else ""
-            steps_lines.append(f"  Шаг {step_no}: {bid} ({direction}{ang_str})")
-        steps_text = "\n".join(steps_lines) if steps_lines else "  (нет шагов)"
+            steps_lines.append(tr("  Шаг {step}: {bend} ({direction}{angle})", step=step_no, bend=bid, direction=direction, angle=ang_str))
+        steps_text = "\n".join(steps_lines) if steps_lines else tr("  (нет шагов)")
 
         if planning_status == "SUCCESS":
             elig_str = "Готово к производству (production_eligible=true)" if prod_elig else "Не подтверждено для производства (production_eligible=false)"
-            msg = (
-                f"Последовательность успешно рассчитана!\n\n"
-                f"Порядок гибки ({len(seq)} шагов):\n"
-                f"{steps_text}\n\n"
-                f"Верификация: {verif_status}\n"
-                f"Статус: {elig_str}\n"
-                f"Директория запуска: {run_dir}\n\n"
-                f"Метки шагов нанесены на развёртку детали.\n"
-                f"Команды Симуляция и Верификация готовы к работе."
-            )
-            show_info("SMBS: Расчёт завершён", msg)
+            msg = tr("Последовательность успешно рассчитана!\n\nПорядок гибки ({count} шагов):\n{steps}\n\nВерификация: {verification}\nСтатус: {eligibility}\nДиректория запуска: {directory}\n\nМетки шагов нанесены на развёртку детали.\nКоманды Симуляция и Верификация готовы к работе.", count=len(seq), steps=steps_text, verification=verif_status, eligibility=tr(elig_str), directory=run_dir)
+            show_info(tr("SMBS: Расчёт завершён"), msg)
         else:  # PARTIAL (EXPLORATORY / without physical tooling)
-            msg = (
-                f"Геометрическая последовательность гибки найдена!\n\n"
-                f"Порядок гибки ({len(seq)} шагов):\n"
-                f"{steps_text}\n\n"
-                f"Верификация: {verif_status} (EXPLORATORY / без оснастки)\n"
-                f"Статус: Предварительный расчёт (production_eligible=false)\n"
-                f"Директория запуска: {run_dir}\n\n"
-                f"Метки шагов нанесены на развёртку детали.\n"
-                f"Команды Симуляция и Верификация готовы к работе.\n\n"
-                f"Примечание: Для полной производственной сертификации выберите инструмент в меню «Оснастка»."
-            )
-            show_info("SMBS: Геометрический расчёт (EXPLORATORY)", msg)
+            msg = tr("Геометрическая последовательность гибки найдена!\n\nПорядок гибки ({count} шагов):\n{steps}\n\nВерификация: {verification} (EXPLORATORY / без оснастки)\nСтатус: Предварительный расчёт (production_eligible=false)\nДиректория запуска: {directory}\n\nМетки шагов нанесены на развёртку детали.\nКоманды Симуляция и Верификация готовы к работе.\n\nПримечание: Для полной производственной сертификации выберите инструмент в меню «Оснастка».", count=len(seq), steps=steps_text, verification=verif_status, directory=run_dir)
+            show_info(tr("SMBS: Геометрический расчёт (EXPLORATORY)"), msg)
     elif planning_status == "NO_SOLUTION":
-        msg = (
-            f"Последовательность гибки не найдена (NO_SOLUTION).\n\n"
-            f"Причина:\n{err_msg or 'Все траектории гибки приводят к столкновению или недопустимы'}\n\n"
-            f"Директория запуска: {run_dir}\n"
-            f"Подробные логи доступны в 11_run_report.json."
-        )
-        show_unverified_warning("SMBS: Решение не найдено", msg)
+        msg = tr("Последовательность гибки не найдена (NO_SOLUTION).\n\nПричина:\n{reason}\n\nДиректория запуска: {directory}\nПодробные логи доступны в 11_run_report.json.", reason=err_msg or tr("Все траектории гибки приводят к столкновению или недопустимы"), directory=run_dir)
+        show_unverified_warning(tr("SMBS: Решение не найдено"), msg)
     else:
-        msg = (
-            f"Расчёт завершился с ошибкой ({planning_status}).\n\n"
-            f"Детали:\n{err_msg or 'Неизвестная ошибка'}\n\n"
-            f"Проверьте корректность модели листового металла в верстаке SheetMetal "
-            f"и вывод в панели отчётов FreeCAD (Report view)."
-        )
-        show_error("SMBS: Ошибка расчёта", msg)
+        msg = tr("Расчёт завершился с ошибкой ({status}).\n\nДетали:\n{details}\n\nПроверьте корректность модели листового металла в верстаке SheetMetal и вывод в панели отчётов FreeCAD (Report view).", status=planning_status, details=err_msg or tr("Неизвестная ошибка"))
+        show_error(tr("SMBS: Ошибка расчёта"), msg)
 
 
 class ProgressContext:
@@ -132,7 +108,7 @@ class ProgressContext:
 
     def __init__(self, title: str = "SMBS", text: str = "Выполняется расчёт..."):
         self.title = title
-        self.text = text
+        self.text = tr(text)
         self._dlg = None
 
     def __enter__(self) -> ProgressContext:

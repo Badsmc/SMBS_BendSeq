@@ -5,7 +5,7 @@ import json
 
 from smbs_core.kinematics2d.sequence_catalog import load_catalog_file, parse_diagnostic
 
-from freecad_smbs.ui.localization import tr
+from freecad_smbs.ui.localization import tr, tr_message
 
 
 def show_sequence_catalog(workspace):
@@ -80,14 +80,14 @@ def show_sequence_catalog(workspace):
         if entry is None:
             return
         details.setPlainText("\n".join((
-            "Порядок: " + " → ".join(entry.sequence),
-            "Источник: " + entry.source,
-            "Статус: " + entry.evidence,
-            "Штраф: " + (str(entry.cost) if entry.cost is not None else "неизвестен")
-            + (" (полный)" if entry.cost_complete else " (не подтверждён)"),
-            "Веса: " + json.dumps(entry.weights or {}, ensure_ascii=False),
-            "Предупреждения: " + ("; ".join(entry.warnings) or "нет в отчёте"),
-            "Штрафы шагов: " + json.dumps(
+            tr("Порядок: ") + " → ".join(entry.sequence),
+            tr("Источник: ") + entry.source,
+            tr("Статус: {status}", status=entry.evidence),
+            tr("Штраф: {cost} {quality}", cost=(str(entry.cost) if entry.cost is not None else tr("неизвестен")),
+               quality=(tr("(полный)") if entry.cost_complete else tr("(не подтверждён)"))),
+            tr("Веса: ") + json.dumps(entry.weights or {}, ensure_ascii=False),
+            tr("Предупреждения: ") + ("; ".join(entry.warnings) or tr("нет в отчёте")),
+            tr("Штрафы шагов: ") + json.dumps(
                 entry.cost_breakdown, ensure_ascii=False)[:12000],
         )))
     table.itemSelectionChanged.connect(display_details)
@@ -97,13 +97,13 @@ def show_sequence_catalog(workspace):
         failures = []
         for path in paths:
             try:
-                entries.extend(load_catalog_file(path))
+                entries.extend(load_catalog_file(path, translate=tr_message))
             except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
                 failures.append(Path(path).name + ": " + str(exc))
         manual_report = getattr(workspace, "_last_manual_sequence_report", None)
         if manual_report is not None:
             entries.extend(parse_diagnostic(
-                manual_report, "Текущий ручной порядок"))
+                manual_report, tr("Текущий ручной порядок"), translate=tr_message))
         entries[:] = list(dict((e.key, e) for e in entries).values())
         table.setRowCount(0)
         for entry in entries:
@@ -113,32 +113,32 @@ def show_sequence_catalog(workspace):
                 entry.origin,
                 " → ".join(entry.sequence),
                 "{:.2f}".format(entry.cost) if entry.cost_complete
-                else "н/д",
-                ", ".join(entry.warning_bends) or "нет",
+                else tr("н/д"),
+                ", ".join(entry.warning_bends) or tr("нет"),
                 entry.evidence,
                 entry.source,
             )
             for col, value in enumerate(values):
                 table.setItem(row, col, QtWidgets.QTableWidgetItem(value))
-        summary.setText("Вариантов: {} | источников: {} | ошибок: {}"
-                        .format(len(entries), len(paths), len(failures)))
+        summary.setText(tr("Вариантов: {variants} | источников: {sources} | ошибок: {errors}",
+                           variants=len(entries), sources=len(paths), errors=len(failures)))
         if failures:
-            details.setPlainText("Не удалось прочитать:\n" + "\n".join(failures[:12]))
+            details.setPlainText(tr("Не удалось прочитать:\n") + "\n".join(failures[:12]))
         elif entries:
             table.selectRow(0)
         else:
-            details.setPlainText("Добавьте JSON отчёты поиска или ручной проверки.")
+            details.setPlainText(tr("Добавьте JSON отчёты поиска или ручной проверки."))
 
     def import_files():
         files, _ = QtWidgets.QFileDialog.getOpenFileNames(
-            dlg, "Выбрать отчёты SMBS", str(Path.home()), "JSON (*.json)")
+            dlg, tr("Выбрать отчёты SMBS"), str(Path.home()), "JSON (*.json)")
         for path in files:
             record_path(path)
         reload()
 
     def import_folder():
         folder = QtWidgets.QFileDialog.getExistingDirectory(
-            dlg, "Папка с диагностикой JSON", str(Path.home()))
+            dlg, tr("Папка с диагностикой JSON"), str(Path.home()))
         if folder:
             for path in sorted(Path(folder).glob("*.json")):
                 record_path(path)
@@ -152,7 +152,7 @@ def show_sequence_catalog(workspace):
             workspace.assign_catalog_sequence(entry)
         except Exception as exc:
             QtWidgets.QMessageBox.warning(
-                dlg, "Порядок не назначен", str(exc))
+                dlg, tr("Порядок не назначен"), str(exc))
             return
         dlg.accept()
 

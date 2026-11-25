@@ -1,6 +1,6 @@
 """Tooling library dialog for punches, dies, virtual clamps and backgauges."""
 from __future__ import annotations
-from freecad_smbs.ui.localization import tr
+from freecad_smbs.ui.localization import tr, tr_message
 
 from pathlib import Path
 from typing import Any, Optional
@@ -209,7 +209,7 @@ class ToolingPanel:
                         label.setToolTip(tr("Поперечное сечение") + "\n" + str(path))
                     except (OSError, ValueError, RuntimeError, KeyError, BadZipFile, ParseError) as exc:
                         label.setText(tr("Сечение недоступно"))
-                        label.setToolTip(str(exc))
+                        label.setToolTip(tr_message(exc))
 
                 def _refresh_backgauge(self):
                     from freecad_smbs.resources.tooling_paths import resolve_backgauge_fcstd
@@ -262,7 +262,7 @@ class ToolingPanel:
                                 copyfileobj(source, temp)
                         staged.replace(target)
                     except (OSError, BadZipFile, KeyError) as exc:
-                        QtWidgets.QMessageBox.warning(self, tr("Ошибка импорта"), str(exc))
+                        QtWidgets.QMessageBox.warning(self, tr("Ошибка импорта"), tr_message(exc))
                         return
                     finally:
                         if staged is not None:
@@ -279,7 +279,7 @@ class ToolingPanel:
                     try:
                         self._backgauge_fcstd.unlink()
                     except OSError as exc:
-                        QtWidgets.QMessageBox.warning(self, tr("Ошибка удаления"), str(exc))
+                        QtWidgets.QMessageBox.warning(self, tr("Ошибка удаления"), tr_message(exc))
                         return
                     self._backgauge_changed()
 
@@ -441,8 +441,8 @@ class ToolingPanel:
                     try:
                         pos = _parse_positions_mm(self.edit_clamp_positions.text())
                     except ValueError as e:
-                        self._set_status(f"Ошибка в позициях лапок: {e}", is_error=True)
-                        QtWidgets.QMessageBox.warning(self, tr("Ошибка ввода"), f"Некорректный формат позиций лапок:\n{e}")
+                        self._set_status(tr("Ошибка в позициях лапок: {error}", error=e), is_error=True)
+                        QtWidgets.QMessageBox.warning(self, tr("Ошибка ввода"), tr("Некорректный формат позиций лапок:\n{error}", error=e))
                         return
 
                     fields = {
@@ -481,23 +481,22 @@ class ToolingPanel:
                         self._set_status(tr("Конфигурация лапок успешно сохранена."))
                         QtWidgets.QMessageBox.information(
                             self, tr("Оснастка"), (
-                                "Конфигурация лапок будет записана в этот FCStd "
-                                "через обычное Сохранить (Ctrl+S)."
+                                tr("Конфигурация лапок будет записана в этот FCStd через обычное Сохранить (Ctrl+S).")
                                 if (self._workspace is not None and
                                     self._workspace.session is not None) else
                                 tr("Конфигурация лапок сохранена в библиотеку.")
                             )
                         )
                     except Exception as e:
-                        self._set_status(f"Ошибка сохранения лапок: {e}", is_error=True)
+                        self._set_status(tr("Ошибка сохранения лапок: {error}", error=e), is_error=True)
                         QtWidgets.QMessageBox.critical(
-                            self, tr("Ошибка"), f"Не удалось сохранить конфигурацию лапок:\n{e}"
+                            self, tr("Ошибка"), tr("Не удалось сохранить конфигурацию лапок:\n{error}", error=e)
                         )
 
                 def _set_status(self, text: str, is_error: bool = False) -> None:
                     color = "red" if is_error else "black"
                     self.status_label.setStyleSheet(f"color: {color};")
-                    self.status_label.setText(tr("Статус: {text}", text=text))
+                    self.status_label.setText(tr("Статус: {text}", text=tr_message(text)))
                     try:
                         if is_error:
                             App.Console.PrintError(f"SMBS ToolingPanel: {text}\n")
@@ -524,8 +523,7 @@ class ToolingPanel:
                             reply = QtWidgets.QMessageBox.question(
                                 self,
                                 tr("Инициализация библиотеки"),
-                                f"В директории '{self.library_path}' отсутствуют обязательные подкаталоги punch/ и die/.\n\n"
-                                "Создать подкаталоги сейчас?",
+                                tr("В директории '{path}' отсутствуют обязательные подкаталоги punch/ и die/.\n\nСоздать подкаталоги сейчас?", path=self.library_path),
                                 QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
                             )
                             if reply == QtWidgets.QMessageBox.Yes:
@@ -537,10 +535,10 @@ class ToolingPanel:
                                     self._refresh_lists()
                                     return
                                 except Exception as create_err:
-                                    self._set_status(f"Не удалось создать подкаталоги: {create_err}", is_error=True)
+                                    self._set_status(tr("Не удалось создать подкаталоги: {error}", error=create_err), is_error=True)
                                     return
-                        self._set_status(f"Ошибка загрузки библиотеки: {e}", is_error=True)
-                        QtWidgets.QMessageBox.critical(self, tr("Ошибка библиотеки"), str(e))
+                        self._set_status(tr("Ошибка загрузки библиотеки: {error}", error=e), is_error=True)
+                        QtWidgets.QMessageBox.critical(self, tr("Ошибка библиотеки"), tr_message(e))
 
                 def _refresh_lists(self) -> None:
                     if not self.library:
@@ -561,7 +559,7 @@ class ToolingPanel:
                     try:
                         catalog = self.library.list_tools()
                     except Exception as e:
-                        self._set_status(f"Не удалось просканировать каталог: {e}", is_error=True)
+                        self._set_status(tr("Не удалось просканировать каталог: {error}", error=e), is_error=True)
                         return
 
                     for p in catalog.punches:
@@ -741,7 +739,7 @@ class ToolingPanel:
 
                     try:
                         desc = self.library.add_tool(Path(file_path), kind=("punch", "die")[cur_idx])
-                        self._set_status(f"Добавлен инструмент '{desc.tool_id}' ({desc.kind})")
+                        self._set_status(tr("Добавлен инструмент '{tool}' ({kind})", tool=desc.tool_id, kind=desc.kind))
                         self._refresh_lists()
                         target_list = self.punch_list if desc.kind == "punch" else self.die_list
                         self.tabs.setCurrentIndex(0 if desc.kind == "punch" else 1)
@@ -753,15 +751,15 @@ class ToolingPanel:
                         QtWidgets.QMessageBox.information(
                             self,
                             tr("Инструмент добавлен"),
-                            f"Инструмент '{desc.tool_id}' успешно добавлен в категорию {desc.kind}.",
+                            tr("Инструмент '{tool}' успешно добавлен в категорию {kind}.", tool=desc.tool_id, kind=desc.kind),
                         )
                     except ToolingLibraryError as e:
-                        self._set_status(f"Ошибка добавления: {e}", is_error=True)
-                        QtWidgets.QMessageBox.warning(self, tr("Ошибка добавления"), str(e))
+                        self._set_status(tr("Ошибка добавления: {error}", error=e), is_error=True)
+                        QtWidgets.QMessageBox.warning(self, tr("Ошибка добавления"), tr_message(e))
                     except Exception as e:
                         # Catch-all dialog for unexpected system/filesystem errors during tool addition
-                        self._set_status(f"Неожиданная ошибка: {e}", is_error=True)
-                        QtWidgets.QMessageBox.critical(self, tr("Ошибка"), f"Неожиданная ошибка: {e}")
+                        self._set_status(tr("Неожиданная ошибка: {error}", error=e), is_error=True)
+                        QtWidgets.QMessageBox.critical(self, tr("Ошибка"), tr("Неожиданная ошибка: {error}", error=e))
 
                 def _on_remove_tool(self) -> None:
                     desc = self._current_descriptor()
@@ -774,7 +772,7 @@ class ToolingPanel:
                     reply = QtWidgets.QMessageBox.question(
                         self,
                         tr("Подтверждение удаления"),
-                        f"Удалить инструмент [{desc.kind}] '{desc.tool_id}' из библиотеки?",
+                        tr("Удалить инструмент [{kind}] '{tool}' из библиотеки?", kind=desc.kind, tool=desc.tool_id),
                         QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
                     )
                     if reply != QtWidgets.QMessageBox.Yes:
@@ -791,11 +789,11 @@ class ToolingPanel:
                                     self._workspace.select_punch(None)
                                 else:
                                     self._workspace.select_die(None)
-                        self._set_status(f"Удалён '{desc.tool_id}' из {desc.kind}")
+                        self._set_status(tr("Удалён '{tool}' из {kind}", tool=desc.tool_id, kind=desc.kind))
                         self._refresh_lists()
                     except ToolingLibraryError as e:
-                        self._set_status(f"Ошибка удаления: {e}", is_error=True)
-                        QtWidgets.QMessageBox.warning(self, tr("Ошибка удаления"), str(e))
+                        self._set_status(tr("Ошибка удаления: {error}", error=e), is_error=True)
+                        QtWidgets.QMessageBox.warning(self, tr("Ошибка удаления"), tr_message(e))
 
                 def _on_edit_segments(self, desc=None) -> None:
                     """Edit inventory for the selected punch/die, not global stock."""
@@ -814,7 +812,7 @@ class ToolingPanel:
                         existing = read_inventory(desc.fcstd_path)
                     except (ValueError, OSError) as exc:
                         QtWidgets.QMessageBox.warning(
-                            self, tr("Сегменты"), str(exc)
+                            self, tr("Сегменты"), tr_message(exc)
                         )
                         return
                     dialog = QtWidgets.QDialog(self)
@@ -883,7 +881,7 @@ class ToolingPanel:
                         try:
                             saved = write_inventory(desc.fcstd_path, rows)
                         except (ValueError, OSError) as exc:
-                            error.setText(str(exc))
+                            error.setText(tr_message(exc))
                             return
                         if workspace is not None and saved != existing:
                             workspace._on_tool_inventory_changed(desc.kind, desc.tool_id)

@@ -126,9 +126,7 @@ def create_coin_viewer(parent=None):
                 self.setObjectName("SMBS_Coin3D_Unavailable")
                 layout = QtWidgets.QVBoxLayout(self)
                 note = QtWidgets.QLabel(
-                    "3D Coin3D недоступен: pivy.coin не импортируется. "
-                    "Управление порядком гибов доступно на развёртке. "
-                    "Диагностика: " + reason
+                    tr("3D Coin3D недоступен: pivy.coin не импортируется. Управление порядком гибов доступно на развёртке. Диагностика: {reason}", reason=reason)
                 )
                 note.setWordWrap(True)
                 layout.addWidget(note)
@@ -141,7 +139,7 @@ def create_coin_viewer(parent=None):
 
             def attach_document(self, _name):
                 raise RuntimeError(
-                    "Coin3D отсутствует в Python FreeCAD: " + reason
+                    tr("Coin3D отсутствует в Python FreeCAD: {reason}", reason=reason)
                 )
 
             def reset_camera(self, *, whole_scene=False):
@@ -227,7 +225,7 @@ def create_coin_viewer(parent=None):
             import FreeCADGui as Gui
             source_name = str(name or "")
             if not _document_is_open(App, source_name):
-                raise RuntimeError("Исходный FCStd документ закрыт")
+                raise RuntimeError(tr("Исходный FCStd документ закрыт"))
             if self._native_doc is not None:
                 existing = _document_is_open(App, self._native_doc)
                 if (self._native_source_doc == source_name
@@ -251,17 +249,17 @@ def create_coin_viewer(parent=None):
                 gui_doc = Gui.getDocument(temporary_name)
                 if gui_doc is None:
                     raise RuntimeError(
-                        "FreeCAD не открыл временный 3D-документ"
+                        tr("FreeCAD не открыл временный 3D-документ")
                     )
                 view = gui_doc.activeView()
                 if view is None or not hasattr(view, "getSceneGraph"):
                     raise RuntimeError(
-                        "Временный документ не имеет Coin3D вида"
+                        tr("Временный документ не имеет Coin3D вида")
                     )
                 root = view.getSceneGraph()
                 if root is None:
                     raise RuntimeError(
-                        "Coin3D граф временного документа недоступен"
+                        tr("Coin3D граф временного документа недоступен")
                     )
                 root.addChild(self._root)
                 self._native_root = root
@@ -270,9 +268,7 @@ def create_coin_viewer(parent=None):
                 self._native_source_doc = source_name
                 self._initial_fit_done = False
                 self._native_notice.setText(
-                    "3D-анимация открыта в отдельном окне FreeCAD: {}. "
-                    "Все движения и настройки остаются в SMBS; "
-                    "исходный FCStd не изменяется.".format(temporary_name)
+                    tr("3D-анимация открыта в отдельном окне FreeCAD: {document}. Все движения и настройки остаются в SMBS; исходный FCStd не изменяется.", document=temporary_name)
                 )
             except Exception:
                 if root is not None:

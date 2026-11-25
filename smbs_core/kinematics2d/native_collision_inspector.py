@@ -240,6 +240,7 @@ def reconstruct_exact_collision(
 
 def open_exact_collision_document(
     session: Any, tooling: Any, bend_id: str, blocker: dict,
+    translate=None,
 ) -> dict:
     """Open a NEW unsaved native FreeCAD document with editable tree visibility.
 
@@ -250,6 +251,7 @@ def open_exact_collision_document(
     shapes = reconstruct_exact_collision(session, tooling, bend_id, blocker)
     import FreeCAD as App
     import FreeCADGui as Gui
+    translate = translate or (lambda source: source)
 
     name = "SMBS_OCC_{}_{}".format(bend_id, uuid4().hex[:8])
     previous_doc = getattr(getattr(App, "ActiveDocument", None), "Name", None)
@@ -258,11 +260,11 @@ def open_exact_collision_document(
         root = doc.addObject("App::DocumentObjectGroup", "SMBS_Objects")
         root.Label = "SMBS"
         context = doc.addObject("App::DocumentObjectGroup", "MachineScene")
-        context.Label = "Машинная установка — контекст (прозрачный)"
+        context.Label = translate("Машинная установка — контекст (прозрачный)")
         contacts = doc.addObject("App::DocumentObjectGroup", "ExactCollisions")
-        contacts.Label = "ТОЧНЫЕ пересечения OCC — красные тела"
+        contacts.Label = translate("ТОЧНЫЕ пересечения OCC — красные тела")
         affected = doc.addObject("App::DocumentObjectGroup", "AffectedComponents")
-        affected.Label = "Задетые панели и зоны — оранжевые тела"
+        affected.Label = translate("Задетые панели и зоны — оранжевые тела")
         root.Group = [context, contacts, affected]
 
         def add(group, object_name, label, shape, rgb, transparency=0):
@@ -280,16 +282,16 @@ def open_exact_collision_document(
                 pass
             return obj
 
-        add(context, "Sheet", "Деталь — заданный угол", shapes["sheet"],
+        add(context, "Sheet", translate("Деталь — заданный угол"), shapes["sheet"],
             (0.55, 0.68, 0.77), 85)
-        add(context, "Punch", "Пуансон — действительная форма FCStd",
+        add(context, "Punch", translate("Пуансон — действительная форма FCStd"),
             shapes["punch"], (0.19, 0.49, 0.85), 82)
-        add(context, "Die", "Матрица — действительная форма FCStd",
+        add(context, "Die", translate("Матрица — действительная форма FCStd"),
             shapes["die"], (0.20, 0.68, 0.46), 82)
         contact_objects = []
         for kind, solid in shapes["common"].items():
-            label = "КОЛЛИЗИЯ: деталь × {} — {:.6f} мм³".format(
-                "пуансон" if kind == "PUNCH" else "матрица",
+            label = translate("КОЛЛИЗИЯ: деталь × {} — {:.6f} мм³").format(
+                translate("пуансон") if kind == "PUNCH" else translate("матрица"),
                 shapes["volumes_mm3"][kind],
             )
             contact_objects.append(add(
@@ -300,10 +302,10 @@ def open_exact_collision_document(
             tag = entry["component_id"]
             add(
                 affected, "Affected{:02d}".format(i),
-                "ПАНЕЛЬ/ЗОНА: " + tag,
+                translate("ПАНЕЛЬ/ЗОНА: ") + tag,
                 entry["component_shape"], (0.98, 0.63, 0.11), 40,
             )
-            label = "{} × {} — {:.6f} мм³".format(
+            label = translate("{} × {} — {:.6f} мм³").format(
                 tag, entry["tool"], entry["volume_mm3"],
             )
             obj = add(

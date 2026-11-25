@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import hypot, isfinite
+from freecad_smbs.ui.localization import tr
 
 from smbs_core.kinematics2d.axis_matching import match_bend_axes
 from smbs_core.kinematics2d.bend_zone import (
@@ -300,7 +301,7 @@ def partition_flat_pattern(outline_shape, canonical, lines, bends,
         # Keep using the original outer boundary for the remaining holes.
         if (abs(sheet.common(hole).Area - hole.Area) > 1e-5
                 or outer_wire.distToShape(hole)[0] < 1e-6):
-            raise PanelBuildError("Внутренние контуры должны лежать внутри внешнего контура и не пересекаться.")
+            raise PanelBuildError(tr("Внутренние контуры должны лежать внутри внешнего контура и не пересекаться."))
         sheet = sheet.cut(hole)
     zone_extension = extension_mm if zone_extension_mm is None else zone_extension_mm
     axis_matches = match_bend_axes(canonical, lines)
@@ -345,7 +346,7 @@ def partition_flat_pattern(outline_shape, canonical, lines, bends,
             )
         zcutter = _strip(Part, App, a, b, zone.bend_allowance_mm, zone_extension)
         if any(hole.distToShape(zcutter)[0] < 1e-6 for hole in hole_faces):
-            raise PanelBuildError(f"{bend.bend_id}: отверстие попадает в зону гиба.")
+            raise PanelBuildError(tr("{bend}: отверстие попадает в зону гиба.", bend=bend.bend_id))
         zface = sheet.common(zcutter)
         if zface.Area <= 1e-5:
             raise PanelBuildError("Empty bend zone face for {}".format(bend.bend_id))
@@ -355,10 +356,10 @@ def partition_flat_pattern(outline_shape, canonical, lines, bends,
                 box = overlap.BoundBox
                 x, y = (box.XMin + box.XMax) / 2, (box.YMin + box.YMax) / 2
                 raise BendZoneOverlapError(
-                    f"Зоны гибов {prev_zone.bend_id} и {zone.bend_id} пересекаются "
-                    f"возле X={x:.3f}, Y={y:.3f} мм. Площадь {overlap.Area:.3f} мм². "
-                    f"Ширина зон: {prev_zone.bend_allowance_mm:.3f} и "
-                    f"{zone.bend_allowance_mm:.3f} мм."
+                    tr("Зоны гибов {first} и {second} пересекаются возле X={x:.3f}, Y={y:.3f} мм. Площадь {area:.3f} мм². Ширина зон: {width1:.3f} и {width2:.3f} мм.",
+                       first=prev_zone.bend_id, second=zone.bend_id, x=x, y=y,
+                       area=overlap.Area, width1=prev_zone.bend_allowance_mm,
+                       width2=zone.bend_allowance_mm)
                 )
         zones.append(zone)
         zone_cutters.append((left, right, zcutter))

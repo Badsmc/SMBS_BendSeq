@@ -1,4 +1,5 @@
 """Collect the objects created by SMBS in the FreeCAD model tree."""
+from freecad_smbs.ui.localization import tr
 
 GROUP_NAME = "SMBS_Objects"
 
@@ -32,7 +33,7 @@ def group_document_objects(document):
         group = document.addObject("App::DocumentObjectGroup", GROUP_NAME)
         group.Label = "SMBS"
     elif group.TypeId != "App::DocumentObjectGroup":
-        raise ValueError(f"{GROUP_NAME} уже используется объектом другого типа.")
+        raise ValueError(tr("{name} уже используется объектом другого типа.", name=GROUP_NAME))
     for obj in owned:
         if obj not in group.Group:
             group.addObject(obj)

@@ -1,509 +1,26 @@
 """Shared SMBS interface language and source-string translation catalog."""
 
 import locale
+from functools import lru_cache
+from pathlib import Path
+import json
+import re
+from string import Formatter
 
 
-TRANSLATIONS = {
-    "Предложенная раскладка сегментов (визуально)": "Suggested segment layout (visual only)",
-    "Импорт заднего упора": "Import backgauge",
-    "Удалить задний упор": "Remove backgauge",
-    "Выбрано: {tool}": "Selected: {tool}",
-    "Путь: {path}": "Path: {path}",
-    "Вверх": "Up",
-    "Вниз": "Down",
-    "Направление гиба": "Bend direction",
-    "Номер — порядок операции. ↑ / ↓ — направление по знаку угла развёртки; это не направление подачи детали.": "Numbers indicate operation order. ↑ / ↓ indicate the signed flat-pattern bend direction, not the sheet feed direction.",
-    "Развёртка и оснастка": "Flat pattern and tooling",
-    "Подготовить развёртку для TechDraw": "Prepare flat pattern for TechDraw",
-    "Создать контур и линии гиба для стандартной команды TechDraw «Вставить вид».": "Create the outline and bend lines for the standard TechDraw Insert View command.",
-    "Развёртка выделена. В TechDraw выберите лист и выполните «Вставить вид». Для вида сверху задайте направление (0, 0, 1).": "The flat pattern is selected. In TechDraw, select a page and use Insert View. Set direction to (0, 0, 1) for the top view.",
-    "Две колонки": "Two columns",
-    "Первая операция крупно, остальные в две колонки": "Large first operation, remaining operations in two columns",
-    "Компоновка страницы": "Page layout",
-    "Количество операций на странице": "Operations per page",
-    "Карта гибки PDF": "Bend plan PDF",
-    "Сохранить карту гибки в PDF…": "Save bend instructions as PDF…",
-    "Карта гибки сохранена в PDF.": "Bend instructions saved as PDF.",
-    "Карта гибки": "Bend instructions",
-    "Разворот детали": "Part rotation",
-    "Установка перед гибом": "Setup before bending",
-    "Форма после гиба": "Shape after bending",
-    "Применённая раскладка": "Applied layout",
-    "Предложение по сегментам": "Suggested segments",
-    "Слева — рабочая зона, справа — деталь с текущим гибом, выделенным оранжевым.": "Working area on the left, part with the current bend highlighted in orange on the right.",
-    "Модель станины недоступна.": "Machine frame model unavailable.",
-    "Модель заднего упора недоступна.": "Backgauge model unavailable.",
-    "Схема показывает ориентацию и форму детали и не подтверждает отсутствие коллизий.": "The diagrams show part orientation and shape. Verify collisions separately.",
-    "Не удалось сохранить PDF.": "Could not save the PDF.",
-    "Поперечное сечение": "Cross-section",
-    "Сечение недоступно": "Section unavailable",
-    "Лимит времени, с": "Time limit, s",
-    "Минимальный объём проникновения, мм³": "Minimum penetration volume, mm³",
-    "Запустить Mesh": "Run Mesh",
-    "Сохранить последнюю коллизию…": "Save latest collision…",
-    "FAST — варианты последовательности (UNVERIFIED)": "FAST — candidate sequences (unverified)",
-    "Проверить ещё раз / найти новые варианты": "Check again / find more sequences",
-    "Вес": "Cost",
-    "2D гибов": "2D bends",
-    "Старт": "Start",
-    "1-й гиб": "First bend",
-    "Ось": "Axis",
-    "2D штраф": "2D penalty",
-    "Порядок": "Sequence",
-    "Причина": "Reason",
-    "Ошибка": "Error",
-    "Предупреждение": "Warning",
-    "Панель задач": "Tasks",
-    "Деталь": "Part",
-    "Оснастка": "Tooling",
-    "Симуляция": "Simulation",
-    "Настройки": "Settings",
-    "Готово": "Ready",
-    "Расчёт…": "Working…",
-    "Информация": "Information",
-    "Закрыть раздел": "Close section",
-    "Показать панель управления": "Show controls",
-    "Выбрать линии гиба": "Select bend lines",
-    "Отменить линию": "Undo line",
-    "Очистить": "Clear",
-    "Сохранённые варианты": "Saved sequences",
-    "Симулировать без проверки": "Simulate without checking",
-    "Быстрая проверка OCC (5 углов)": "Quick OCC check (5 angles)",
-    "Проверить и показать": "Check and show",
-    "Показать коллизию в 3D": "Show collision in 3D",
-    "FAST · найти последовательности (до 30 с)": "FAST · Find sequences (up to 30 s)",
-    "Mesh 3D (60 с)": "Mesh 3D (60 s)",
-    "Коллизии Mesh": "Mesh collisions",
-    "Импортировать…": "Import…",
-    "Дополнительно…": "Advanced…",
-    "Сохранить в FCStd": "Save to FCStd",
-    "Восстановить из FCStd": "Restore from FCStd",
-    "Записывать журнал SMBS и сбои FreeCAD": "Log SMBS activity and FreeCAD crashes",
-    "Не удалось создать журнал на рабочем столе.": "Could not create the Desktop log.",
-    "Проверка ещё не запускалась.": "Check has not run yet.",
-    "Поиск ещё не запускался.": "Search has not run yet.",
-    "Идёт поиск последовательности…": "Searching for a sequence…",
-    "Поиск не выполнен.": "Search failed.",
-    "Поиск завершён. Варианты не найдены.": "Search finished. No sequences found.",
-    "Выберите вариант в окне FAST.": "Select a sequence in the FAST window.",
-    "2D-проверка вариантов не выполнена.": "The 2D check failed.",
-    "Порядок гибов применён.": "Bend sequence applied.",
-    "Вариант не применён.": "Sequence could not be applied.",
-    "Последовательность: {order}": "Sequence: {order}",
-    "Поиск ещё не запускался для этой детали.": "Search has not run for this part.",
-    "Проверка ещё не запускалась для этой детали.": "This part has not been checked yet.",
-    "Проверка коллизий…": "Checking for collisions…",
-    "Проверка завершена не полностью.": "The check is incomplete.",
-    "В проверенных положениях коллизий не обнаружено.": "No collisions found at the checked positions.",
-    "Ошибка проверки.": "Check failed.",
-    "Коллизия": "Collision",
-    "Торцевое пересечение": "End-zone overlap",
-    "Не удалось уточнить": "Could not verify",
-    "пуансон": "punch",
-    "матрица": "die",
-    "Найдено вариантов: {count}. Шаблонов: {templates}.": "Sequences found: {count}. Templates: {templates}.",
-    "Поиск занял {seconds:.2f} с. 3D-коллизии проверяются отдельно через Mesh.": "Search took {seconds:.2f} s. Use Mesh to check for 3D collisions.",
-    "Предварительная 2D-проверка завершена. Вариантов: {count}.": "Preliminary 2D check finished. Sequences: {count}.",
-    "Без замечаний в 2D: {clear}\nС препятствиями: {blocked}\nБез вывода: {unknown}": "No issues found in 2D: {clear}\nObstructions: {blocked}\nInconclusive: {unknown}",
-    "Подтверждённых коллизий: {count}.": "Confirmed collisions: {count}.",
-    "Условных пересечений на торцах: {count}.": "Conditional end-zone overlaps: {count}.",
-    "Проверено гибов: {checked}/{total}. Время: {seconds:.1f} с.": "Bends checked: {checked}/{total}. Time: {seconds:.1f} s.",
-    "Осталось проверить: {order}": "Remaining: {order}",
-    "Достигнут лимит времени.": "Time limit reached.",
-    "Деталь, порядок или оснастка изменились.": "Part, sequence or tooling has changed.",
-    "Запустите Mesh заново для текущей конфигурации.": "Run Mesh again for the current setup.",
-    'SMBS: Библиотека оснастки': 'SMBS: Tooling library',
-    'Виртуальные зажимы': 'Virtual clamps',
-    'Пуансоны (0)': 'Punches (0)',
-    'Матрицы (0)': 'Dies (0)',
-    'Зажимы': 'Clamps',
-    'Задний упор': 'Backgauge',
-    'Сведения об инструменте': 'Tool details',
-    'Выбрано: нет': 'Selected: none',
-    'Метаданные: —': 'Metadata: —',
-    'Статус: Готово': 'Status: Ready',
-    'Развернуть пуансон на 180°': 'Rotate punch 180°',
-    'Сохраняется для выбранного пуансона. Используется в симуляции и проверках.': 'Saved for this punch and used in simulation and checks.',
-    'Загрузить': 'Load',
-    'Удалить': 'Remove',
-    'Настройки заднего упора': 'Backgauge settings',
-    'Миниатюра отсутствует': 'Thumbnail unavailable',
-    'Модель не выбрана': 'No model selected',
-    'Загрузить задний упор': 'Load backgauge',
-    'Заменить текущую модель?': 'Replace the current model?',
-    'Удалить выбранную модель из библиотеки?': 'Remove the selected model from the library?',
-    'Ошибка импорта': 'Import error',
-    'Ошибка удаления': 'Removal error',
-    ' мм': ' mm',
-    'Длина лапки вдоль оси X (width_mm):': 'Clamp width along X (width_mm):',
-    'Расстояние между краями соседних зажимов.': 'Distance between adjacent clamp edges.',
-    'Мин. зазор между лапками (gap_between_mm):': 'Minimum clamp gap (gap_between_mm):',
-    'По координатам': 'By positions',
-    'Число зажимов': 'Number of clamps',
-    'Коэфф. свеса (overhang_ratio):': 'Overhang ratio:',
-    'Допуск стыка (joint_tolerance_mm):': 'Joint tolerance (joint_tolerance_mm):',
-    'Мин. лапок под секцией (min_clamps_under_punch):': 'Minimum clamps under a segment:',
-    'Центры зажимов X, мм': 'Clamp centers X, mm',
-    'Лапки подвижные (repositionable)': 'Movable clamps',
-    'Стыки должны лежать на лапках (joints_must_be_on_clamps)': 'Joints must rest on clamps',
-    'Без зазоров между пуансонами (no_gaps_between_punches)': 'No gaps between punch sections',
-    'Сохранить конфиг': 'Save configuration',
-    'Сбросить': 'Reset',
-    'Параметры лапок сброшены к сохранённым значениям.': 'Clamp settings restored to saved values.',
-    'Список инструментов обновлён.': 'Tool list refreshed.',
-    'ДА': 'YES',
-    'НЕТ': 'NO',
-    'нет': 'none',
-    'не заданы': 'not set',
-    'Выберите модель инструмента FCStd': 'Select an FCStd tool model',
-    'Подтверждение удаления': 'Confirm removal',
-    'Добавить': 'Add',
-    'Удалить строку': 'Remove row',
-    'Высота': 'Height',
-    'Глубина': 'Depth',
-    'Зажимы не заданы': 'No clamps configured',
-    'Конфигурация лапок успешно сохранена.': 'Clamp configuration saved.',
-    'Импорт ': 'Import ',
-    'Удалить ': 'Remove ',
-    'Сегменты ': 'Segments ',
-    'Добавление инструмента': 'Add tool',
-    "Добавление моделей (.FCStd) поддерживается на вкладках 'Пуансоны' и 'Матрицы'.": 'FCStd models can be added on the Punches and Dies tabs.',
-    'Инструмент добавлен': 'Tool added',
-    'Удаление инструмента': 'Remove tool',
-    'Пожалуйста, выберите инструмент для удаления.': 'Select a tool to remove.',
-    'Сегменты': 'Segments',
-    'Выберите пуансон или матрицу.': 'Select a punch or die.',
-    'Сегменты: ': 'Segments: ',
-    'Длина сегмента, мм': 'Segment length, mm',
-    'Количество, шт.': 'Quantity',
-    'Ошибка ввода': 'Input error',
-    'Конфигурация лапок сохранена в библиотеку.': 'Clamp configuration saved to the library.',
-    'Ошибка библиотеки': 'Library error',
-    'Ошибка добавления': 'Add error',
-    'Инициализация библиотеки': 'Initialize library',
-    'включён': 'enabled',
-    'выключен': 'disabled',
-    '{}: сохранено {} видов сегментов': '{}: saved {} segment sizes',
-    '{:g} мм × {}': '{:g} mm × {}',
-    'Библиотека инициализирована.': 'Library initialized.',
-    'Назначьте длину и количество имеющихся сегментов для каждого конкретного пуансона.': 'Set the length and quantity of segments for each punch.',
-    'Фактический складской набор для выбранной модели. Длина в мм, количество — число имеющихся секций. Данные хранятся в .tooling.json.': 'Available stock for the selected tool. Specify segment length in mm and quantity. Saved in .tooling.json.',
-    'Развёртка DXF': 'DXF flat pattern',
-    'Контур и отверстия': 'Outline and holes',
-    'Линии гиба': 'Bend lines',
-    'Линии гиба DXF': 'DXF bend lines',
-    'Показать целиком': 'Fit drawing',
-    'Назад': 'Back',
-    'Отменить последнее назначение или изменение угла гиба': 'Undo the last bend assignment or angle change',
-    'Выберите линии гиба.': 'Select bend lines.',
-    'Толщина, мм': 'Thickness, mm',
-    'Внутренний радиус, мм': 'Inside radius, mm',
-    'K-фактор': 'K factor',
-    'Допуск стыковки контура, мм': 'Outline joining tolerance, mm',
-    'Увеличьте допуск для небольших зазоров между концами контура DXF.': 'Increase the tolerance for small gaps between DXF outline endpoints.',
-    'Рассчитать': 'Calculate',
-    'Слои для расчёта': 'Layers to calculate',
-    'Угол гиба': 'Bend angle',
-    'Угол от плоскости листа, °': 'Angle from sheet plane, °',
-    'Расчёт формы…': 'Building shape…',
-    'Колесо мыши — масштаб. Средняя кнопка — перемещение.': 'Mouse wheel to zoom. Middle button to pan.',
-    'Назначено гибов: {}': 'Assigned bends: {}',
-    'Назначить углы линиям гиба на развёртке DXF': 'Assign angles to bend lines in a DXF flat pattern',
-    'Назначьте угол хотя бы одной линии гиба.': 'Assign an angle to at least one bend line.',
-    'Назначьте гиб на включённом слое.': 'Assign a bend on an enabled layer.',
-    'Не удалось открыть симулятор PressBrakeSim.': 'Could not open PressBrakeSim.',
-    ' — конечная форма': ' — final shape',
-    'SPLINE без контрольных точек или узлов.': 'SPLINE has no control points or knots.',
-    'Периодические SPLINE пока не поддерживаются.': 'Periodic SPLINE curves are unsupported.',
-    'В DXF нет линий.': 'DXF has no lines.',
-    'Допуск стыковки должен быть больше нуля.': 'Joining tolerance must be positive.',
-    'Линии DXF должны лежать в плоскости XY.': 'DXF lines must lie in the XY plane.',
-    'Некорректная окружность в плоскости XY.': 'Invalid circle in the XY plane.',
-    'Полигоны и 3D POLYLINE не входят в плоский контур.': 'Polygon meshes and 3D POLYLINE cannot form a flat outline.',
-    'Отключите слои с неподдерживаемой геометрией: ': 'Disable layers with unsupported geometry: ',
-    ' Проверьте, что линии контура включены и не назначены гибами.': ' Check that outline layers are enabled and outline lines are not assigned as bends.',
-    ' · требуется проверка': ' · needs review',
-    '№ операции': 'Operation no.',
-    'Линия': 'Line',
-    'Операция': 'Operation',
-    'Этап': 'Stage',
-    'Упор S, мм': 'Gauge S, mm',
-    'Полка по развёртке, мм': 'Flat flange, mm',
-    'Целевой угол, °': 'Target angle, °',
-    'Пуансон, мм × шт.': 'Punch, mm × qty',
-    'Матрица, мм × шт.': 'Die, mm × qty',
-    'Гиб': 'Bend',
-    'Предгиб': 'Prebend',
-    'Догиб': 'Finish bend',
-    'SMBS — чертёж гибки': 'SMBS — bend drawing',
-    'Развёртка с линиями гиба': 'Flat pattern with bend lines',
-    'SMBS — таблица гибов и развёртка': 'SMBS — bend table and flat pattern',
-    'SMBS — таблица гибов': 'SMBS — bend table',
-    'SMBS — развёртка с последовательностью гибов': 'SMBS — flat pattern with bend sequence',
-    'Создать / обновить и открыть TechDraw': 'Create / update and open TechDraw',
-    'Информация о гибах': 'Bend information',
-    'Обновлены развёртка, таблица и подписи на листе TechDraw.': 'Flat pattern, table and labels updated on the TechDraw page.',
-    'Документ детали закрыт. Загрузите деталь заново.': 'The part document is closed. Load the part again.',
-    'SMBS — экспорт TechDraw': 'SMBS — TechDraw export',
-    'Лист создан. Откройте его двойным щелчком в папке SMBS.': 'Page created. Double-click it in the SMBS folder.',
-    'Нет раскладки': 'No layout',
-    "SMBS — Задний упор (FCStd, визуализация)": "SMBS — Backgauge (FCStd preview)",
-    "Используется только реальная модель Backgauge.FCStd. В таблице: «До гиба» — размер по развёртке; «Упор S» — положение лицевой поверхности упора от оси гиба. В автоматическом режиме лапки расставляются симметрично относительно центра задней грани перед каждым гибом. Координаты X доступны в ручном режиме. Для двух пальцев используется общая координата S по дальнему краю. Ручной режим задаёт центр S/Z для каждого гиба. Упор только перемещается при просмотре: столкновения, проникновения, контакт и допустимость хода НЕ проверяются.": "The preview uses the Backgauge.FCStd model. “Before bend” shows the flat-pattern dimension. “Gauge S” measures from the bend axis to the gauge face. Automatic mode centers the fingers on the rear edge before each bend and uses a common S position for two fingers. Manual mode lets you set the X stations. Manual mode sets S and Z for each bend. Contact, collisions and travel limits are outside this preview.",
-    "Проверить CAD-модель Backgauge.FCStd…": "Inspect Backgauge.FCStd model…",
-    "Показывать движущийся упор Backgauge.FCStd": "Show moving Backgauge.FCStd model",
-    "Авто: учитывать уже согнутую геометрию и толщину": "Automatic: account for formed geometry and thickness",
-    "Только настоящая модель Backgauge.FCStd": "Use only the Backgauge.FCStd model",
-    "Зазор до края детали:": "Gap to part edge:",
-    "Визуальный подвод без проверок контакта или пересечений.": "Visual approach preview without contact or collision checks.",
-    "Начальная подача листа (визуально):": "Initial sheet feed (preview):",
-    "Положение центра одной CAD-модели Backgauge вдоль линии гиба X_m. Второй палец не добавляется автоматически.": "Center of one backgauge model along the Xₘ bend axis. Add a second finger explicitly.",
-    "CAD упор: станция по Xₘ:": "Backgauge station on Xₘ:",
-    "Добавить второй CAD упор": "Add a second CAD backgauge",
-    "Второй CAD упор: Xₘ:": "Second backgauge on Xₘ:",
-    "Служебная ширина S (позиция центра):": "Reference width S (center position):",
-    "Служебная высота Z (без геометрии):": "Reference height Z (without geometry):",
-    "Центр s (мм)": "S center (mm)",
-    "Центр z (мм)": "Z center (mm)",
-    "Сохранить": "Save",
-    "Отмена": "Cancel",
-    "Для задания координат сначала загрузите деталь.": "Load the part before setting coordinates.",
-    "Модель упора скрыта. Расчёты последовательности не зависят от упора.": "Backgauge model hidden. Sequence calculations are independent of the backgauge.",
-    "Открыть симуляцию Coin3D и штатную вкладку Задачи FreeCAD": "Open the Coin3D simulation and FreeCAD Tasks panel",
-    "Загрузить выбранную развёртку SheetMetal": "Load the selected SheetMetal unfold",
-    "Открыть оснастку симулятора": "Open simulator tooling",
-    "Визуальная FCStd-модель упора: позиция по контуру развёртки": "Preview the FCStd backgauge position against the flat outline",
-    "Последовательности": "Sequences",
-    "Открыть сохранённые последовательности гибки из JSON": "Open bend sequences saved as JSON",
-    "Порядок и проверка": "Sequence and checks",
-    "Вручную выбрать порядок гибов, запустить симуляцию или проверить коллизии": "Set the bend order manually, simulate, or check collisions",
-    "Режим гибки, скорость, проверки, допуски и запись": "Bend mode, speed, checks, tolerances and logging",
-    "Закрыть": "Close",
-    "Колесо мыши: масштаб; средняя кнопка или Ctrl+ЛКМ и перетаскивание: перемещение сцены по горизонтали и вертикали. Fit: восстановить масштаб и центр.": "Scroll to zoom. Drag with the middle button or Ctrl+left button to pan. Fit resets the view.",
-    "Оснастка (пуансон и матрица)": "Tooling (punch and die)",
-    "Импорт пуансона": "Import punch",
-    "Импорт матрицы": "Import die",
-    "Библиотека оснастки": "Tooling library",
-    "Виртуальная длина инструмента\nравна длине гиба": "Virtual tool length equals bend length",
-    "Виртуальная длина пуансона и матрицы автоматически приравнивается к длине активной линии гиба с сохранением неизменного 2D-профиля сечения (исходные FCStd не изменяются).": "Sets the virtual punch and die length to the active bend length. The section profiles and source FCStd files are preserved.",
-    "Условный допуск концевых зон\nпуансона (CONDITIONAL)": "Conditional punch end-zone allowance",
-    "Условный допуск столкновений в заданных концевых зонах пуансона (от каждого торца). Не обрезает 3D-геометрию инструмента и НЕ подтверждает наличие физического выреза. Если центральное пересечение превышает действующий объёмный допуск OCC, гиб блокируется. Результат CONDITIONAL — не физический PASS; требуется проверка реального пуансона с концевыми вырезами.": "Allows conditional overlap within the specified regions at the punch ends. Central overlap above the OCC tolerance blocks the bend. Check the actual punch end relief before accepting a conditional result.",
-    "Режим симуляции": "Simulation mode",
-    "Только гиб": "Bend only",
-    "Полный цикл": "Full cycle",
-    "Параметры цикла…": "Cycle settings…",
-    "Фаза цикла: ожидание": "Cycle phase: idle",
-    "Оператор ← | Упор → | Подача: пока не определена": "Operator ← / Backgauge → / Feed direction pending",
-    "Воспроизвести": "Play",
-    "Play / Pause / Resume для выбранного режима": "Play, pause or resume the selected simulation mode",
-    "Вписать в окно": "Fit",
-    "↑ Выше": "↑ Move up",
-    "↓ Ниже": "↓ Move down",
-    "↺ Восстановить порядок": "↺ Restore order",
-    "До гиба, мм: локальный размер по развёртке до ближайшей соседней линии гиба или края. Упор S, мм: визуальная установка от оси гиба до лицевой поверхности упора, рассчитанная по уже согнутой детали (с толщиной и радиусом); Меняется с положением заготовки. Кнопка «Короткой стороной к упору» подбирает положение для выбранного гиба. В ручном режиме отображается заданная позиция. Без проверки контакта или столкновений.": "Before bend gives the flat-pattern distance to the nearest bend or edge. Gauge S is the visual distance from the bend axis to the gauge face and follows the formed part and loading orientation. Manual mode shows the assigned position. This display does not check contact or collisions.",
-    "Ручной просмотр активной операции: двигайте ползунок вперёд или назад от начального до целевого угла.": "Drag the slider to preview the active operation between its initial and target angles.",
-    "РУЧНОЙ ПРОСМОТР — коллизии не проверены": "MANUAL PREVIEW — collisions unchecked",
-    "Показывать станок": "Show machine",
-    "Ручной порядок гибов и проверка": "Manual bend order and checks",
-    "Последовательность гибов": "Bend sequence",
-    "Порядок, например 2-1-3-4": "Order, for example 2-1-3-4",
-    "Введите номера линий с развёртки, например 2-1-3-4 или B02 B01 B03 B04. Enter применяет введённый порядок.": "Enter the flat-pattern bend labels, such as 2-1-3-4 or B02 B01 B03 B04. Press Enter to apply.",
-    "Загрузить ранее сохранённый ручной порядок из JSON текущего FCStd. При необходимости проверить его заново.": "Load a manual sequence saved in this FCStd document. Run the checks again as needed.",
-    "Подбирать положение заготовки (0° / 180°)": "Select workpiece orientation (0° / 180°)",
-    "Для гибов с автоматически заданным положением OCC может проверить второе положение. Галочка в колонке «180°» закрепляет выбранное положение конкретного гиба.": "OCC can try the opposite orientation for automatically placed bends. The 180° checkbox pins the selected orientation for that bend.",
-    "Просмотреть ручной порядок. Если есть актуальный 3D-результат, симуляция использует положения из этой проверки.": "Preview the manual sequence using the latest valid 3D poses when available.",
-    "Проверить выбранные гибы с реальными FCStd пуансоном и матрицей. Показать 3D-позу и результат проверки. Проверка подведения, гибки и отвода пуансона может занять несколько минут.": "Check selected bends with the FCStd punch and die and show the 3D pose. Checking approach, bending and retract can take several minutes.",
-    "Доступно после подтверждённой коллизии с пуансоном при его подъёме (RETRACT). Проверяет альтернативные OCC-позы и включает синхронный подъём в симуляции только при отсутствии нового блокера. Исходный COLLISION остаётся.": "Available after a confirmed punch collision during retract. Tests alternative OCC poses and shows assisted lift when no new blocker is found. The original collision stays recorded.",
-    "Запустить весь выбранный порядок в режиме Full Cycle; на отмеченном гибе показать предполагаемый подъём детали вместе с пуансоном. Исходная коллизия остаётся.": "Play the full cycle and preview the proposed lift alongside the punch at the selected bend. The original collision stays recorded.",
-    "После проверки подъёма исследовать вывод детали в обе стороны по машинной Y. Промежутки и удержание не доказаны.": "Explore lateral withdrawal in both machine Y directions after checking the lift. Clearance and grip remain unverified.",
-    "Подъём детали: сначала найдите коллизию пуансона на RETRACT. Проверка остаётся экспериментальной.": "Assisted lift is experimental. First identify a punch collision during retract.",
-    "Выберите гибы и запустите проверку.": "Select bends and start the check.",
-    "Здесь появятся результаты по каждому проверенному гибу.": "Results for each checked bend will appear here.",
-    "Открыть 3D-вьювер с фактическим положением детали в момент найденного пересечения. Красные границы соответствуют объёму OCC Common.": "Open the 3D viewer at the collision pose. Red bounds show the volume computed by OCC.",
-    "Открыть отдельный несохранённый документ FreeCAD с реальными FCStd-пуансоном и матрицей, деталью в момент столкновения и точным красным OCC Common. В дереве видимости можно скрывать любые объекты.": "Open an unsaved FreeCAD document with the actual tools, part and exact overlap in red. Toggle object visibility in the tree.",
-    "Сохранить известный оператору правильный порядок и развороты как геометрический шаблон для будущих развёрток. Требует ручного подтверждения; НЕ создаёт сертификат проверки столкновений.": "Save the known sequence and orientations as a template for future flat patterns. Operator confirmation is required.",
-    "Выбрать линии гиба / изменить порядок": "Select bend lines / edit order",
-    "Следующая подтверждённая коллизия. После последней — обычный вид.": "Show the next confirmed collision. Return to the standard view after the last one.",
-    "RETRACT: продолжать 2D-поиск\nс предупреждением": "RETRACT: continue 2D search with a warning",
-    "Диагностическое продолжение, а не физический допуск. Пересечения APPROACH, BENDING, BOTTOM и упора блокируют поиск.": "Diagnostic only. Approach, bending, bottom and backgauge intersections block the search.",
-    "Оснастка и станок": "Tooling and machine",
-    "Пуансон": "Punch",
-    "Матрица": "Die",
-    "Оснастка — параметры": "Tooling settings",
-    "Концевая зона пуансона (мм):": "Punch end zone (mm):",
-    "Результаты / Диагностика": "Results / Diagnostics",
-    "Проверка коллизий ещё не выполнена": "Collision check has not run",
-    "Данные SMBS в документе FCStd": "SMBS data in the FCStd document",
-    "Вложить JSON с порядком гибов, настройками и историей проверок в этот документ и сохранить FCStd": "Embed bend order, settings and check history as JSON and save the FCStd document",
-    "Восстановить сохранённый порядок и настройки. Исторические результаты не считаются проверенными.": "Restore saved order and settings. Historical results require a fresh check.",
-    "JSON автоматически вкладывается при Ctrl+S после загрузки детали. История проверки — только справочная.": "Ctrl+S embeds the JSON after a part is loaded. Check history is for reference.",
-    "Параметры оснастки, дополнительные OCC проверки и диагностические записи": "Tooling parameters, additional OCC checks and diagnostics",
-    "— Не выбран —": "— None selected —",
-    "— Не выбрана —": "— None selected —",
-    "Оснастка изменилась. Текущий набор ещё не проверен.": "Tooling changed. Check the current setup.",
-    "Гиб для предпросмотра секций": "Bend for section preview",
-    "Применить общий набор": "Apply common layout",
-    "Один комплект на выбранный порядок по длине самого длинного гиба.": "Use one layout sized for the longest bend in the selected sequence.",
-    "Снять общий набор": "Clear common layout",
-    "Раскладка оснастки": "Tool layout",
-    "Концевое пересечение с пуансоном (CONDITIONAL)": "Punch end-zone overlap (conditional)",
-    "Обнаружено пересечение детали с концевой зоной пуансона.\nДля этой операции может потребоваться пуансон с вырезом на конце.\nПодходящая геометрия такого инструмента ещё не проверена.\nПродолжить проверку в условном режиме?": "The part overlaps the punch end zone.\nA punch with end relief may be required.\nSuitable tool geometry has not been verified.\nContinue in conditional mode?",
-    "Показывать исключённые грубой 2D-проверкой": "Show candidates excluded by the coarse 2D check",
-    "✅ Нет пересечений в проверенных 2D-сечениях (не 3D-допуск)    ⚠️ Не проверено / лимит времени    ❌ Возможное 2D-препятствие (требует проверки)": "✅ Sampled 2D sections clear    ⚠️ Unchecked / time limit    ❌ Possible 2D obstruction",
-    "Применить непроверенный вариант": "Apply unverified sequence",
-    "UNVERIFIED: исторический вариант из FCStd. Повторите проверку коллизий.": "Unverified sequence restored from FCStd. Run the collision check again.",
-    "UNVERIFIED: положение заготовки изменилось. Проверьте коллизии повторно.": "Workpiece orientation has changed. Run the collision check again.",
-    "Параметры кинематического цикла пресса (KINEMATIC_PREVIEW)": "Press cycle settings (kinematic preview)",
-    "Режим KINEMATIC_PREVIEW: параметры задают кинематику перемещения пуансона и скорость изменения угла без расчёта контактной механики, усилия и упругого возврата.": "These settings control punch movement and angle change in the kinematic preview. Contact mechanics, forces and springback are outside this preview.",
-    "Скорость подвода (мм/с):": "Approach speed (mm/s):",
-    "Скорость отвода (мм/с):": "Retract speed (mm/s):",
-    "Скорость гибки (°/с):": "Bend rate (°/s):",
-    "Начальный зазор (мм):": "Initial clearance (mm):",
-    "Ход для просмотра (мм):": "Preview stroke (mm):",
-    "Выдержка внизу (с):": "Bottom dwell (s):",
-    "Применить": "Apply",
-    "Параметры цикла": "Cycle settings",
-    "Текущий порядок ещё не проверен.": "The current sequence has not been checked.",
-    "OCC: проверяется совместный подъём детали и пуансона...": "OCC: checking assisted lift of the part and punch…",
-    "OCC: проверяется боковой вывод поднятой детали...": "OCC: checking lateral withdrawal of the lifted part…",
-    "Создание точной OCC-сцены. Исходный FCStd не изменяется...": "Building the exact OCC scene in a separate document…",
-    "ИСТОРИЯ SMBS ИЗ FCStd: проверки НЕ ПОДТВЕРЖДЕНЫ для новой сессии. Нужна повторная проверка.": "SMBS history restored from FCStd. Run the checks again for this session.",
-    "Промежуточный угол:": "Intermediate angle:",
-    "Догиб должен остаться после предгиба. Угол догиба нельзя изменить: он задан развёрткой.": "Keep the finish bend after its prebend. The flat pattern determines the finish angle.",
-    "Пуансон:": "Punch:",
-    "Матрица:": "Die:",
-    "Режим:": "Mode:",
-    "Скорость (°/с):": "Speed (°/s):",
-    "Проверить подъём OCC и показать движение": "Check OCC lift and show movement",
-    "Показать совместный подъём в симуляции": "Preview assisted lift in simulation",
-    "Проверить боковой вывод детали OCC": "Check lateral withdrawal with OCC",
-    "Открыть точное пересечение OCC": "Open exact OCC overlap",
-    "Сохранить проверенную схему гибки": "Save verified bend template",
-    "Сначала завершите текущую запись перед сменой папки.": "Finish the current recording before changing folders.",
-    "Загрузите развёртку SheetMetal.": "Load a SheetMetal unfold.",
-    "Сначала загрузите развёртку.": "Load a flat pattern first.",
-    "Склад или зажимы изменились. Подберите набор заново.": "Stock or clamps changed. Calculate the layout again.",
-    "Загрузите деталь перед подбором набора.": "Load a part before calculating a layout.",
-    "Остановите симуляцию или дождитесь окончания проверки.": "Stop the simulation or wait for the check to finish.",
-    "Общий набор применён. Запустите Mesh для проверки коллизий.": "Common layout applied. Run Mesh to check for collisions.",
-    "Возвращена исходная оснастка.": "Original tooling restored.",
-    "Шаблон: остановите симуляцию и загрузите деталь.": "Stop the simulation and load a part before saving a template.",
-    "FAST: сначала загрузите развёртку SheetMetal.": "FAST: load a SheetMetal unfold first.",
-    "FAST: остановите симуляцию и нажмите Reset перед поиском и изменением последовательности.": "FAST: stop and reset the simulation before changing or searching the sequence.",
-    "FAST-поиск завершён. Выполняется отдельная предварительная 2D-проверка (бюджет 3 с). Ни один результат не является допуском 3D.": "FAST search finished. A separate preliminary 2D check is running with a 3 s limit. Results still require 3D verification.",
-    "FAST: деталь или операции изменились; повторите поиск.": "FAST: part or operations changed. Run the search again.",
-    "Сначала загрузите деталь.": "Load a part first.",
-    "Сохранённых полных 2D вариантов пока нет.": "No complete 2D sequences have been saved yet.",
-    "Вариант не соответствует текущей детали.": "This sequence does not match the current part.",
-    "Оператор ← | Упор → | Деталь не загружена": "Operator ← / Backgauge → / No part loaded",
-    "Пауза": "Pause",
-    "Нет сохранённой 3D-коллизии для показа.": "There is no saved 3D collision to display.",
-    "Оснастка изменилась после 3D-проверки. Повторите проверку для текущей оснастки.": "Tooling changed after the 3D check. Check the current setup again.",
-    "Оснастка или положение изменились. Повторите 3D-проверку.": "Tooling or position changed. Run the 3D check again.",
-    "Сначала проверьте подъём в OCC.": "Check assisted lift with OCC first.",
-    "Нет актуального native 3D-пересечения для осмотра.": "There is no current native 3D overlap to inspect.",
-    "SMBS JSON сохранён внутри FCStd; результаты проверок — исторические.": "SMBS JSON saved inside FCStd. Check results are historical.",
-    "В этом документе пока нет вложенного SMBS JSON.": "This document has no embedded SMBS JSON yet.",
-    "Повторите Mesh-проверку для текущей детали и оснастки.": "Run Mesh again for the current part and tooling.",
-    "Mesh: загрузите деталь и остановите симуляцию.": "Mesh: load a part and stop the simulation.",
-    "Проверка многоэтапного гиба ещё не реализована в OCC: результат только UNVERIFIED. Не используйте обычную проверку одного гиба для подтверждения догиба.": "OCC does not verify staged bends. The result is unverified.",
-    "Ручной порядок изменился: перенумеруйте линии.": "The manual order changed. Renumber the bend lines.",
-    "Нет выбранных гибов.": "No bends selected.",
-    "Остановите симуляцию перед проверкой ручного порядка.": "Stop the simulation before checking the manual sequence.",
-    "Идёт проверка; режим подъёма станет доступен, если подтвердится столкновение с пуансоном на RETRACT.": "Checking the sequence. Assisted lift becomes available if a punch collision is confirmed during retract.",
-    "Сначала загрузите развёртку детали.": "Load the part's flat pattern first.",
-    "Нет гибов для симуляции.": "There are no bends to simulate.",
-    "Ручной порядок изменился. Проверьте выбранные линии.": "The manual order changed. Review the selected bend lines.",
-    "UNVERIFIED: ручная кинематическая симуляция; коллизии с пуансоном, матрицей, упором и станком не проверены.": "Unverified manual simulation. Tool, backgauge and machine collisions have not been checked.",
-    "Сначала загрузите развёртку SheetMetal.": "Load a SheetMetal unfold first.",
-    "При предгибе изменяйте порядок строк таблицы перетаскиванием.": "For a staged bend, reorder operations by dragging table rows.",
-    "Изменение порядка недоступно: остановите симуляцию и сделайте Reset.": "Stop and reset the simulation before changing the sequence.",
-    "Для удаления предгиба сначала остановите симуляцию и нажмите Reset.": "Stop and reset the simulation before removing the prebend.",
-    "Перед добавлением или изменением предгиба нажмите Reset.": "Reset the simulation before adding or editing the prebend.",
-    "Удалить предгиб и вернуть обычный гиб": "Remove prebend and restore single bend",
-    "Порядок этапов нельзя менять во время симуляции; нажмите Reset.": "Reset the simulation before reordering stages.",
-    "Некорректный перенос этапов, порядок восстановлен.": "Invalid stage move. The original order was restored.",
-    "Запись невозможна: сначала загрузите деталь.": "Load a part before starting the recording.",
-    "Для предпросмотра задайте позиции или число лапок на станке.": "Set clamp positions or the clamp count for the preview.",
-    "Предварительная проверка пуансона и матрицы ещё не выполнена.": "Punch and die have not been checked yet.",
-    "2D: набор операций изменился, повторите FAST.": "2D: the operation list changed. Run FAST again.",
-    "Продолжить": "Resume",
-    "Подъём детали: подтверждённой коллизии с пуансоном на RETRACT пока нет.": "Assisted lift: no confirmed punch collision during retract yet.",
-    "Симулировать результат": "Simulate result",
-    "Ошибка: предварительный гиб должен стоять перед соответствующим догибом.": "The prebend must precede its finish bend.",
-    "Применить порядок гибов": "Apply bend sequence",
-    "Не найдено ни одной последовательности без обнаруженного грубого 2D-препятствия. Показаны 0 вариантов: это НЕ означает, что деталь невозможно согнуть. Можно открыть отклонённые варианты для диагностики или изменить оснастку.": "Every candidate had a possible coarse 2D obstruction. Review the rejected candidates or change tooling.",
-    "JSON подготовлен в документе; FCStd не сохранён (отмена).": "JSON is staged in the document. Saving the FCStd file was canceled.",
-    "Вернуться к обычному 3D": "Return to standard 3D view",
-    "Изм.": "Edit",
-    "SMBS — Последовательности": "SMBS — Sequences",
-    "Загрузите JSON автоматического/ручного поиска. Штрафы относятся к весам на момент расчёта. Назначение перепроверяет порядок на текущей оснастке. 2D не подтверждает безопасность в 3D.": "Load automatic or manual search results from JSON. Penalties reflect the weights used at search time. Applying a sequence checks it against current tooling. Run Mesh for sampled 3D verification.",
-    "Загрузить JSON…": "Load JSON…",
-    "Загрузить папку…": "Load folder…",
-    "Обновить": "Refresh",
-    "Тип": "Type",
-    "Последовательность": "Sequence",
-    "Штраф": "Penalty",
-    "Предупреждения": "Warnings",
-    "2D статус": "2D status",
-    "Файл": "File",
-    "Назначить для симуляции": "Apply to simulation",
-    "Пуансоны, матрицы, станина, задний упор, зажимы": "Punches, dies, frame, backgauge and clamps",
-    "Библиотека": "Library",
-    "Щёлкните по линии и задайте угол. Ноль снимает назначение. Порядок назначения задаёт порядок гибов.": "Click a line and enter its angle. Zero clears the assignment. Assign angles in the desired bend order.",
-    "Coin3D работает в штатном 3D-окне FreeCAD. Это окно показывает состояние и управление симуляцией; вращение и масштабирование выполняются в 3D-окне детали.": "Coin3D uses FreeCAD's 3D view. Rotate and zoom in the part view.",
-    "Развёртка · Порядок": "Flat pattern · Sequence",
-    "Шаг": "Step",
-    "Цель": "Target",
-    "Текущий угол": "Current angle",
-    "До гиба, мм": "Before bend, mm",
-    "Статус": "Status",
-    "Отвод": "Retract",
-    "Переместить вверх": "Move up",
-    "Переместить вниз": "Move down",
-    "Восстановить порядок": "Restore order",
-    "Отменить последнюю линию": "Undo last line",
-    "Отменить редактирование": "Cancel editing",
-    "Подбирать положение автоматически": "Choose orientation automatically",
-    "Фаза цикла: {phase} ({mode} | {contact})": "Cycle phase: {phase} ({mode} | {contact})",
-    "Фаза цикла: ожидание ({mode})": "Cycle phase: idle ({mode})",
-    " | предполагаемый подъём +{lift:.2f} мм, не проверено": " | proposed lift +{lift:.2f} mm, unverified",
-    "Положение пуансона: {height:+.2f} мм (ход: {stroke:.2f} мм)": "Ram position: {height:+.2f} mm (stroke: {stroke:.2f} mm)",
-    "Пуансоны ({count})": "Punches ({count})",
-    "Матрицы ({count})": "Dies ({count})",
-    "Статус: {text}": "Status: {text}",
-    "Выбрано: {kind} · {tool} (файл метаданных: {sidecar})": "Selected: {kind} · {tool} (metadata file: {sidecar})",
-    "Метаданные: {metadata}\nСегменты: {segments}\nПуть: {path}": "Metadata: {metadata}\nSegments: {segments}\nPath: {path}",
-    "Удалить пуансон": "Remove punch",
-    "Удалить матрицу": "Remove die",
-    "Сегменты пуансона": "Punch segments",
-    "Сегменты матрицы": "Die segments",
-    "Библиотека загружена: {path}": "Library loaded: {path}",
-    "{tool}: разворот {state}": "{tool}: rotation {state}",
-    "Сегменты и количество": "Segment inventory",
-    "Рассчитать раскладку": "Calculate tool layout",
-    "Добавьте оснастку в библиотеку.": "Add tooling to the library.",
-    "Инструмент": "Tool",
-    "PressBrakeSim: оснастка": "PressBrakeSim: tooling",
-    "{entity}: нужна плоскость XY.": "{entity}: the geometry must lie in the XY plane.",
-    "{entity} вне XY": "{entity} outside XY",
-    "Геометрия DXF {entity} пока не поддерживается.": "Unsupported DXF geometry: {entity}.",
-    "Разветвление контура возле X={x:.3f}, Y={y:.3f} мм. Проверьте включённые слои и линии гиба.": "Outline branches near X={x:.3f}, Y={y:.3f} mm. Check the enabled layers and bend lines.",
-    "Разрыв контура возле X={x:.3f}, Y={y:.3f} мм.": "Outline gap near X={x:.3f}, Y={y:.3f} mm.",
-    " Ближайший открытый конец X={x:.3f}, Y={y:.3f} мм, расстояние {gap:.3f} мм при допуске {tol:.3f} мм.": " Nearest open endpoint: X={x:.3f}, Y={y:.3f} mm. Gap: {gap:.3f} mm. Tolerance: {tol:.3f} mm.",
-    "Контур №{number} ({edges} рёбер, X={xmin:.3f}…{xmax:.3f}, Y={ymin:.3f}…{ymax:.3f} мм)": "Outline #{number} ({edges} edges, X={xmin:.3f}…{xmax:.3f}, Y={ymin:.3f}…{ymax:.3f} mm)",
-    "{outline} не замкнут после сборки FreeCAD. Допуск стыковки: {tol:.3f} мм.": "{outline} did not close after joining in FreeCAD. Joining tolerance: {tol:.3f} mm.",
-    "{outline} пересекается или накладывается сам на себя возле X={x:.3f}, Y={y:.3f} мм.": "{outline} crosses or overlaps itself near X={x:.3f}, Y={y:.3f} mm.",
-    "{outline} не образует корректную плоскую область.{detail}": "{outline} does not form a valid planar face.{detail}",
-    ("FAST: {seconds:.3f} с, состояний: {states}, переходов: {transitions}. "
-     "2D-проверки на оси: {checks}, со штрафом: {penalized}, без вывода: {unknown}. "
-     "Сохранённые шаблоны предлагаются первыми и перепроверяются в 2D. "
-     "Варианты требуют проверки в Mesh."): (
-        "FAST: {seconds:.3f} s, states: {states}, transitions: {transitions}. "
-        "2D axis checks: {checks}, penalized: {penalized}, inconclusive: {unknown}. "
-        "Saved templates are listed first and checked again in 2D. "
-        "Sequences still require a Mesh check."
-    ),
-}
+@lru_cache(maxsize=2)
+def _catalog(language):
+    path = Path(__file__).resolve().parents[1] / "translations" / language / "catalog.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    if not isinstance(data, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in data.items()):
+        raise ValueError(f"Invalid translation catalog: {path}")
+    return data
+
+
+TRANSLATIONS = _catalog("en")
 
 
 def resolve_language(freecad_language="", system_language="en"):
@@ -527,15 +44,88 @@ def interface_language():
     try:
         from PySide import QtCore
     except ImportError:
-        system_language = locale.getlocale()[0] or "en"
-    else:
-        system_language = QtCore.QLocale().name()
+        try:
+            from PySide6 import QtCore
+        except ImportError:
+            try:
+                from PySide2 import QtCore
+            except ImportError:
+                QtCore = None
+    system_language = QtCore.QLocale().name() if QtCore is not None else (locale.getlocale()[0] or "en")
     return resolve_language(preference, system_language)
 
 
 def tr(source, *, language=None, **values):
     language = interface_language() if language is None else language
-    translated = TRANSLATIONS.get(source)
-    if translated and language == "en":
-        source = translated
+    source = _catalog(language).get(source, source)
+    if language == "en" and values:
+        diagnostic_fields = {"error", "reason", "details", "warning", "message", "text"}
+        values = {
+            key: tr_message(value, language=language)
+            if key in diagnostic_fields and isinstance(value, (str, Exception)) else value
+            for key, value in values.items()
+        }
     return source.format(**values) if values else source
+
+
+@lru_cache(maxsize=1)
+def _message_patterns():
+    """Match already formatted diagnostics from the headless core."""
+    patterns = []
+    formatter = Formatter()
+    for source, translated in _catalog("en").items():
+        if "{" not in source or not re.search(r"[А-Яа-яЁё]", source):
+            continue
+        try:
+            chunks = list(formatter.parse(source))
+        except ValueError:
+            continue
+        literal_length = sum(len(literal) for literal, _, _, _ in chunks)
+        if literal_length < 12:
+            continue
+        expression = "^" + "".join(
+            re.escape(literal) + ("(.+?)" if field is not None else "")
+            for literal, field, _, _ in chunks
+        ) + "$"
+        patterns.append((literal_length, re.compile(expression, re.DOTALL), chunks, translated))
+    return tuple(sorted(patterns, key=lambda item: item[0], reverse=True))
+
+
+def tr_message(message, *, language=None):
+    """Translate a fully formatted core error without making core depend on FreeCAD."""
+    value = str(message)
+    language = interface_language() if language is None else language
+    if language != "en" or not re.search(r"[А-Яа-яЁё]", value):
+        return value
+    if value.startswith("UNVERIFIED: "):
+        return "UNVERIFIED: " + tr_message(value[len("UNVERIFIED: "):], language=language)
+    exact = _catalog("en").get(value)
+    if exact is not None:
+        return exact
+    for _, pattern, chunks, translated in _message_patterns():
+        match = pattern.fullmatch(value)
+        if match is None:
+            continue
+        captured = iter(match.groups())
+        by_name = {}
+        positions = []
+        for _, field, _, _ in chunks:
+            if field is not None:
+                part = next(captured)
+                positions.append(part)
+                if field and not field.isdigit():
+                    by_name[field] = part
+        index = 0
+        output = []
+        for literal, field, _, _ in Formatter().parse(translated):
+            output.append(literal)
+            if field is not None:
+                if field and not field.isdigit():
+                    output.append(by_name[field])
+                elif field:
+                    output.append(positions[int(field)])
+                else:
+                    output.append(positions[index])
+                    index += 1
+        return "".join(output)
+    return value

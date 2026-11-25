@@ -207,7 +207,7 @@ class BackgaugeCAD3D:
                         "separation={:.2f} mm, "
                         "actual CAD X-width={:.2f} mm, "
                         "minimum guaranteed non-overlap separation={:.2f} mm. "
-                        "Uncheck 'Добавить второй CAD упор' to use one, "
+                        "Uncheck 'Add second CAD backgauge' to use one, "
                         "or set real machine X positions with sufficient "
                         "clearance. No safety margin is assumed."
                         .format(

@@ -17,6 +17,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from freecad_smbs.icon_theme import icon_path as _smbs_icon_path
+from freecad_smbs.ui.localization import tr
 from freecad_smbs.commands.pressbrake_2d import (
     PressBrake2DCommand, LoadPartCommand, ToolingTabCommand,
     SequenceCatalogCommand,
@@ -115,7 +116,7 @@ class SMBSWorkbench(Workbench):
         ]
         self.appendMenu(self.MenuText, menu)
         self.appendToolbar(self.MenuText, toolbar)
-        self.appendToolbar(TOOLING_TOOLBAR, _TOOLING_ACTIONS)
+        self.appendToolbar(tr(TOOLING_TOOLBAR), _TOOLING_ACTIONS)
 
     def Activated(self) -> None:
         # FreeCAD's own QToolBar remains the command host. Only this addon's
@@ -133,8 +134,8 @@ class SMBSWorkbench(Workbench):
                 return
             for toolbar in main.findChildren(QtWidgets.QToolBar):
                 if (
-                    toolbar.objectName() in (self.MenuText, TOOLING_TOOLBAR)
-                    or toolbar.windowTitle() in (self.MenuText, TOOLING_TOOLBAR)
+                    toolbar.objectName() in (self.MenuText, TOOLING_TOOLBAR, tr(TOOLING_TOOLBAR))
+                    or toolbar.windowTitle() in (self.MenuText, TOOLING_TOOLBAR, tr(TOOLING_TOOLBAR))
                 ):
                     toolbar.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
                     toolbar.setIconSize(QtCore.QSize(24, 24))
@@ -180,7 +181,7 @@ class SMBSWorkbench(Workbench):
             unfold = saved_session_unfold_selection(document)
         except Exception as exc:
             App.Console.PrintWarning(
-                "SMBS: FCStd автозагрузка отклонена: " + str(exc) + "\\n"
+                tr("SMBS: FCStd автозагрузка отклонена: {error}\\n", error=exc)
             )
             return
         if unfold:
@@ -192,8 +193,7 @@ class SMBSWorkbench(Workbench):
                 )
             except Exception as exc:
                 App.Console.PrintWarning(
-                    "SMBS: ошибка автоматического восстановления FCStd: "
-                    + str(exc) + "\\n"
+                    tr("SMBS: ошибка автоматического восстановления FCStd: {error}\\n", error=exc)
                 )
 
     def Deactivated(self) -> None:

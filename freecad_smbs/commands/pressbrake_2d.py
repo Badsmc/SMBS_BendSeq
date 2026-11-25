@@ -19,7 +19,7 @@ import weakref
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from freecad_smbs.ui.localization import tr
+from freecad_smbs.ui.localization import interface_language, tr, tr_message
 from freecad_smbs.icon_theme import icon_path as _smbs_icon_path
 
 from smbs_core.kinematics2d.developer_debug_log import (
@@ -99,10 +99,32 @@ class _SMBSFCStdSaveObserver:
             panel._write_embedded_smbs_json(document)
         except Exception as exc:
             # Never corrupt or abort the user's CAD document save.
-            message = "SMBS JSON не вложен в FCStd: " + str(exc)
+            message = tr("SMBS JSON не вложен в FCStd: {error}", error=exc)
             _error(message + "\n" + traceback.format_exc())
             panel.status.setText(message)
 
+
+
+def _tooling_status_text(setup):
+    """Present headless tooling status in the FreeCAD interface language."""
+    geometry = {
+        "NONE": tr("не выбрана"),
+        "INVALID": tr("недопустима"),
+        "NEEDS_ALIGNMENT": tr("требует выравнивания"),
+        "IMPORTED": tr("импортирована"),
+        "VERIFIED": tr("проверена"),
+    }.get(setup.geometry_status_summary(), setup.geometry_status_summary())
+    result = tr(
+        "Пуансон: {punch} | Матрица: {die} | Геометрия: {geometry} | Коллизии: НЕ ПРОВЕРЕНЫ",
+        punch=setup.punch.name if setup.punch is not None else "—",
+        die=setup.die.name if setup.die is not None else "—",
+        geometry=geometry,
+    )
+    if setup.match_active_bend_length:
+        length = (tr("{length:.1f} мм", length=setup.active_bend_length_mm)
+                  if setup.active_bend_length_mm else tr("АКТИВНЫЙ ГИБ"))
+        result += tr(" | Длина оснастки: ВИРТУАЛЬНАЯ={length}", length=length)
+    return result
 
 
 def _pressbrake_user_data_directory():
@@ -265,11 +287,11 @@ def validate_selection_preconditions(doc, selection) -> list:
         doc = getattr(sel_list[0], "Document", None)
     if doc is None:
         raise SelectionWarning(
-            "Нет открытого документа FreeCAD. Откройте FCStd-модель листовой детали."
+            tr("Нет открытого документа FreeCAD. Откройте FCStd-модель листовой детали.")
         )
     if not sel_list:
         raise SelectionWarning(
-            "Деталь не выбрана. Выделите листовую деталь (Body / Bend / Unfold) в дереве модели и нажмите «Деталь»."
+            tr("Деталь не выбрана. Выделите листовую деталь (Body / Bend / Unfold) в дереве модели и нажмите «Деталь».")
         )
     return sel_list
 
@@ -305,7 +327,7 @@ def execute_load_part(
         _log("load_part: exit (selection warning, session preserved)")
         return "warning", current_session, msg
     except Exception as exc:
-        msg = "Ошибка загрузки детали: {}".format(exc)
+        msg = tr("Ошибка загрузки детали: {error}", error=exc)
         _error(msg + "\n" + traceback.format_exc())
         _log("load_part: exit (error, session preserved)")
         return "error", current_session, msg
@@ -313,7 +335,7 @@ def execute_load_part(
     b = new_session.active_bend
     z = b.bend_zone
     msg = (
-        "Загружена деталь «{}»: панелей {}, гибов {} | t={:.2f} мм, R_вн={:.2f} мм, K={:.2f}, BA={:.3f} мм".format(
+        tr("Загружена деталь «{}»: панелей {}, гибов {} | t={:.2f} мм, R_вн={:.2f} мм, K={:.2f}, BA={:.3f} мм").format(
             new_session.part_label,
             len(new_session.graph.panels),
             len(new_session.ordered_bends),
@@ -490,8 +512,7 @@ def resolve_selected_unfold(doc, selection) -> str:
     ]
     if not unfolds:
         raise SelectionWarning(
-            "В документе не найден объект развёртки SheetMetal (*_Unfold). "
-            "Создайте развёртку с эскизами в верстаке SheetMetal."
+            tr("В документе не найден объект развёртки SheetMetal (*_Unfold). Создайте развёртку с эскизами в верстаке SheetMetal.")
         )
 
     selected = sel_list[0]
@@ -526,7 +547,7 @@ def resolve_selected_unfold(doc, selection) -> str:
     if len(unfolds) == 1 and hasattr(selected, "Shape"):
         return unfolds[0].Name
     raise SelectionWarning(
-        "Не удалось однозначно сопоставить выбранный объект «{}» с развёрткой SheetMetal.".format(
+        tr("Не удалось однозначно сопоставить выбранный объект «{}» с развёрткой SheetMetal.").format(
             getattr(selected, "Label", sel_name)
         )
     )
@@ -818,8 +839,8 @@ def show_workspace_controls(workspace, tab=None):
         # Do not close an unrelated FreeCAD Sketcher/PartDesign task and
         # lose its pending edits merely because an SMBS toolbar was clicked.
         message = (
-            "Сначала завершите текущую задачу FreeCAD, "
-            "затем откройте раздел SMBS снова."
+            tr("Сначала завершите текущую задачу FreeCAD, "
+            "затем откройте раздел SMBS снова.")
         )
         workspace.status.setText(message)
         workspace.show_task_panel_btn.show()
@@ -1194,12 +1215,12 @@ class LoadPartCommand:
         try:
             resolve_selected_unfold(doc, selection)
         except (SelectionWarning, AttributeError, TypeError, ValueError) as exc:
-            message = "Выберите развёртку SheetMetal: " + str(exc)
+            message = tr("Выберите развёртку SheetMetal: ") + str(exc)
             App.Console.PrintWarning(message + "\\n")
             # Feedback must remain visible with FreeCAD's Report View hidden.
             _QtCore, _QtGui, QtWidgets = _qt()
             QtWidgets.QMessageBox.information(
-                Gui.getMainWindow(), "SMBS — Деталь", message
+                Gui.getMainWindow(), tr("SMBS — Деталь"), message
             )
             workspace = get_workspace_widget()
             if workspace is not None:
@@ -1215,7 +1236,7 @@ class LoadPartCommand:
         else:
             workspace.load_part(selection=selection, document=doc)
         if workspace is None or workspace.session is None:
-            App.Console.PrintWarning("SMBS: деталь не загружена.\\n")
+            App.Console.PrintWarning(tr("SMBS: деталь не загружена.\\n"))
             return
         show_workspace_controls(workspace, tab=1)
         Gui.updateGui()
@@ -1527,27 +1548,29 @@ class _PreviewPanel:
             """Existing application status, observed without polling the GUI."""
 
             def __init__(self, workspace, message):
-                super().__init__(message, workspace)
+                super().__init__(tr_message(message), workspace)
                 self._workspace = workspace
 
             def setText(self, message):
-                super().setText(str(message))
-                self.setToolTip(str(message))
+                visible = tr_message(message)
+                super().setText(visible)
+                self.setToolTip(visible)
                 if hasattr(self, "_workspace"):
-                    self._workspace._on_task_status_change(str(message))
+                    self._workspace._on_task_status_change(visible)
 
         class TaskPhysicalResultLabel(QtWidgets.QLabel):
             """Mirror the actual validator output into the compact simulation card."""
 
             def __init__(self, workspace, message):
-                super().__init__(message, workspace)
+                super().__init__(tr_message(message), workspace)
                 self._workspace = workspace
 
             def setText(self, message):
-                super().setText(str(message))
-                self.setToolTip(str(message))
+                visible = tr_message(message)
+                super().setText(visible)
+                self.setToolTip(visible)
                 if hasattr(self, "_workspace"):
-                    self._workspace._on_physical_result_change(str(message))
+                    self._workspace._on_physical_result_change(visible)
 
         class Panel(QtWidgets.QWidget):
             def __init__(self, library_root: Path | str | None = None):
@@ -1684,7 +1707,7 @@ class _PreviewPanel:
                 root.addWidget(title)
 
                 self.status = TaskStatusLabel(
-                    self, "Выделите листовую деталь в FreeCAD и нажмите «Деталь»."
+                    self, tr("Выделите листовую деталь в FreeCAD и нажмите «Деталь».")
                 )
                 self.status.setWordWrap(True)
                 root.addWidget(self.status)
@@ -1752,11 +1775,11 @@ class _PreviewPanel:
                 self.tooling_setup.end_zone_length_mm = float(self.end_zone_len_spin.value())
                 self.tooling_setup.allow_end_zone_collision = bool(self.allow_end_zone_checkbox.isChecked())
 
-                self.tooling_status = QtWidgets.QLabel(self.tooling_setup.status_line())
+                self.tooling_status = QtWidgets.QLabel(_tooling_status_text(self.tooling_setup))
                 self.tooling_status.setWordWrap(True)
                 t_layout.addWidget(self.tooling_status)
                 self.physical_check_result = TaskPhysicalResultLabel(
-                    self, "UNVERIFIED: проверка коллизий не выполнена."
+                    self, tr("UNVERIFIED: проверка коллизий не выполнена.")
                 )
                 self.physical_check_result.setWordWrap(True)
                 t_layout.addWidget(self.physical_check_result)
@@ -1844,7 +1867,7 @@ class _PreviewPanel:
                     self.add_part_btn, self.reset_btn, self.prev_step_btn, self.play_btn,
                     self.next_step_btn, self.fit_btn,
                 )
-                captions = ("Добавить выбранную развёртку SheetMetal", "Reset", "|<<", "Play / Pause", ">>|", "Fit")
+                captions = (tr("Добавить выбранную развёртку SheetMetal"), "Reset", "|<<", "Play / Pause", ">>|", "Fit")
                 sizes = (27, 48, 34, 64, 34, 36)
                 row.setColumnMinimumWidth(0, 0)
                 for col, (widget, caption, width) in enumerate(
@@ -1927,7 +1950,7 @@ class _PreviewPanel:
                 # embedded row widgets are still owned by Qt.
                 self.operations.headerItem().setToolTip(
                     _LOADING_ORIENTATION_COLUMN,
-                    "Разворот заготовки вокруг вертикальной оси для этого гиба.",
+                    tr("Разворот заготовки вокруг вертикальной оси для этого гиба."),
                 )
                 self.operations.setRootIsDecorated(False)
                 self.operations.setHorizontalScrollBarPolicy(
@@ -1940,8 +1963,7 @@ class _PreviewPanel:
                 self.operations.setAlternatingRowColors(True)
                 self.operations.setMinimumHeight(220)
                 self.operations.setToolTip(
-                    self.operations.toolTip() + "\nПеретащите строки после добавления предгиба. "
-                    "Предгиб всегда должен стоять раньше догиба."
+                    self.operations.toolTip() + tr("\nПеретащите строки после добавления предгиба. Предгиб всегда должен стоять раньше догиба.")
                 )
                 self.operations.currentItemChanged.connect(self._on_operation_selected)
                 self.operations.itemChanged.connect(self._on_operation_orientation_changed)
@@ -2445,11 +2467,11 @@ class _PreviewPanel:
                 self.manual_undo_btn.setText(tr("Назад"))
                 edit_layout.addWidget(cancel_edit)
                 for button, text, hint in (
-                    (self.move_up_btn, "↑", "Переместить вверх"),
-                    (self.move_down_btn, "↓", "Переместить вниз"),
-                    (self.restore_order_btn, "↺", "Восстановить порядок"),
-                    (self.manual_undo_btn, "←", "Отменить последнюю линию"),
-                    (cancel_edit, "✕", "Отменить редактирование"),
+                    (self.move_up_btn, "↑", tr("Переместить вверх")),
+                    (self.move_down_btn, "↓", tr("Переместить вниз")),
+                    (self.restore_order_btn, "↺", tr("Восстановить порядок")),
+                    (self.manual_undo_btn, "←", tr("Отменить последнюю линию")),
+                    (cancel_edit, "✕", tr("Отменить редактирование")),
                 ):
                     button.setText(text)
                     button.setToolTip(tr(hint))
@@ -2755,6 +2777,7 @@ class _PreviewPanel:
                 badge.setText(tr({
                     "Ready": "Готово", "Running": "Расчёт…",
                     "Warning": "Предупреждение", "Error": "Ошибка",
+                    "Unverified": "Не проверено",
                 }.get(caption, caption)))
 
             def _on_physical_result_change(self, message):
@@ -2780,6 +2803,7 @@ class _PreviewPanel:
                 self._on_task_status_change(self.status.text())
 
             def _set_task_result(self, key, state, summary, details="", findings=""):
+                summary, details, findings = (tr_message(value) for value in (summary, details, findings))
                 button = self._task_result_buttons[key]
                 icons = {
                     "idle": QtWidgets.QStyle.SP_MessageBoxInformation,
@@ -2841,7 +2865,7 @@ class _PreviewPanel:
                 )))
                 if self.task_progress.value() != value:
                     self.task_progress.setValue(value)
-                caption = "Гибы · {}%".format(value)
+                caption = tr("Гибы · {}%").format(value)
                 if self._task_progress_caption.text() != caption:
                     self._task_progress_caption.setText(caption)
 
@@ -2903,8 +2927,8 @@ class _PreviewPanel:
                         self._start_motion_trace(manual=True)
                     else:
                         self.trace_status.setText(
-                            "Сначала загрузите деталь. Запись начнётся при Play All. "
-                            "Каталог: {}".format(self._trace_directory)
+                            tr("Сначала загрузите деталь. Запись начнётся при Play All. "
+                            "Каталог: {}").format(self._trace_directory)
                         )
                 else:
                     self._finish_motion_trace("RECORDING_DISABLED")
@@ -2916,7 +2940,7 @@ class _PreviewPanel:
                     )
                     return
                 chosen = QtWidgets.QFileDialog.getExistingDirectory(
-                    self, "Выберите каталог для записи JSONL и JSON",
+                    self, tr("Выберите каталог для записи JSONL и JSON"),
                     str(self._trace_directory.parent)
                 )
                 if not chosen:
@@ -2926,13 +2950,13 @@ class _PreviewPanel:
                     target.mkdir(parents=True, exist_ok=True)
                     self._trace_directory = target
                     self.trace_status.setText(
-                        "Каталог записи: {}. Нажмите «Начать запись JSONL».".format(
+                        tr("Каталог записи: {}. Нажмите «Начать запись JSONL».").format(
                             self._trace_directory
                         )
                     )
                 except OSError as exc:
                     self.trace_status.setText(
-                        "Ошибка доступа к каталогу {}: {}".format(chosen, exc)
+                        tr("Ошибка доступа к каталогу {}: {}").format(chosen, exc)
                     )
 
             def _open_trace_directory(self):
@@ -2944,7 +2968,7 @@ class _PreviewPanel:
                     if not QtGui.QDesktopServices.openUrl(target):
                         raise OSError("System file manager refused to open the folder")
                 except Exception as exc:
-                    message = "Не удалось открыть каталог записи {}: {}".format(
+                    message = tr("Не удалось открыть каталог записи {}: {}").format(
                         self._trace_directory, exc
                     )
                     self.trace_status.setText(message)
@@ -2961,7 +2985,7 @@ class _PreviewPanel:
                     return
                 if self.motion_trace is not None and self.motion_trace.is_open:
                     self.trace_status.setText(
-                        "Запись продолжается: {}".format(self.motion_trace.path)
+                        tr("Запись продолжается: {}").format(self.motion_trace.path)
                     )
                     return
                 try:
@@ -3055,15 +3079,14 @@ class _PreviewPanel:
                     # visible immediately, not only after buffered frames.
                     trace.flush()
                     self.trace_status.setText(
-                        "Версия: {} (2D) | сборка: {}\n"
-                        "Запись: {}\nФайл: {}".format(
+                        tr("Версия: {} (2D) | сборка: {}\nЗапись: {}\nФайл: {}").format(
                             project_version, source_digest[:12],
                             self._trace_directory.resolve(), filename
                         )
                     )
                     _log("Motion trace START: {}".format(filename))
                 except Exception as exc:
-                    message = "Не удалось создать JSONL в {}: {}".format(
+                    message = tr("Не удалось создать JSONL в {}: {}").format(
                         self._trace_directory, exc
                     )
                     _warn(message)
@@ -3084,7 +3107,7 @@ class _PreviewPanel:
                 trace = self.motion_trace
                 if trace is None or not trace.is_open:
                     self.trace_status.setText(
-                        "Нет активной записи. Каталог: {}".format(
+                        tr("Нет активной записи. Каталог: {}").format(
                             self._trace_directory.resolve()
                         )
                     )
@@ -3101,8 +3124,7 @@ class _PreviewPanel:
                     )
                     summary = trace.stop(str(reason))
                     self.trace_status.setText(
-                        "Версия: {} ({}), сборка: {}\n"
-                        "Запись завершена.\nJSONL: {}\nJSON: {}".format(
+                        tr("Версия: {} ({}), сборка: {}\nЗапись завершена.\nJSONL: {}\nJSON: {}").format(
                             trace.project_version, trace.project_channel,
                             trace.build_id[:12], trace.path, summary
                         )
@@ -3115,7 +3137,7 @@ class _PreviewPanel:
                         self.trace_checkbox.setChecked(False)
                         self.trace_checkbox.blockSignals(False)
                 except Exception as exc:
-                    message = "Не удалось создать отчёт JSON: {}".format(exc)
+                    message = tr("Не удалось создать отчёт JSON: {}").format(exc)
                     _warn(message)
                     self.trace_status.setText(message)
                     self.status.setText(message)
@@ -3174,7 +3196,7 @@ class _PreviewPanel:
                 except Exception as exc:
                     _desktop_debug_event("PREVIEW_FRAME_ERROR", error=str(exc), bend_id=bend_id)
                     if tracing:
-                        self.trace_status.setText("Ошибка трассы: " + str(exc))
+                        self.trace_status.setText(tr("Ошибка трассы: {error}", error=exc))
                         self._finish_motion_trace("TRACE_FRAME_ERROR")
 
             def _on_view_changed(self, index):
@@ -3202,7 +3224,7 @@ class _PreviewPanel:
                     self._coin_frame_status.setText(tr("Загрузите развёртку SheetMetal."))
                     return True
                 if not viewer._available:
-                    message = "Coin3D недоступен. Проверьте pivy.coin в Python FreeCAD."
+                    message = tr("Coin3D недоступен. Проверьте pivy.coin в Python FreeCAD.")
                     if self.timer.isActive():
                         self.pause()
                     self._coin_frame_status.setText(message)
@@ -3259,12 +3281,12 @@ class _PreviewPanel:
                         highlighted = (mesh_hit["component"],)
                         if mesh_hit["overlap_bbox_xyz_mm"] is not None:
                             bounds = [mesh_hit["overlap_bbox_xyz_mm"]]
-                        tool_name = {"punch": "пуансон", "die": "матрица"}[mesh_hit["tool"]]
+                        tool_name = {"punch": tr("пуансон"), "die": tr("матрица")}[mesh_hit["tool"]]
                         mesh_label = "Mesh Conditional" if mesh_hit.get("conditional") else "Mesh"
                         message = (
                             f"{mesh_label} {self._mesh_collision_index + 1}/{len(self._mesh_collision_hits)}"
-                            f" · {mesh_hit['operation']} · {mesh_hit['phase']} · {tool_name}"
-                            f" · {mesh_hit['component']} · {mesh_hit['occ_overlap_volume_mm3']:.4f} мм³"
+                            f" · {mesh_hit['operation']} · {mesh_hit['phase']} · {tool_name}" +
+                            tr(" · {component} · {volume:.4f} мм³", component=mesh_hit['component'], volume=mesh_hit['occ_overlap_volume_mm3'])
                         )
                     elif inspection:
                         from smbs_core.kinematics2d.native_collision_attribution import collision_preview_boxes
@@ -3309,7 +3331,7 @@ class _PreviewPanel:
                             if hit.get("component_id", "").startswith("panel:")
                         )
                         bounds = [entry["bbox"] for entry in collision_preview_boxes(blocker)]
-                        message = f"{bend_id} · {actual['phase']} · Z={ram_z:+.2f} мм · коллизия OCC"
+                        message = tr("{bend} · {phase} · Z={z:+.2f} мм · коллизия OCC", bend=bend_id, phase=actual['phase'], z=ram_z)
                     else:
                         fold_state = self.session.fold_state
                         placement = self._current_preview_machine_placement()
@@ -3317,7 +3339,7 @@ class _PreviewPanel:
                         current_verdict = self._manual_3d_verdicts.get(bend_id)
                         message = (
                             "OCC: {} (SAMPLED)".format(current_verdict) if current_verdict
-                            else "Симуляция без подтверждённого результата OCC"
+                            else tr("Симуляция без подтверждённого результата OCC")
                         )
 
                     fold_signature = (id(self.session), bend_id, tuple(fold_state.angles.items()))
@@ -3342,7 +3364,7 @@ class _PreviewPanel:
                     )
                     section_preview = proposal[1] if show_proposal else None
                     if show_proposal:
-                        message = f"{bend_id} · Предпросмотр раскладки сегментов"
+                        message = tr("{bend} · Предпросмотр раскладки сегментов", bend=bend_id)
                         if not tooling.visible:
                             tooling = replace(tooling, visible=True)
                     if section_preview is None and not inspection and not mesh_hit:
@@ -3507,7 +3529,7 @@ class _PreviewPanel:
                         large_first=large_first,
                     )
                 except (OSError, ValueError, RuntimeError, AttributeError, TypeError) as exc:
-                    QtWidgets.QMessageBox.warning(self, title, str(exc))
+                    QtWidgets.QMessageBox.warning(self, title, tr_message(exc))
                 else:
                     self.status.setText(tr("Карта гибки сохранена в PDF."))
 
@@ -3517,7 +3539,7 @@ class _PreviewPanel:
 
                 punch, die = self.tooling_setup.punch, self.tooling_setup.die
                 if require_pair and (punch is None or die is None):
-                    raise ValueError("Сначала выберите пуансон и матрицу.")
+                    raise ValueError(tr("Сначала выберите пуансон и матрицу."))
 
                 def stock(tool):
                     if tool is None:
@@ -3529,7 +3551,7 @@ class _PreviewPanel:
 
                 p_inventory, d_inventory = stock(punch), stock(die)
                 if require_pair and (not p_inventory or not d_inventory):
-                    raise ValueError("Задайте запасы пуансона и матрицы через «Сегменты и количество».")
+                    raise ValueError(tr("Задайте запасы пуансона и матрицы через «Сегменты и количество»."))
                 clamp_config = (
                     self._project_clamp_config
                     if self._project_clamp_config is not None
@@ -3546,7 +3568,7 @@ class _PreviewPanel:
 
                 p_inventory, d_inventory, cfg = self._tool_assembly_inputs()
                 if not cfg.centres_mm:
-                    raise ValueError("На вкладке «Лапки» задайте центры зажимов или их количество.")
+                    raise ValueError(tr("На вкладке «Лапки» задайте центры зажимов или их количество."))
                 bends = self.session.fold_state.bends
                 required = max(math.dist(*bends[bend_id].axis_xyz) for bend_id in order)
                 plan = plan_pair_for_bend(p_inventory, d_inventory, required, cfg)
@@ -3624,7 +3646,7 @@ class _PreviewPanel:
                                 if spans:
                                     sections[kind] = spans
                     except (OSError, ValueError, ClampValidatorError) as exc:
-                        _warn(f"Раскладка для симуляции: {exc}")
+                        _warn(tr("Раскладка для симуляции: {error}", error=exc))
                     self._simulation_layouts[length] = sections or None
                 return self._simulation_layouts[length]
 
@@ -3706,25 +3728,25 @@ class _PreviewPanel:
                 def describe_sections(label, spans, clamp_spans=()):
                     lengths = [round(hi - lo, 6) for lo, hi in spans]
                     counts = Counter(lengths)
-                    stock = ", ".join(f"{length:g} мм × {count}" for length, count in counts.items())
-                    lines = [f"  {label} {sum(lengths):.3f} мм · {stock}"]
+                    stock = ", ".join(tr("{length:g} мм × {count}", length=length, count=count) for length, count in counts.items())
+                    lines = [tr("  {label} {total:.3f} мм · {stock}", label=label, total=sum(lengths), stock=stock)]
                     if clamp_spans:
                         center = (spans[0][0] + spans[-1][1]) / 2.0
-                        lines.append(f"  Центр пуансона по X {center:+.3f} мм")
+                        lines.append(tr("  Центр пуансона по X {center:+.3f} мм", center=center))
                     support = punch_segment_supports(spans, clamp_spans)
                     for index, ((lo, hi), length, contacts) in enumerate(zip(spans, lengths, support), 1):
-                        entry = f"    {index}. {length:g} мм · X {lo:+.3f}…{hi:+.3f}"
+                        entry = tr("    {index}. {length:g} мм · X {lo:+.3f}…{hi:+.3f}", index=index, length=length, lo=lo, hi=hi)
                         if contacts:
-                            overlaps = ", ".join(f"№{number} ({overlap:.3g} мм)"
+                            overlaps = ", ".join(tr("№{number} ({overlap:.3g} мм)", number=number, overlap=overlap)
                                                  for number, overlap in contacts)
-                            entry += f" · опора на лапки {overlaps}"
+                            entry += tr(" · опора на лапки {overlaps}", overlaps=overlaps)
                         lines.append(entry)
                     return lines
 
                 def describe_shortfall(required, punch_length):
                     missing = required - punch_length
                     if missing > 1e-6:
-                        return [f"  Пуансон короче линии гиба на {missing:.3f} мм. OCC требует полного перекрытия."]
+                        return [tr("  Пуансон короче линии гиба на {missing:.3f} мм. OCC требует полного перекрытия.", missing=missing)]
                     return []
 
                 def spans_for(plan, kind):
@@ -3736,42 +3758,42 @@ class _PreviewPanel:
                     lines = []
                     if "punch_preview" in plan:
                         if not d_inventory:
-                            lines.append("  Задайте склад выбранной матрицы для расчёта её секций.")
+                            lines.append(tr("  Задайте склад выбранной матрицы для расчёта её секций."))
                         else:
-                            lines.append("  Из склада матрицы не найден подходящий набор.")
+                            lines.append(tr("  Из склада матрицы не найден подходящий набор."))
                     status = punch_plan["status"]
                     if status == "NO_INVENTORY_COMBINATION":
-                        reason = ("Из склада пуансона не собрать нужную длину."
-                                  if p_inventory else "Задайте склад выбранного пуансона.")
+                        reason = (tr("Из склада пуансона не собрать нужную длину.")
+                                  if p_inventory else tr("Задайте склад выбранного пуансона."))
                         return lines + [f"  {reason}"]
                     if status == "ASSEMBLY_SEARCH_LIMIT":
-                        return lines + ["  Достигнут предел поиска секций пуансона."]
+                        return lines + [tr("  Достигнут предел поиска секций пуансона.")]
                     if status != "ASSEMBLY_CANDIDATE_UNVERIFIED":
-                        return lines + ["  Не найден пуансон с опорой на заданные зажимы."]
+                        return lines + [tr("  Не найден пуансон с опорой на заданные зажимы.")]
                     clamps = punch_plan["clamps"]
                     zones = clamp_spans_for_centres(clamps["centers_mm"], clamps["width_mm"])
-                    lines.extend(describe_sections("Пуансон", spans_for(punch_plan, "punch"), zones))
+                    lines.extend(describe_sections(tr("Пуансон"), spans_for(punch_plan, "punch"), zones))
                     if spans_for(plan, "die"):
-                        lines.extend(describe_sections("Матрица", spans_for(plan, "die")))
+                        lines.extend(describe_sections(tr("Матрица"), spans_for(plan, "die")))
                     lines.extend(describe_shortfall(plan["required_mm"], punch_plan["punch_total_mm"]))
                     centres = ", ".join(f"{x:+.3f}" for x in clamps["centers_mm"])
-                    lines.append(f"  Центры зажимов по X, мм · {centres}")
+                    lines.append(tr("  Центры зажимов по X, мм · {centres}", centres=centres))
                     if clamps["proposed_reposition"]:
-                        lines.append("  Предложенные позиции зажимов. Сверьте их со станком.")
+                        lines.append(tr("  Предложенные позиции зажимов. Сверьте их со станком."))
                     return lines
 
                 punch, die = self.tooling_setup.punch, self.tooling_setup.die
                 titles = [
-                    f"Пуансон {punch.tool_id if punch else '—'}",
-                    f"Матрица {die.tool_id if die else '—'}",
-                    f"Зажимы {cfg.width_mm:g} мм вдоль X, зазор от {cfg.gap_between_mm:g} мм.",
-                    "X = 0 в середине станка. Сегменты перечислены от меньшего X к большему.",
+                    tr("Пуансон {tool}", tool=punch.tool_id if punch else '—'),
+                    tr("Матрица {tool}", tool=die.tool_id if die else '—'),
+                    tr("Зажимы {width:g} мм вдоль X, зазор от {gap:g} мм.", width=cfg.width_mm, gap=cfg.gap_between_mm),
+                    tr("X = 0 в середине станка. Сегменты перечислены от меньшего X к большему."),
                 ]
                 if nominal_clamps:
-                    titles.append("Для расчёта показан ряд по CAD-траверсе. Перед применением задайте лапки станка.")
-                lines = ["Раскладка по гибам", ""]
+                    titles.append(tr("Для расчёта показан ряд по CAD-траверсе. Перед применением задайте лапки станка."))
+                lines = [tr("Раскладка по гибам"), ""]
                 for bend_id, plan in reports:
-                    lines.append(f"{bend_id} · линия гиба {plan['required_mm']:.3f} мм")
+                    lines.append(tr("{bend} · линия гиба {length:.3f} мм", bend=bend_id, length=plan['required_mm']))
                     lines.extend(describe(plan))
                     lines.append("")
                 per_bend = "\n".join(lines)
@@ -3782,7 +3804,7 @@ class _PreviewPanel:
                 bend_picker = QtWidgets.QComboBox()
                 bend_picker.setAccessibleName(tr("Гиб для предпросмотра секций"))
                 for bend_id, plan in reports:
-                    bend_picker.addItem(f"{bend_id} · {plan['required_mm']:.2f} мм", bend_id)
+                    bend_picker.addItem(tr("{bend} · {length:.2f} мм", bend=bend_id, length=plan['required_mm']), bend_id)
                 current = bend_picker.findData(self.session.active_bend_id)
                 bend_picker.setCurrentIndex(max(0, current))
                 layout.addWidget(bend_picker)
@@ -3818,10 +3840,9 @@ class _PreviewPanel:
                         feedback.setText(tr("Для предпросмотра задайте позиции или число лапок на станке."))
                     elif sections["punch"]:
                         lengths = " + ".join(f"{hi - lo:g}" for lo, hi in sections["punch"])
-                        feedback.setText(f"{bend_id} · Пуансон {lengths} мм в Coin3D. "
-                                         "Для OCC примените общий набор.")
+                        feedback.setText(tr("{bend} · Пуансон {lengths} мм в Coin3D. Для OCC примените общий набор.", bend=bend_id, lengths=lengths))
                     else:
-                        feedback.setText(f"{bend_id} · Подходящих секций для предпросмотра нет.")
+                        feedback.setText(tr("{bend} · Подходящих секций для предпросмотра нет.", bend=bend_id))
                     self._tooling_sections_preview = (bend_id, sections) if any(sections.values()) else None
                     if self._tooling_sections_preview is not None:
                         row = self.session.bend_order.index(bend_id)
@@ -3840,17 +3861,17 @@ class _PreviewPanel:
                     clear_btn.setEnabled(assembly is not None)
                     header = list(titles)
                     if assembly is not None:
-                        header.extend(["", f"Общий набор активен в Coin3D и OCC · {assembly.bend_length_mm:.3f} мм"])
+                        header.extend(["", tr("Общий набор активен в Coin3D и OCC · {length:.3f} мм", length=assembly.bend_length_mm)])
                         header.extend(describe_sections(
-                            "Пуансон", assembly.punch_spans_xm, assembly.clamp_spans_xm,
+                            tr("Пуансон"), assembly.punch_spans_xm, assembly.clamp_spans_xm,
                         ))
-                        header.extend(describe_sections("Матрица", assembly.die_spans_xm))
+                        header.extend(describe_sections(tr("Матрица"), assembly.die_spans_xm))
                         header.extend(describe_shortfall(
                             assembly.bend_length_mm,
                             sum(hi - lo for lo, hi in assembly.punch_spans_xm),
                         ))
                         centres = ", ".join(f"{(lo + hi) / 2:+.3f}" for lo, hi in assembly.clamp_spans_xm)
-                        header.append(f"  Центры зажимов по X, мм · {centres}")
+                        header.append(tr("  Центры зажимов по X, мм · {centres}", centres=centres))
                     edit.setPlainText("\n".join(header) + "\n\n" + per_bend)
 
                 def apply_common():
@@ -3862,7 +3883,7 @@ class _PreviewPanel:
                         assembly = self._calculate_common_tool_assembly(order)
                         self._verify_tool_assembly_geometry(assembly)
                     except Exception as exc:
-                        feedback.setText(str(exc))
+                        feedback.setText(tr_message(exc))
                         return
                     end_preview()
                     self._apply_tool_assembly(assembly)
@@ -3934,8 +3955,8 @@ class _PreviewPanel:
                 self._update_tooling_status_label()
 
             def _prompt_end_zone_conditional_dialog(self, bend_id: str, ez_analysis) -> bool:
-                """Show Russian confirmation dialog when an END_ZONE_ONLY punch collision is detected.
-                Returns True if operator chooses 'Продолжить с предупреждением', False if 'Отменить'.
+                """Confirm an END_ZONE_ONLY punch collision in the selected UI language.
+                Return True when the operator accepts the warning, False on cancellation.
                 """
                 side_str = str(getattr(ez_analysis, "affected_side", "UNKNOWN"))
                 vol_mm3 = float(getattr(ez_analysis, "total_overlap_volume_mm3", 0.0))
@@ -3961,17 +3982,17 @@ class _PreviewPanel:
                     tr("Обнаружено пересечение детали с концевой зоной пуансона.\nДля этой операции может потребоваться пуансон с вырезом на конце.\nПодходящая геометрия такого инструмента ещё не проверена.\nПродолжить проверку в условном режиме?")
                 )
                 msg_box.setInformativeText(
-                    "Операция/гиб: {}\n"
+                    tr("Операция/гиб: {}\n"
                     "Сторона пуансона: {}\n"
                     "Объём пересечения: {:.4f} мм³\n"
-                    "Концевая зона пуансона: {:.1f} мм".format(
+                    "Концевая зона пуансона: {:.1f} мм").format(
                         bend_id, side_str, vol_mm3, ez_mm
                     )
                 )
                 btn_continue = msg_box.addButton(
-                    "Продолжить с предупреждением", QtWidgets.QMessageBox.AcceptRole
+                    tr("Продолжить с предупреждением"), QtWidgets.QMessageBox.AcceptRole
                 )
-                msg_box.addButton("Отменить", QtWidgets.QMessageBox.RejectRole)
+                msg_box.addButton(tr("Отменить"), QtWidgets.QMessageBox.RejectRole)
                 msg_box.exec()
                 return msg_box.clickedButton() == btn_continue
 
@@ -4004,18 +4025,18 @@ class _PreviewPanel:
                     return
                 title, accepted = QtWidgets.QInputDialog.getText(
                     self,
-                    "Сохранить технологическую схему",
-                    "Название проверенной схемы гибки:",
+                    tr("Сохранить технологическую схему"),
+                    tr("Название проверенной схемы гибки:"),
                 )
                 if not accepted or not title.strip():
                     return
                 reply = QtWidgets.QMessageBox.question(
-                    self, "Подтверждение схемы гибки",
-                    "Подтверждаете, что вам уже известен правильный "
+                    self, tr("Подтверждение схемы гибки"),
+                    tr("Подтверждаете, что вам уже известен правильный "
                     "порядок этой детали и развороты при гибке? "
                     "Сохранённая схема будет использоваться как "
                     "предварительный образец FAST, но не заменит "
-                    "проверку столкновений.",
+                    "проверку столкновений."),
                     QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
                     QtWidgets.QMessageBox.No,
                 )
@@ -4052,15 +4073,15 @@ class _PreviewPanel:
                         tooling=tooling_info,
                     )
                 except (BendTemplateError, OSError, ValueError) as exc:
-                    self.status.setText("Шаблон не сохранён: " + str(exc))
+                    self.status.setText(tr("Шаблон не сохранён: ") + tr_message(exc))
                     _desktop_debug_event(
                         "FAST_TEMPLATE_SAVE_ERROR",
                         error=type(exc).__name__ + ":" + str(exc),
                     )
                     return
                 self.status.setText(
-                    "Сохранена схема «{}». Она будет предложена FAST "
-                    "при точном совпадении геометрии.".format(
+                    tr("Сохранена схема «{}». Она будет предложена FAST "
+                    "при точном совпадении геометрии.").format(
                         stored["title"]
                     )
                 )
@@ -4153,7 +4174,7 @@ class _PreviewPanel:
                         max_candidates=5,
                     )
                 except (FastSearchError, ValueError, TypeError) as exc:
-                    self.status.setText("FAST: поиск не выполнен: " + str(exc))
+                    self.status.setText(tr("FAST: поиск не выполнен: {error}", error=exc))
                     self._set_task_result("FAST", "error", tr("Поиск не выполнен."), str(exc))
                     _desktop_debug_event("FAST_SEARCH_REJECTED", reason=str(exc))
                     return
@@ -4192,10 +4213,7 @@ class _PreviewPanel:
                     )
                 if not report.candidates and not template_hits:
                     self.status.setText(
-                        "FAST: кандидаты не найдены за {:.3f} с. "
-                        "Это НЕ доказательство невозможности гибки.".format(
-                            report.elapsed_seconds
-                        )
+                        tr("FAST: кандидаты не найдены за {seconds:.3f} с. Это НЕ доказательство невозможности гибки.", seconds=report.elapsed_seconds)
                     )
                     return
 
@@ -4298,7 +4316,7 @@ class _PreviewPanel:
                         for kind in ("punch","die")
                     )
                     candidate_sources.append(
-                        "шаблон: " + hit.title +
+                        "шаблон: " + (tr("Шаблон") if hit.title == "Шаблон" else hit.title) +
                         (" (другая оснастка)" if changed_tools else "")
                     )
                 for candidate in report.candidates:
@@ -4369,8 +4387,8 @@ class _PreviewPanel:
                         )
                     else:
                         coarse_status.setText(
-                            "Показано {} из {} кандидатов. "
-                            "Отсев предварительный; 3D НЕ ПРОВЕРЕНО.".format(
+                            tr("Показано {} из {} кандидатов. "
+                            "Отсев предварительный; 3D НЕ ПРОВЕРЕНО.").format(
                                 len(order), len(all_candidates)
                             )
                         )
@@ -4386,24 +4404,24 @@ class _PreviewPanel:
                         if status.startswith("SAMPLED_2D_TOOLS"):
                             marker, marker_rank = "✅", 0
                             verdict = (
-                                "В выбранных 2D-сечениях пересечений "
-                                "не выявлено. Это НЕ результат 3D-проверки."
+                                tr("В выбранных 2D-сечениях пересечений "
+                                "не выявлено. Это НЕ результат 3D-проверки.")
                             )
                         elif status in (
                                 "POTENTIAL_2D_INTERFERENCE",
                                 "STATIC_TOOLING_BLOCK"):
                             marker, marker_rank = "❌", 2
                             verdict = (
-                                "Предварительное препятствие: возможная "
+                                tr("Предварительное препятствие: возможная "
                                 "коллизия или несовместимость оснастки. "
-                                "Не доказана невозможность всего порядка."
+                                "Не доказана невозможность всего порядка.")
                             )
                         else:
                             marker, marker_rank = "⚠️", 1
                             verdict = (
-                                "Не проверено полностью или исчерпан "
+                                tr("Не проверено полностью или исчерпан "
                                 "бюджет. Нет ни подтверждения коллизии, "
-                                "ни допуска к гибке."
+                                "ни допуска к гибке.")
                             )
                         reversed_ids = [
                             op_id for op_id, reverse
@@ -4418,22 +4436,15 @@ class _PreviewPanel:
                             source_index
                         ].startswith("шаблон:")
                         if is_template:
-                            verdict += (
-                                "\\nВес шаблона не рассчитан; сохранённая "
-                                "схема имеет приоритет в первичном списке. "
-                                "\\nСохранённая оператором схема: оставлена "
-                                "видимой даже при предварительном 2D "
-                                "пересечении для выявления возможной "
-                                "ошибки постановки детали."
-                            )
+                            verdict += tr("\\nВес шаблона не рассчитан; сохранённая схема имеет приоритет в первичном списке. \\nСохранённая оператором схема: оставлена видимой даже при предварительном 2D пересечении для выявления возможной ошибки постановки детали.")
                         details = (
-                            verdict + "\\n" + "Статус: " + status +
-                            "\\nПрофили пуансона/матрицы (прибл. 2D): +{:.0f}".format(
+                            verdict + "\\n" + tr("Статус: ") + status +
+                            tr("\\nПрофили пуансона/матрицы (прибл. 2D): +{:.0f}").format(
                                 candidate.proxy_tool_penalty
                             ) +
-                            ("\\nПричина: " + check.first_issue
+                            (tr("\\nПричина: ") + check.first_issue
                              if check and check.first_issue else "") +
-                            "\\n3D: НЕ ПРОВЕРЕНО"
+                            tr("\\n3D: НЕ ПРОВЕРЕНО")
                         )
                         values = (
                             str(row+1),
@@ -4445,7 +4456,9 @@ class _PreviewPanel:
                                 check.clear_prefix_steps if check else 0,
                                 len(candidate.operation_ids)
                             ),
-                            candidate_sources[source_index],
+                            (candidate_sources[source_index].replace("шаблон: ", tr("шаблон: "), 1)
+                             .replace(" (другая оснастка)", tr(" (другая оснастка)")) if is_template
+                             else candidate_sources[source_index]),
                             candidate.operation_ids[0],
                             ", ".join(reversed_ids) if reversed_ids else "—",
                             axis_label,
@@ -4645,18 +4658,18 @@ class _PreviewPanel:
                             for found in side_report.new_candidates:
                                 all_candidates.append(found.candidate)
                                 side_display = {
-                                    "LEFT": "слева",
-                                    "RIGHT": "справа",
-                                    "TOP": "сверху",
-                                    "BOTTOM": "снизу",
+                                    "LEFT": tr("слева"),
+                                    "RIGHT": tr("справа"),
+                                    "TOP": tr("сверху"),
+                                    "BOTTOM": tr("снизу"),
                                 }.get(
                                     found.side_name,
-                                    found.side_name.replace("SIDE_", "сторона "),
+                                    found.side_name.replace("SIDE_", tr("сторона ")),
                                 )
                                 candidate_sources.append(
                                     side_display + (
                                         "" if found.axis_aligned
-                                        else " (ориентация приблизительная)"
+                                        else tr(" (ориентация приблизительная)")
                                     )
                                 )
                             if side_report.new_candidates:
@@ -4705,7 +4718,7 @@ class _PreviewPanel:
                             for candidate in coarse_rerun.candidates:
                                 all_candidates.append(candidate)
                                 candidate_sources.append(
-                                    "без известных 2D-пробоев"
+                                    tr("без известных 2D-пробоев")
                                 )
                             screen = screen_fast_shortlist(
                                 self.session.fold_state, operations,
@@ -4772,7 +4785,7 @@ class _PreviewPanel:
                                         found.candidate.orientations()
                                     )
                                     candidate_sources.append(
-                                        "смена " + ", ".join(
+                                        tr("смена ") + ", ".join(
                                             operation + " → " +
                                             ("180°" if candidate_flags.get(
                                                 operation, False
@@ -4881,7 +4894,7 @@ class _PreviewPanel:
                             for entry in screen.checks
                         )
                         hint.setText(
-                            "FAST: {:.3f} с, дополнительные этапы: {:.3f} с "
+                            tr("FAST: {:.3f} с, дополнительные этапы: {:.3f} с "
                             "(последняя 2D: {:.3f} с). "
                             "Проб {}, кеш {}, предварительно без 2D-пересечений "
                             "{}, с 2D-препятствиями {}. "
@@ -4897,25 +4910,25 @@ class _PreviewPanel:
                             "Таблицу можно сортировать по заголовкам; "
                             "кандидаты не отклонены автоматически. "
                             "Оснастка по длине, зажимы, контакт CAD-упора, "
-                            "полная траектория и 3D-коллизии НЕ подтверждены."
+                            "полная траектория и 3D-коллизии НЕ подтверждены.")
                             .format(
                                 report.elapsed_seconds, postprocess_elapsed,
                                 screen.elapsed_seconds,
                                 screen.actual_probes, screen.cache_hits,
                                 clear, interferences,
                                 len(side_report.side_findings) if side_report is not None
-                                else "неизменно",
+                                else tr("неизменно"),
                                 sum(item.get("status") not in (
                                     "BUDGET_EXCEEDED", "REUSED_EQUIVALENT_START",
                                     "NO_FIRST_BEND_AVAILABLE")
                                     for item in side_report.side_findings)
-                                if side_report is not None else "неизменно",
+                                if side_report is not None else tr("неизменно"),
                                 sum(item.get("status") == "REUSED_EQUIVALENT_START"
                                     for item in side_report.side_findings)
-                                if side_report is not None else "неизменно",
+                                if side_report is not None else tr("неизменно"),
                                 sum(item.get("status") == "BUDGET_EXCEEDED"
                                     for item in side_report.side_findings)
-                                if side_report is not None else "неизменно",
+                                if side_report is not None else tr("неизменно"),
                                 len(coarse_rerun.candidates),
                                 (len(feedback_report.new_candidates)
                                  if feedback_report is not None else 0),
@@ -4939,8 +4952,7 @@ class _PreviewPanel:
                             self._set_task_result("FAST", "warning", tr("2D-проверка вариантов не выполнена."), str(exc))
                         if self._qt_is_valid(hint):
                             hint.setText(
-                                "2D-проверка недоступна: {}. "
-                                "FAST-кандидаты сохранены как UNVERIFIED."
+                                tr("2D-проверка недоступна: {}. FAST-кандидаты сохранены как UNVERIFIED.")
                                 .format(str(exc))
                             )
                     finally:
@@ -5069,11 +5081,10 @@ class _PreviewPanel:
                     self._fast_apply_skip_table_gauge = True
                     try:
                         self._on_staged_plan_changed(
-                            "FAST: применён НЕПРОВЕРЕННЫЙ вариант {}. "
-                            "Нужна отдельная физическая проверка.".format(
+                            tr("FAST: применён НЕПРОВЕРЕННЫЙ вариант {number}. Нужна отдельная физическая проверка.", number=(
                                 visible_number if visible_number is not None
                                 else index + 1
-                            ),
+                            )),
                             fast_apply=True,
                         )
                     finally:
@@ -5124,7 +5135,7 @@ class _PreviewPanel:
                     self._fast_advisory_orientation_keys = old_advisory
                     if self._qt_is_valid(self.status):
                         self.status.setText(
-                            "FAST: вариант не применён: " + str(exc)
+                            tr("FAST: вариант не применён: {error}", error=exc)
                         )
                     self._set_task_result("FAST", "error", tr("Вариант не применён."), str(exc))
                     _error("FAST apply failed: " + traceback.format_exc())
@@ -5139,19 +5150,19 @@ class _PreviewPanel:
                     validate_partial_planar_prefix,
                 )
                 if self.session is None:
-                    raise ValueError("Сначала загрузите деталь SheetMetal")
+                    raise ValueError(tr("Сначала загрузите деталь SheetMetal"))
                 if self.timer.isActive() or self.session.playback_status == PlaybackStatus.PLAYING:
-                    raise ValueError("Остановите воспроизведение перед сменой порядка")
+                    raise ValueError(tr("Остановите воспроизведение перед сменой порядка"))
                 sequence = tuple(entry.sequence)
                 current = tuple(self.session.canonical_order)
                 if (not sequence or len(sequence) > len(current)
                         or len(set(sequence)) != len(sequence)
                         or any(b not in current for b in sequence)):
-                    raise ValueError("Гибы JSON не соответствуют текущей детали")
+                    raise ValueError(tr("Гибы JSON не соответствуют текущей детали"))
                 if (entry.origin == "MANUAL" and entry.model_label
                         and entry.model_label != self.session.part_label):
                     raise ValueError(
-                        "Ручной JSON относится к другой детали: " + entry.model_label
+                        tr("Ручной JSON относится к другой детали: ") + entry.model_label
                     )
                 has_sections = has_native_sections(self.tooling_setup)
                 valid, reason = validate_partial_planar_prefix(
@@ -5162,7 +5173,7 @@ class _PreviewPanel:
                 )
                 if not valid:
                     raise ValueError(
-                        "Повторная 2D-проверка не пройдена: " + reason
+                        tr("Повторная 2D-проверка не пройдена: ") + reason
                     )
                 self._stop_timer()
                 self.session.reset_all_bends()
@@ -5181,11 +5192,11 @@ class _PreviewPanel:
                 self._sync_tooling_to_active_bend()
                 self.draw()
                 self.status.setText(
-                    "Каталог → симуляция: {}/{} | {} | {}"
+                    tr("Каталог → симуляция: {}/{} | {} | {}")
                     .format(len(sequence), len(current), entry.origin, reason)
                 )
                 self.physical_check_result.setText(
-                    "UNVERIFIED: повторная 2D-проверка не является 3D-допуском. "
+                    tr("UNVERIFIED: повторная 2D-проверка не является 3D-допуском. ")
                     + reason
                 )
                 self._trace_event(
@@ -5211,7 +5222,7 @@ class _PreviewPanel:
                     for i, item in enumerate(saved)
                 ]
                 label, accepted = QtWidgets.QInputDialog.getItem(
-                    self, tr("Сохранённые варианты"), "Последовательность:",
+                    self, tr("Сохранённые варианты"), tr("Последовательность:"),
                     labels, 0, False
                 )
                 if not accepted or label not in labels:
@@ -5253,7 +5264,7 @@ class _PreviewPanel:
                     tr("UNVERIFIED: исторический вариант из FCStd. Повторите проверку коллизий.")
                 )
                 self.status.setText(
-                    "Сохранённый порядок выбран: {} | UNVERIFIED"
+                    tr("Сохранённый порядок выбран: {} | UNVERIFIED")
                     .format(" → ".join(order))
                 )
 
@@ -5263,7 +5274,7 @@ class _PreviewPanel:
                         "TOOLING_STATUS_UPDATE_SKIPPED", reason="host_destroyed",
                     )
                     return
-                self.tooling_status.setText(self.tooling_setup.status_line())
+                self.tooling_status.setText(_tooling_status_text(self.tooling_setup))
                 self._update_press_cycle_labels()
 
             def _update_press_cycle_labels(self):
@@ -5386,9 +5397,9 @@ class _PreviewPanel:
                 )
                 self._clear_manual_check_feedback()
                 self._manual_preview_notice.setText(
-                    "ПРЕДГИБ / ДОГИБ: коллизии этапов не проверены"
+                    tr("ПРЕДГИБ / ДОГИБ: коллизии этапов не проверены")
                     if self.session.controller.has_stages else
-                    "РУЧНОЙ ПРОСМОТР — коллизии не проверены"
+                    tr("РУЧНОЙ ПРОСМОТР — коллизии не проверены")
                 )
                 self.physical_check_result.setText(
                     tr("UNVERIFIED: положение заготовки изменилось. Проверьте коллизии повторно.")
@@ -5423,10 +5434,10 @@ class _PreviewPanel:
                     physical_status="UNVERIFIED",
                 )
                 pose = "180°" if selected_reverse else "0°"
-                source = "подбор положения" if reverse_axis is None else "вручную"
+                source = tr("подбор положения") if reverse_axis is None else tr("вручную")
                 self.status.setText(
-                    f"{operation_id}: положение {pose} ({source}). "
-                    "Коллизии для нового положения ещё не проверены."
+                    tr("{operation}: положение {pose} ({source}). Коллизии для нового положения ещё не проверены.",
+                       operation=operation_id, pose=pose, source=source)
                 )
 
             def _manual_orientation_selection(self, bend_ids):
@@ -5613,19 +5624,19 @@ class _PreviewPanel:
                     op_id in self._manual_operation_orientation_overrides
                     or bend_id in self._manual_orientation_overrides
                 ):
-                    evidence = "положение задано вручную"
+                    evidence = tr("положение задано вручную")
                 elif source.startswith("SELECTED_2D"):
-                    evidence = "выбрано из 2D-поиска; 3D не проверено"
+                    evidence = tr("выбрано из 2D-поиска; 3D не проверено")
                 elif source == "AUTO_SHORT_REAR_UNVERIFIED":
-                    evidence = "короткая сторона к упору; КОНТАКТ НЕ ПРОВЕРЕН"
+                    evidence = tr("короткая сторона к упору; КОНТАКТ НЕ ПРОВЕРЕН")
                 else:
                     evidence = source
                 self.loading_orientation_status.setText(
-                    "Оператор ← (-S)  |  Упор → (+S)  |  {}: {}  |  {}"
+                    tr("Оператор ← (-S)  |  Упор → (+S)  |  {}: {}  |  {}")
                     .format(
                         op_id,
-                        ("НЕ ОПРЕДЕЛЕНА" if bend_id not in choices else
-                         "РАЗВОРОТ 180°" if reversed_pose else "обычно 0°"),
+                        (tr("НЕ ОПРЕДЕЛЕНА") if bend_id not in choices else
+                         tr("РАЗВОРОТ 180°") if reversed_pose else tr("обычно 0°")),
                         evidence,
                     )
                 )
@@ -5915,7 +5926,7 @@ class _PreviewPanel:
                     self.press_cycle.on_tooling_changed()
                 self._update_tooling_status_label()
                 self.status.setText(
-                    "Оснастка выровнена по линии гиба {} (зазор пуансона {:.1f} мм)".format(
+                    tr("Оснастка выровнена по линии гиба {} (зазор пуансона {:.1f} мм)").format(
                         self.tooling_setup.aligned_bend_id or "0.0",
                         self.tooling_setup.punch_clearance_mm,
                     )
@@ -5973,10 +5984,10 @@ class _PreviewPanel:
                 self._run_import_dialog(ToolKind.DIE)
 
             def _run_import_dialog(self, kind: ToolKind):
-                label = "пуансона (PUNCH)" if kind == ToolKind.PUNCH else "матрицы (DIE)"
+                label = tr("пуансона (PUNCH)") if kind == ToolKind.PUNCH else tr("матрицы (DIE)")
                 file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
                     self,
-                    f"Импорт профиля {label}",
+                    tr("Импорт профиля {label}", label=label),
                     str(self.tool_library.library_root),
                     "Tool Files (*.dxf *.DXF *.step *.STEP *.stp *.STP *.FCStd);;All Files (*)",
                 )
@@ -5985,8 +5996,8 @@ class _PreviewPanel:
                 default_name = Path(file_path).stem
                 name, ok = QtWidgets.QInputDialog.getText(
                     self,
-                    f"Имя {label}",
-                    "Введите имя инструмента для библиотеки:",
+                    tr("Имя {label}", label=label),
+                    tr("Введите имя инструмента для библиотеки:"),
                     text=default_name,
                 )
                 if not ok:
@@ -6000,10 +6011,11 @@ class _PreviewPanel:
                         select_after_import=True,
                     )
                     self.status.setText(
-                        f"Инструмент «{prof.name}» ({prof.kind.value}) импортирован и сохранён ({prof.validation_status.value})."
+                        tr("Инструмент «{name}» ({kind}) импортирован и сохранён ({status}).",
+                           name=prof.name, kind=prof.kind.value, status=prof.validation_status.value)
                     )
                 except Exception as exc:
-                    msg = f"Ошибка импорта инструмента: {exc}"
+                    msg = tr("Ошибка импорта инструмента: {error}", error=exc)
                     _warn(msg)
                     self.status.setText(msg)
 
@@ -6023,7 +6035,7 @@ class _PreviewPanel:
                         self._refresh_tooling_combos()
                 except Exception as exc:
                     QtWidgets.QMessageBox.warning(
-                        self, "Библиотека оснастки", str(exc)
+                        self, tr("Библиотека оснастки"), str(exc)
                     )
 
             def _playback_alive(self):
@@ -6112,7 +6124,7 @@ class _PreviewPanel:
                 if prepared_session is None:
                     outcome, new_session, msg = execute_load_part(self.session, doc, selection)
                 else:
-                    outcome, new_session, msg = "loaded", prepared_session, "Развёртка DXF рассчитана."
+                    outcome, new_session, msg = "loaded", prepared_session, tr("Развёртка DXF рассчитана.")
                 _desktop_debug_event(
                     "PART_LOAD_OUTCOME", outcome=outcome, message=msg,
                 )
@@ -6206,11 +6218,7 @@ class _PreviewPanel:
                     # Changed geometry, wrong schema or damaged JSON must
                     # never overwrite the successfully loaded live session.
                     _warn("Embedded SMBS state not restored: " + str(exc))
-                    restore_message = (
-                        "SMBS JSON не восстановлен: " + str(exc) +
-                        " | Автозапись JSON отключена до явного сохранения,"
-                        " чтобы не уничтожить старые данные."
-                    )
+                    restore_message = tr("SMBS JSON не восстановлен: {error} | Автозапись JSON отключена до явного сохранения, чтобы не уничтожить старые данные.", error=exc)
                     self._smbs_allow_auto_embed = False
                     self.fcstd_note.setText(restore_message)
                 self._sync_manual_order_input()
@@ -6218,9 +6226,7 @@ class _PreviewPanel:
                     self._register_embedded_smbs_observer()
                 except Exception as exc:
                     _warn("SMBS save observer not registered: " + str(exc))
-                    restore_message += (
-                        " | Автосохранение JSON недоступно: " + str(exc)
-                    )
+                    restore_message += tr(" | Автосохранение JSON недоступно: {error}", error=exc)
                 self.status.setText(
                     msg + (" | " + restore_message if restore_message else "")
                 )
@@ -6237,10 +6243,10 @@ class _PreviewPanel:
                 import FreeCAD as App
 
                 if self.session is None or not self._smbs_document_name:
-                    raise RuntimeError("Сначала загрузите SheetMetal деталь")
+                    raise RuntimeError(tr("Сначала загрузите SheetMetal деталь"))
                 document = App.getDocument(self._smbs_document_name)
                 if document is None:
-                    raise RuntimeError("Документ выбранной детали закрыт")
+                    raise RuntimeError(tr("Документ выбранной детали закрыт"))
                 return document
 
             def _register_embedded_smbs_observer(self):
@@ -6305,7 +6311,7 @@ class _PreviewPanel:
                     except (TypeError, ValueError):
                         angle_text = "?"
                     lines.append(
-                        "{}. {} | {} | положение {} | угол гиба {}°".format(
+                        tr("{}. {} | {} | положение {} | угол гиба {}°").format(
                             index, bend_id, verdict, orientation, angle_text,
                         )
                     )
@@ -6320,16 +6326,15 @@ class _PreviewPanel:
                         ))
                     lengths = item.get("tool_length_info") or {}
                     if item.get("tool_setup_reason"):
-                        lines.append("  ОСНАСТКА: " + item["tool_setup_reason"])
+                        lines.append(tr("  ОСНАСТКА: ") + item["tool_setup_reason"])
                     if lengths.get("punch_effective_length_mm") is not None:
                         lines.append(
-                            "  ДЛИНА ПУАНСОНА: источник={} мм, OCC={} мм; "
-                            "режим={}".format(
+                            tr("  ДЛИНА ПУАНСОНА: источник={} мм, OCC={} мм; режим={}").format(
                                 lengths.get("punch_source_length_mm"),
                                 lengths.get("punch_effective_length_mm"),
-                                "ВИРТУАЛЬНАЯ" if lengths.get(
+                                tr("ВИРТУАЛЬНАЯ") if lengths.get(
                                     "is_virtual_tool_geometry"
-                                ) else "РЕАЛЬНАЯ",
+                                ) else tr("РЕАЛЬНАЯ"),
                             )
                         )
                     if blocker and blocker.get("phase") not in (
@@ -6343,28 +6348,24 @@ class _PreviewPanel:
                         )
                         if length_diagnosis["status"] == "CENTRAL_PUNCH_INTERFERENCE":
                             lines.append(
-                                "  ЦЕНТРАЛЬНОЕ ПЕРЕСЕЧЕНИЕ: {}. "
-                                "Уменьшение допустимых торцевых зон его "
-                                "не устраняет.".format(
+                                tr("  ЦЕНТРАЛЬНОЕ ПЕРЕСЕЧЕНИЕ: {}. Уменьшение допустимых торцевых зон его не устраняет.").format(
                                     ", ".join(length_diagnosis["central_hits"])
                                 )
                             )
                         elif length_diagnosis["status"] == "END_ZONE_ONLY_BBOX_UNVERIFIED":
                             lines.append(
-                                "  ПЕРЕСЕЧЕНИЕ У ТОРЦА (BBox): {}; "
-                                "реальный вырез инструмента НЕ ПРОВЕРЕН."
+                                tr("  ПЕРЕСЕЧЕНИЕ У ТОРЦА (BBox): {}; реальный вырез инструмента НЕ ПРОВЕРЕН.")
                                 .format(", ".join(
                                     length_diagnosis["end_zone_hits"]
                                 ))
                             )
                         tool_label = {
-                            "PUNCH": "пуансон",
-                            "DIE": "матрица",
-                            "PUNCH_AND_DIE": "пуансон и матрица",
-                        }.get(blocker.get("tool"), "источник не установлен")
+                            "PUNCH": tr("пуансон"),
+                            "DIE": tr("матрица"),
+                            "PUNCH_AND_DIE": tr("пуансон и матрица"),
+                        }.get(blocker.get("tool"), tr("источник не установлен"))
                         lines.append(
-                            "  ПРОБЛЕМА: фаза {} | {} | Z={} мм | "
-                            "пуансон={:.6f} мм³, матрица={:.6f} мм³".format(
+                            tr("  ПРОБЛЕМА: фаза {} | {} | Z={} мм | пуансон={:.6f} мм³, матрица={:.6f} мм³").format(
                                 blocker.get("phase", "?"), tool_label,
                                 blocker.get("ram_z_mm")
                                 if blocker.get("ram_z_mm") is not None else "—",
@@ -6383,8 +6384,7 @@ class _PreviewPanel:
                             )
                         )
                         lines.append(
-                            "  МАКС. ПРОНИКНОВЕНИЕ за проверенные положения: "
-                            "пуансон={:.6f} мм³, матрица={:.6f} мм³".format(
+                            tr("  МАКС. ПРОНИКНОВЕНИЕ за проверенные положения: пуансон={:.6f} мм³, матрица={:.6f} мм³").format(
                                 float(blocker.get("punch_overlap_mm3") or 0),
                                 float(blocker.get("die_overlap_mm3") or 0),
                             )
@@ -6393,10 +6393,7 @@ class _PreviewPanel:
                         for kind, coords in bbox_dict.items():
                             if isinstance(coords, dict):
                                 lines.append(
-                                    "  ОБЛАСТЬ {} (машинные XYZ, мм): "
-                                    "X [{:.3f}, {:.3f}], "
-                                    "Y [{:.3f}, {:.3f}], "
-                                    "Z [{:.3f}, {:.3f}]".format(
+                                    tr("  ОБЛАСТЬ {} (машинные XYZ, мм): X [{:.3f}, {:.3f}], Y [{:.3f}, {:.3f}], Z [{:.3f}, {:.3f}]").format(
                                         kind.upper(),
                                         coords["xmin"], coords["xmax"],
                                         coords["ymin"], coords["ymax"],
@@ -6406,10 +6403,7 @@ class _PreviewPanel:
                         bracket = blocker.get("sampled_onset_bracket") or {}
                         if bracket:
                             lines.append(
-                                "  НАЧАЛО СТОЛКНОВЕНИЯ (выборочно): "
-                                "{}° без блокирующей коллизии → "
-                                "{}° с коллизией, {} доп. проверок. "
-                                "Непроверенные углы не исключены.".format(
+                                tr("  НАЧАЛО СТОЛКНОВЕНИЯ (выборочно): {}° без блокирующей коллизии → {}° с коллизией, {} доп. проверок. Непроверенные углы не исключены.").format(
                                     bracket.get(
                                         "last_sampled_nonblocking_angle_deg"
                                     ),
@@ -6426,9 +6420,9 @@ class _PreviewPanel:
                             )
                             if names:
                                 lines.append(
-                                    "  ПЕРЕСЕКШИЕСЯ ЭЛЕМЕНТЫ (native OCC): " +
+                                    tr("  ПЕРЕСЕКШИЕСЯ ЭЛЕМЕНТЫ (native OCC): ") +
                                     ", ".join(
-                                        "{} {:.3f} мм³".format(
+                                        tr("{} {:.3f} мм³").format(
                                             hit.get("component_id", "?"),
                                             float(hit.get("overlap_volume_mm3", 0.0)),
                                         )
@@ -6437,11 +6431,11 @@ class _PreviewPanel:
                                 )
                             else:
                                 lines.append(
-                                    "  Конкретная панель не подтверждена: " +
+                                    tr("  Конкретная панель не подтверждена: ") +
                                     str(attribution.get("status", "UNVERIFIED"))
                                 )
                         lines.append(
-                            "  Код: {} | {}".format(
+                            tr("  Код: {} | {}").format(
                                 blocker.get("phase_status", "UNVERIFIED"),
                                 str(blocker.get("reason", ""))[:250],
                             )
@@ -6451,14 +6445,13 @@ class _PreviewPanel:
                         # APPROACH; they obscure later BENDING/BOTTOM failure.
                         if phase_evidence.startswith("native_d634_rejected:"):
                             lines.append(
-                                "  D6 отклонил траекторию — этап и причина "
-                                "не определены; подробности в FCStd."
+                                tr("  D6 отклонил траекторию — этап и причина не определены; подробности в FCStd.")
                             )
                         else:
                             lines.append("  " + phase_evidence[:240])
                     if isinstance(tool_pair, dict):
                         lines.append(
-                            "  Пуансон/матрица: {} | {} позиций{}".format(
+                            tr("  Пуансон/матрица: {} | {} позиций{}").format(
                                 tool_pair.get("status", "UNVERIFIED"),
                                 tool_pair.get("checked_ram_positions", 0),
                                 (" | " + str(tool_pair.get("reason", "")))
@@ -6467,15 +6460,14 @@ class _PreviewPanel:
                         )
                         if tool_pair.get("status") == "COLLISION":
                             lines.append(
-                                "  ПУАНСОН–МАТРИЦА: фазы {} | Z={} мм | {} мм³".format(
+                                tr("  ПУАНСОН–МАТРИЦА: фазы {} | Z={} мм | {} мм³").format(
                                     ", ".join(tool_pair.get("phases", ())),
                                     tool_pair.get("ram_z_mm", "—"),
                                     tool_pair.get("overlap_volume_mm3", "—"),
                                 )
                             )
                     lines.append(
-                        "  RETRACT: {} | нач. Z={} мм → конеч. Z={} мм | "
-                        "выборок={} | {}".format(
+                        tr("  RETRACT: {} | нач. Z={} мм → конеч. Z={} мм | выборок={} | {}").format(
                             retract.get("status", "NOT_EVALUATED"),
                             (retract.get("start_z_mm") if
                              retract.get("start_z_mm") is not None else "—"),
@@ -6487,8 +6479,7 @@ class _PreviewPanel:
                     )
                 if not lines:
                     lines = [
-                        "Ни один гиб не подтверждён. Проверьте выбранные "
-                        "FCStd-инструменты, режим длины и журнал ошибок."
+                        tr("Ни один гиб не подтверждён. Проверьте выбранные FCStd-инструменты, режим длины и журнал ошибок.")
                     ]
                 self.manual_check_details.setPlainText("\n".join(lines))
                 self.manual_check_details.show()
@@ -6512,7 +6503,7 @@ class _PreviewPanel:
                 self._collision_display_active = not self._collision_display_active
                 if hasattr(self, "manual_show_collision_btn"):
                     self.manual_show_collision_btn.setText(
-                        "Вернуться к обычному 3D"
+                        tr("Вернуться к обычному 3D")
                         if self._collision_display_active else
                         tr("Показать коллизию в 3D")
                     )
@@ -6524,12 +6515,12 @@ class _PreviewPanel:
                     blocker=self._collision_inspection.get("first_blocker"),
                 )
                 self.status.setText(
-                    "Показано место столкновения в машинных XYZ. "
+                    tr("Показано место столкновения в машинных XYZ. "
                     "Геометрия обзора приближённая, красная область — "
-                    "границы точного 3D-пересечения OCC."
+                    "границы точного 3D-пересечения OCC.")
                     if self._collision_display_active else
-                    "Возврат к обычному 3D-просмотру; коллизия остаётся "
-                    "в диагностике Manual."
+                    tr("Возврат к обычному 3D-просмотру; коллизия остаётся "
+                    "в диагностике Manual.")
                 )
 
             def _current_native_tooling_identity(self):
@@ -6712,28 +6703,25 @@ class _PreviewPanel:
                     preview_enabled=can_preview,
                 )
                 self.status.setText(
-                    "Подъём: {}. Проверено поз: {}. {} Исходная коллизия "
-                    "сохраняется; зацепление и вывод детали не проверены.".format(
+                    tr("Подъём: {}. Проверено поз: {}. {} Исходная коллизия сохраняется; зацепление и вывод детали не проверены.").format(
                         report["status"], len(report["samples"]),
-                        "В полной симуляции показано совместное движение."
+                        tr("В полной симуляции показано совместное движение.")
                         if can_preview else
-                        "Экспериментальная поза отдельно от текущего порядка; "
-                        "автосимуляция не включена."
+                        tr("Экспериментальная поза отдельно от текущего порядка; автосимуляция не включена.")
                         if inspection.get("alternative_only", False)
-                        else "Совместное движение отключено."
+                        else tr("Совместное движение отключено.")
                     )
                 )
                 self.manual_lift_probe_hint.setText(
-                    "{}{} Показ условный: это предполагаемое сцепление, не "
-                    "подтверждение безопасности и не замена исходного COLLISION."
-                    .format("Симуляция подъёма включена." if can_preview
-                            else "Симуляция подъёма отключена.",
-                            " Нижняя точка 2D и OCC не совпадает."
+                    tr("{}{} Показ условный: это предполагаемое сцепление, не подтверждение безопасности и не замена исходного COLLISION.")
+                    .format(tr("Симуляция подъёма включена.") if can_preview
+                            else tr("Симуляция подъёма отключена."),
+                            tr(" Нижняя точка 2D и OCC не совпадает.")
                             if report.get("preview_alignment", {}).get("matched") is False
                             else "")
                 )
                 self.manual_check_details.appendPlainText(
-                    "\n{} — эксперимент подъёма: {}, {} поз; {}".format(
+                    tr("\n{} — эксперимент подъёма: {}, {} поз; {}").format(
                         inspection["bend_id"], report["status"],
                         len(report["samples"]), report["reason"]
                     )
@@ -6763,17 +6751,15 @@ class _PreviewPanel:
                 )
                 directions = report.get("candidate_directions_y") or []
                 message = (
-                    "Вывод OCC: {}. Проверенные направления Y: {}. "
-                    "Исходный COLLISION сохраняется; непрерывный путь, "
-                    "удержание детали и станок не подтверждены."
-                    .format(report["status"], directions or "нет")
+                    tr("Вывод OCC: {}. Проверенные направления Y: {}. Исходный COLLISION сохраняется; непрерывный путь, удержание детали и станок не подтверждены.")
+                    .format(report["status"], directions or tr("нет"))
                 )
                 self.status.setText(message)
                 self.manual_check_details.appendPlainText(
                     "\n{} — {}\n{}".format(
                         inspection["bend_id"], message,
                         "; ".join(
-                            "Y{}: {}, {:.1f} мм, {} поз".format(
+                            tr("Y{}: {}, {:.1f} мм, {} поз").format(
                                 p["direction_y"], p["status"], p["travel_mm"],
                                 len(p["samples"]),
                             ) for p in report.get("paths", ())
@@ -6805,7 +6791,7 @@ class _PreviewPanel:
                     self.manual_show_collision_btn.setText(tr("Показать коллизию в 3D"))
                     self.play_all()
                 except (PressCycleError, SequenceError, ValueError) as exc:
-                    self.status.setText("Симуляция подъёма недоступна: " + str(exc))
+                    self.status.setText(tr("Симуляция подъёма недоступна: ") + tr_message(exc))
                     return
                 _desktop_debug_event(
                     "MANUAL_ASSISTED_RETRACT_PREVIEW_STARTED",
@@ -6813,8 +6799,8 @@ class _PreviewPanel:
                     physical_certification="UNVERIFIED",
                 )
                 self.status.setText(
-                    "Симуляция {}: предполагаемый совместный подъём на RETRACT; "
-                    "исходный COLLISION сохраняется, вывод детали не проверен."
+                    tr("Симуляция {}: предполагаемый совместный подъём на RETRACT; "
+                    "исходный COLLISION сохраняется, вывод детали не проверен.")
                     .format(bend_id)
                 )
 
@@ -6839,12 +6825,12 @@ class _PreviewPanel:
                         self.session, self.tooling_setup,
                         inspection["bend_id"],
                         inspection["first_blocker"],
+                        translate=tr,
                     )
                 except Exception as exc:
                     message = "{}: {}".format(type(exc).__name__, exc)
                     self.status.setText(
-                        "Не удалось воспроизвести OCC-пересечение: "
-                        + message + ". Геометрические допуски не менялись."
+                        tr("Не удалось воспроизвести OCC-пересечение: {error}. Геометрические допуски не менялись.", error=message)
                     )
                     _desktop_debug_event(
                         "MANUAL_EXACT_OCC_INSPECTION_FAILED",
@@ -6860,10 +6846,10 @@ class _PreviewPanel:
                     result=report,
                 )
                 self.status.setText(
-                    "Открыт документ {}. Красные тела — реальные OCC Common; "
+                    tr("Открыт документ {}. Красные тела — реальные OCC Common; "
                     "пуансон, матрицу, деталь и отдельные зоны можно "
                     "скрывать через дерево FreeCAD. "
-                    "Непрерывная безопасность не сертифицирована."
+                    "Непрерывная безопасность не сертифицирована.")
                     .format(report["document_name"])
                 )
                 return True
@@ -6894,7 +6880,7 @@ class _PreviewPanel:
                 try:
                     note = self._persist_manual_check_to_fcstd()
                 except Exception as exc:
-                    note = "НЕ СОХРАНЕНО В FCStd: " + str(exc)
+                    note = tr("НЕ СОХРАНЕНО В FCStd: ") + str(exc)
                     _error(
                         "Manual validation precheck could not be embedded: "
                         + traceback.format_exc()
@@ -6932,14 +6918,14 @@ class _PreviewPanel:
                         document_name=getattr(document, "Name", None),
                         path=filename,
                     )
-                    return "Результат сохранён внутри FCStd: " + filename
+                    return tr("Результат сохранён внутри FCStd: ") + filename
                 _desktop_debug_event(
                     "FCSTD_MANUAL_DIAGNOSTICS_PENDING_FIRST_SAVE",
                     document_name=getattr(document, "Name", None),
                 )
                 return (
-                    "Результат вложен в открытый документ. "
-                    "Для записи на диск сохраните его как FCStd через Ctrl+S."
+                    tr("Результат вложен в открытый документ. "
+                    "Для записи на диск сохраните его как FCStd через Ctrl+S.")
                 )
 
             def _current_clamp_config(self):
@@ -6961,7 +6947,7 @@ class _PreviewPanel:
                     str(getattr(document, "Name", ""))
                     != str(self._smbs_document_name)
                 ):
-                    raise RuntimeError("Неверный документ для данных SMBS")
+                    raise RuntimeError(tr("Неверный документ для данных SMBS"))
                 weights = self._selected_operation_weights()
                 snapshot = build_snapshot(
                     session=self.session,
@@ -7016,7 +7002,7 @@ class _PreviewPanel:
                             (str(document.Name) + ".FCStd")
                         )
                         target, _ = QtWidgets.QFileDialog.getSaveFileName(
-                            self, "Сохранить деталь с JSON SMBS",
+                            self, tr("Сохранить деталь с JSON SMBS"),
                             proposed, "FreeCAD (*.FCStd)",
                         )
                         if not target:
@@ -7026,15 +7012,14 @@ class _PreviewPanel:
                             return
                         document.saveAs(str(target))
                     self.fcstd_note.setText(
-                        "JSON вложен: SMBS_Data / SessionJSON. "
-                        "Сохранён в " + str(document.FileName)
+                        tr("JSON вложен: SMBS_Data / SessionJSON. Сохранён в {file}", file=document.FileName)
                     )
                     self.status.setText(
                         tr("SMBS JSON сохранён внутри FCStd; результаты проверок — исторические.")
                     )
                 except Exception as exc:
                     _error("FCStd SMBS save failed: " + traceback.format_exc())
-                    self.status.setText("Ошибка вложения JSON: " + str(exc))
+                    self.status.setText(tr("Ошибка вложения JSON: {error}", error=exc))
 
             def _restore_embedded_smbs_json_clicked(self):
                 try:
@@ -7043,7 +7028,7 @@ class _PreviewPanel:
                     self.status.setText(message)
                 except Exception as exc:
                     _error("FCStd SMBS load failed: " + traceback.format_exc())
-                    self.status.setText("Ошибка чтения JSON: " + str(exc))
+                    self.status.setText(tr("Ошибка чтения JSON: {error}", error=exc))
 
             def _restore_embedded_smbs_json(self, document):
                 """Only apply validated geometry/order; saved passes are history."""
@@ -7059,7 +7044,7 @@ class _PreviewPanel:
                     self.fcstd_note.setText(
                         tr("В этом документе пока нет вложенного SMBS JSON.")
                     )
-                    return "В FCStd нет сохранённой сессии SMBS."
+                    return tr("В FCStd нет сохранённой сессии SMBS.")
                 order, prefix = validate_restore(
                     payload, self.session, document
                 )
@@ -7131,10 +7116,10 @@ class _PreviewPanel:
                 self._manual_preview_unverified = self.session.controller.has_stages
                 self._manual_selection_enabled = False
                 self._manual_preview_notice.setText(
-                    "ПРЕДГИБ / ДОГИБ: кинематическая симуляция, "
-                    "коллизии НЕ проверены."
+                    tr("ПРЕДГИБ / ДОГИБ: кинематическая симуляция, "
+                    "коллизии НЕ проверены.")
                     if self.session.controller.has_stages else
-                    "РУЧНОЙ ПРОСМОТР — коллизии не проверены"
+                    tr("РУЧНОЙ ПРОСМОТР — коллизии не проверены")
                 )
                 self._manual_preview_notice.setVisible(self.session.controller.has_stages)
                 self._partial_preview_limit = None
@@ -7176,8 +7161,7 @@ class _PreviewPanel:
                             else:
                                 self.tooling_setup.select_die(None)
                             warnings.append(
-                                "{} не восстановлен, выбор сброшен: {}"
-                                .format(key, exc)
+                                tr("{} не восстановлен, выбор сброшен: {}").format(key, exc)
                             )
                             continue
                     try:
@@ -7187,7 +7171,7 @@ class _PreviewPanel:
                             self.tooling_setup.select_die(profile)
                     except ToolingError as exc:
                         warnings.append(
-                            "{} не восстановлен: {}".format(key, exc)
+                            tr("{} не восстановлен: {}").format(key, exc)
                         )
 
                 config_dict = dict(
@@ -7210,7 +7194,7 @@ class _PreviewPanel:
                         )
                     )
                 except (KeyError, TypeError, ValueError, PressCycleError) as exc:
-                    warnings.append("Параметры цикла: " + str(exc))
+                    warnings.append(tr("Параметры цикла: ") + str(exc))
 
                 opts = payload["tooling"]
                 try:
@@ -7231,7 +7215,7 @@ class _PreviewPanel:
                         bool(payload["simulation"]["retract_warning"])
                     )
                 except (KeyError, TypeError, ValueError, ToolingError) as exc:
-                    warnings.append("Допуски оснастки: " + str(exc))
+                    warnings.append(tr("Допуски оснастки: ") + str(exc))
 
                 if opts.get("segment_assembly_active"):
                     try:
@@ -7239,7 +7223,7 @@ class _PreviewPanel:
                         self._verify_tool_assembly_geometry(assembly)
                         self.tooling_setup.set_tool_assembly(assembly)
                     except Exception as exc:
-                        warnings.append("Секционный набор не восстановлен: " + str(exc))
+                        warnings.append(tr("Секционный набор не восстановлен: ") + str(exc))
 
                 for key, value in payload["simulation"].get(
                     "operation_weights", {}
@@ -7254,14 +7238,14 @@ class _PreviewPanel:
                                         "operation_weights/" + key, number
                                     )
                         except (TypeError, ValueError):
-                            warnings.append("Вес операции " + str(key))
+                            warnings.append(tr("Вес операции ") + str(key))
 
                 self._refresh_tooling_combos()
                 self._ensure_press_cycle_controller()
                 try:
                     self._sync_tooling_to_active_bend()
                 except (ToolingError, PressCycleError, ValueError) as exc:
-                    warnings.append("Выравнивание оснастки: " + str(exc))
+                    warnings.append(tr("Выравнивание оснастки: {error}", error=exc))
                 self._populate_operations()
                 self._configure_for_active_bend()
                 self._draw_flat_pattern(reset_camera=False)
@@ -7278,8 +7262,8 @@ class _PreviewPanel:
                     )
                     self._show_manual_check_feedback(
                         "HISTORICAL / UNVERIFIED",
-                        "В FCStd сохранён прошлый результат {}. "
-                        "Для текущего сеанса запустите нужную проверку заново."
+                        tr("В FCStd сохранён прошлый результат {}. "
+                        "Для текущего сеанса запустите нужную проверку заново.")
                         .format(historic_manual.get("status", "UNVERIFIED")),
                         historic_steps,
                     )
@@ -7308,10 +7292,7 @@ class _PreviewPanel:
                         }
                         self.manual_lift_probe_btn.setEnabled(True)
                         self.manual_lift_probe_hint.setText(
-                            "Исторический {} из FCStd: можно проверить только "
-                            "альтернативный подъём. Перед расчётом OCC повторно "
-                            "сверит точный объём исходной коллизии; вся "
-                            "последовательность остаётся UNVERIFIED."
+                            tr("Исторический {} из FCStd: можно проверить только альтернативный подъём. Перед расчётом OCC повторно сверит точный объём исходной коллизии; вся последовательность остаётся UNVERIFIED.")
                             .format(historic_hit["bend_id"])
                         )
                         _desktop_debug_event(
@@ -7322,14 +7303,14 @@ class _PreviewPanel:
                 else:
                     self._clear_manual_check_feedback()
                 note = (
-                    "Восстановлены порядок, этапы предгиба и настройки из FCStd. "
-                    "Проверки: ИСТОРИЧЕСКИЕ, UNVERIFIED."
+                    tr("Восстановлены порядок, этапы предгиба и настройки из FCStd. "
+                    "Проверки: ИСТОРИЧЕСКИЕ, UNVERIFIED.")
                     if self.session.controller.has_stages else
-                    "Восстановлены порядок и настройки из FCStd. "
-                    "Проверки: ИСТОРИЧЕСКИЕ, UNVERIFIED."
+                    tr("Восстановлены порядок и настройки из FCStd. "
+                    "Проверки: ИСТОРИЧЕСКИЕ, UNVERIFIED.")
                 )
                 if warnings:
-                    note += " Ограничения: " + "; ".join(warnings)
+                    note += tr(" Ограничения: ") + "; ".join(warnings)
                 self.fcstd_note.setText(note)
                 return note
 
@@ -7338,7 +7319,7 @@ class _PreviewPanel:
                     self._current_native_tooling_identity(),
                     tuple(self.session.controller.operation_steps),
                     self._effective_operation_orientation_map(),
-                    frozenset(self._fast_advisory_orientation_keys),
+                    frozenset(self._fast_advisory_orientation_keys), interface_language(),
                 )
 
             def _show_next_mesh_collision(self):
@@ -7437,7 +7418,7 @@ class _PreviewPanel:
                     doc.saveAs(path)
                 except Exception as exc:
                     App.closeDocument(doc.Name)
-                    QtWidgets.QMessageBox.warning(self, tr("Ошибка"), str(exc))
+                    QtWidgets.QMessageBox.warning(self, tr("Ошибка"), tr_message(exc))
 
             def _run_mesh_sequence_check(self):
                 if self.session is None or self.timer.isActive():
@@ -7501,12 +7482,12 @@ class _PreviewPanel:
                         state, summary = "warning", tr("Условных пересечений на торцах: {count}.", count=conditional)
                     else:
                         state, summary = "done", tr("В проверенных положениях коллизий не обнаружено.")
-                    tool_names = {"punch": "пуансон", "die": "матрица"}
+                    tool_names = {"punch": tr("пуансон"), "die": tr("матрица")}
                     findings = []
                     for label, entries in (
-                        ("Коллизия", report["findings"]),
-                        ("Торцевое пересечение", report["conditional_findings"]),
-                        ("Не удалось уточнить", report["unresolved"]),
+                        (tr("Коллизия"), report["findings"]),
+                        (tr("Торцевое пересечение"), report["conditional_findings"]),
+                        (tr("Не удалось уточнить"), report["unresolved"]),
                     ):
                         for item in entries:
                             finding = (
@@ -7532,7 +7513,7 @@ class _PreviewPanel:
                     self.manual_check_summary.setText(message)
                 except (ValueError, RuntimeError, AttributeError) as exc:
                     self._set_task_result("Mesh", "error", tr("Ошибка проверки."), str(exc))
-                    self.status.setText("Mesh: " + str(exc))
+                    self.status.setText("Mesh: " + tr_message(exc))
                 finally:
                     self._set_task_busy(False)
 
@@ -7606,10 +7587,10 @@ class _PreviewPanel:
                 self._clear_manual_check_feedback()
                 self._last_manual_sequence_report = None
                 self.status.setText(
-                    "{}: {}/{} гибов...".format(
-                        "Быстрая OCC проверка (5 углов)" if coarse_occ
-                        else "Полная адаптивная 3D проверка",
-                        len(selected), len(order),
+                    tr("{check}: {done}/{total} гибов...",
+                        check=tr("Быстрая OCC проверка (5 углов)") if coarse_occ
+                        else tr("Полная адаптивная 3D проверка"),
+                        done=len(selected), total=len(order),
                     )
                 )
                 QtWidgets.QApplication.processEvents(QtCore.QEventLoop.ExcludeUserInputEvents)
@@ -7631,8 +7612,8 @@ class _PreviewPanel:
                                != ValidationStatus.GEOMETRY_VERIFIED):
                         self._record_manual_precheck_failure(
                             selected,
-                            "Выберите действительные пуансон и матрицу "
-                            "с проверенными геометрическими базами.",
+                            tr("Выберите действительные пуансон и матрицу "
+                            "с проверенными геометрическими базами."),
                         )
                         return
 
@@ -7640,8 +7621,8 @@ class _PreviewPanel:
                     if not self.tooling_setup.aligned:
                         self._record_manual_precheck_failure(
                             selected,
-                            "Выбранная оснастка не выровнена "
-                            "относительно текущей линии гиба.",
+                            tr("Выбранная оснастка не выровнена "
+                            "относительно текущей линии гиба."),
                         )
                         return
                     match_length = bool(
@@ -7657,8 +7638,8 @@ class _PreviewPanel:
                     if has_sections and match_length:
                         self._record_manual_precheck_failure(
                             selected,
-                            "Виртуальная длина несовместима "
-                            "с реальными наборными секциями инструмента.",
+                            tr("Виртуальная длина несовместима "
+                            "с реальными наборными секциями инструмента."),
                         )
                         return
 
@@ -7678,13 +7659,13 @@ class _PreviewPanel:
 
                     def on_progress(step_no, count, bend_id):
                         update_progress(
-                            f"3D-проверка: гиб {step_no}/{count} ({bend_id})"
+                            tr("3D-проверка: гиб {step}/{total} ({bend})", step=step_no, total=count, bend=bend_id)
                         )
 
                     def on_orientation_retry(bend_id, reverse_axis):
                         degrees = 180 if reverse_axis else 0
                         update_progress(
-                            f"{bend_id}: проверяется второе положение ({degrees}°)"
+                            tr("{bend}: проверяется второе положение ({degrees}°)", bend=bend_id, degrees=degrees)
                         )
 
                     from smbs_core.kinematics2d.motion_trajectory_3d import (
@@ -7794,10 +7775,7 @@ class _PreviewPanel:
                             step["status"]
                         )
                         if step["status"] == "CONDITIONAL":
-                            self._conditional_bends_status[step["bend_id"]] = (
-                                "CONDITIONAL: допуск концевой зоны, "
-                                "требуется физическое подтверждение выреза"
-                            )
+                            self._conditional_bends_status[step["bend_id"]] = tr("CONDITIONAL: допуск концевой зоны, требуется физическое подтверждение выреза")
                         self._manual_retract_verdicts[step["bend_id"]] = (
                             (step.get("retract") or {}).get(
                                 "status", "NOT_EVALUATED"
@@ -7847,19 +7825,16 @@ class _PreviewPanel:
                         self.manual_lift_probe_btn.setEnabled(can_lift)
                         self.manual_lift_probe_hint.setText(
                             (
-                                "{}: {}RETRACT заблокирован пуансоном. "
-                                "Проверить предполагаемый совместный подъём "
-                                "и вывод детали. Исходная коллизия останется."
+                                tr("{}: {}RETRACT заблокирован пуансоном. Проверить предполагаемый совместный подъём и вывод детали. Исходная коллизия останется.")
                             ).format(
                                 lift_candidate["bend_id"],
-                                ("альтернативное положение {}°; ".format(
+                                (tr("альтернативное положение {}°; ").format(
                                     180 if lift_candidate.get(
                                         "reverse_axis", False
                                     ) else 0
                                 ) if is_alternate else ""),
                             ) if can_lift else
-                            "Проверка совместного подъёма доступна при "
-                            "пересечении заготовки с пуансоном на фазе RETRACT."
+                            tr("Проверка совместного подъёма доступна при пересечении заготовки с пуансоном на фазе RETRACT.")
                         )
                         _desktop_debug_event(
                             "MANUAL_ASSISTED_RETRACT_AVAILABILITY",
@@ -7967,60 +7942,56 @@ class _PreviewPanel:
                     blocker = last_step.get("first_blocker") or {}
                     last_bend = last_step.get("bend_id", "")
                     tool_setup_issue = {
-                        "INSUFFICIENT_PUNCH_COVERAGE": "пуансон не перекрывает линию гиба",
-                        "INSUFFICIENT_DIE_COVERAGE": "матрица не перекрывает линию гиба",
-                        "TOOL_ASSEMBLY_GAP": "разрыв между секциями оснастки на линии гиба",
-                        "MISSING_TOOLING_EVIDENCE": "не удалось подтвердить размеры оснастки",
+                        "INSUFFICIENT_PUNCH_COVERAGE": tr("пуансон не перекрывает линию гиба"),
+                        "INSUFFICIENT_DIE_COVERAGE": tr("матрица не перекрывает линию гиба"),
+                        "TOOL_ASSEMBLY_GAP": tr("разрыв между секциями оснастки на линии гиба"),
+                        "MISSING_TOOLING_EVIDENCE": tr("не удалось подтвердить размеры оснастки"),
                     }.get(last_step.get("tool_setup_status"))
                     if physical_status == "COLLISION":
                         pair = last_step.get("punch_die_pair") or {}
                         if pair.get("status") == "COLLISION":
-                            message = f"{last_bend}: пуансон сталкивается с матрицей"
+                            message = tr("{bend}: пуансон сталкивается с матрицей", bend=last_bend)
                         else:
                             tool = {
-                                "PUNCH": "пуансон", "DIE": "матрица",
-                                "PUNCH_AND_DIE": "пуансон и матрица",
-                            }.get(blocker.get("tool"), "оснастка")
+                                "PUNCH": tr("пуансон"), "DIE": tr("матрица"),
+                                "PUNCH_AND_DIE": tr("пуансон и матрица"),
+                            }.get(blocker.get("tool"), tr("оснастка"))
                             phase = blocker.get("phase", "")
-                            message = f"{last_bend}: коллизия заготовки ({tool}, {phase})"
+                            message = tr("{bend}: коллизия заготовки ({tool}, {phase})", bend=last_bend, tool=tool, phase=phase)
                     elif physical_status == "SAMPLED_3D_CLEAR_NOT_CONTINUOUS":
-                        message = "В проверенных 3D-положениях коллизий нет"
+                        message = tr("В проверенных 3D-положениях коллизий нет")
                     elif physical_status == "CONDITIONAL":
-                        message = "Условный результат: пересечение в торцевой зоне пуансона"
+                        message = tr("Условный результат: пересечение в торцевой зоне пуансона")
                     elif reason == "coarse_OCC_samples_only_uninspected_intervals_and_tool_pair":
-                        message = "Быстрая проверка: в выбранных точках коллизий не найдено"
+                        message = tr("Быстрая проверка: в выбранных точках коллизий не найдено")
                     elif reason == "selected_manual_prefix_only_remaining_bends_not_checked":
-                        message = "В выбранной части порядка блокирующих коллизий не найдено"
+                        message = tr("В выбранной части порядка блокирующих коллизий не найдено")
                     elif tool_setup_issue:
-                        message = f"{last_bend}: {tool_setup_issue}"
+                        message = tr("{bend}: {issue}", bend=last_bend, issue=tool_setup_issue)
                     elif last_bend:
-                        message = f"{last_bend}: 3D-проверка не завершена"
+                        message = tr("{bend}: 3D-проверка не завершена", bend=last_bend)
                     else:
-                        message = "3D-проверка недоступна. Проверьте файлы оснастки"
+                        message = tr("3D-проверка недоступна. Проверьте файлы оснастки")
 
                     summary_lines = [
-                        f"{message}. Обработано гибов: {complete_steps}/{len(order)}.",
+                        tr("{message}. Обработано гибов: {complete}/{total}.", message=message, complete=complete_steps, total=len(order)),
                     ]
                     if changed_orientation_bends:
-                        summary_lines.append("Положение изменилось на 180° для " +
-                                             ", ".join(changed_orientation_bends) + ".")
+                        summary_lines.append(tr("Положение изменилось на 180° для {bends}.", bends=", ".join(changed_orientation_bends)))
                     both_blocked = [
                         item["bend_id"] for item in orientation_attempts
                         if item["result"] == "BOTH_ORIENTATIONS_COLLIDE"
                     ]
                     if both_blocked:
-                        summary_lines.append("Коллизия в обеих ориентациях: " +
-                                             ", ".join(both_blocked) + ".")
+                        summary_lines.append(tr("Коллизия в обеих ориентациях: {bends}.", bends=", ".join(both_blocked)))
                     if crosscheck:
                         summary_lines.append(
-                            "Расхождение 2D и 3D: "
-                            + ", ".join(item["bend_id"] for item in crosscheck) + "."
+                            tr("Расхождение 2D и 3D: {bends}.", bends=", ".join(item["bend_id"] for item in crosscheck))
                         )
                     elif disagreement:
-                        summary_lines.append("2D-диагностика неполная.")
+                        summary_lines.append(tr("2D-диагностика неполная."))
                     summary_lines.append(
-                        "3D-проверка охватывает выборочные положения с пуансоном и матрицей. "
-                        "Упор, станина, зажимы и перенос между гибами не проверяются."
+                        tr("3D-проверка охватывает выборочные положения с пуансоном и матрицей. Упор, станина, зажимы и перенос между гибами не проверяются.")
                     )
                     summary = "\n".join(summary_lines)
                     self.physical_check_result.setText(summary)
@@ -8043,7 +8014,7 @@ class _PreviewPanel:
                         saved_note = self._persist_manual_check_to_fcstd()
                     except Exception as storage_exc:
                         saved_note = (
-                            "НЕ СОХРАНЕНО В FCStd: " + str(storage_exc)
+                            tr("НЕ СОХРАНЕНО В FCStd: ") + str(storage_exc)
                         )
                         _error(
                             "Manual 3D report could not be embedded: "
@@ -8063,7 +8034,7 @@ class _PreviewPanel:
                     )
                     self._record_manual_precheck_failure(
                         selected,
-                        "Ошибка проверки ручного порядка: " + str(exc),
+                        tr("Ошибка проверки ручного порядка: {error}", error=exc),
                     )
                 finally:
                     self._set_task_busy(False)
@@ -8150,11 +8121,11 @@ class _PreviewPanel:
                     else:
                         self.session.reset_all_bends()
                     if tuple(self.session.bend_order) != order:
-                        raise RuntimeError("Сброс изменил выбранный порядок гибов")
+                        raise RuntimeError(tr("Сброс изменил выбранный порядок гибов"))
                 except Exception as exc:
                     self._manual_preview_unverified = False
                     self.status.setText(
-                        "Не удалось подготовить ручную симуляцию: " + str(exc)
+                        tr("Не удалось подготовить ручную симуляцию: ") + str(exc)
                     )
                     return
                 self._configure_for_active_bend()
@@ -8162,7 +8133,7 @@ class _PreviewPanel:
                 self._manual_preview_notice.setText(
                     self.manual_check_summary.text().splitlines()[0]
                     if matched_occ_report is not None else
-                    "РУЧНОЙ ПРОСМОТР — коллизии не проверены"
+                    tr("РУЧНОЙ ПРОСМОТР — коллизии не проверены")
                 )
                 self._manual_preview_notice.show()
                 if matched_occ_report is None:
@@ -8176,17 +8147,17 @@ class _PreviewPanel:
                 self.play_all()
                 if self.session.playback_status == PlaybackStatus.PLAYING:
                     scope = (
-                        "первые {}/{} гибов".format(
+                        tr("первые {}/{} гибов").format(
                             preview_count, len(order)
                         ) if preview_count < len(order) else
-                        "все {} гибов".format(len(order))
+                        tr("все {} гибов").format(len(order))
                     )
                     self.status.setText(
-                        "РУЧНАЯ СИМУЛЯЦИЯ: {} · {}".format(
+                        tr("РУЧНАЯ СИМУЛЯЦИЯ: {} · {}").format(
                             scope,
-                            "сохранённые выборочные OCC-результаты"
+                            tr("сохранённые выборочные OCC-результаты")
                             if matched_occ_report is not None
-                            else "БЕЗ ПРОВЕРКИ КОЛЛИЗИЙ",
+                            else tr("БЕЗ ПРОВЕРКИ КОЛЛИЗИЙ"),
                         )
                     )
                     self._trace_event(
@@ -8233,10 +8204,10 @@ class _PreviewPanel:
                 if self._manual_selection_enabled:
                     prefix = self._manual_sequence_prefix
                     self.status.setText(
-                        "Порядок: {}/{} | {} | коллизии не проверены".format(
+                        tr("Порядок: {}/{} | {} | коллизии не проверены").format(
                             len(prefix),
                             len(self.session.bend_order) if self.session else 0,
-                            " → ".join(prefix) or "порядок пуст",
+                            " → ".join(prefix) or tr("порядок пуст"),
                         )
                     )
 
@@ -8284,12 +8255,12 @@ class _PreviewPanel:
                 )
                 if bend_id in self._manual_sequence_prefix:
                     self.status.setText(
-                        "Линия {} уже имеет номер {}.".format(
+                        tr("Линия {} уже имеет номер {}.").format(
                             bend_id, self._manual_sequence_prefix.index(bend_id) + 1)
                     )
                     return
                 if bend_id not in self.session.fold_state.bends:
-                    self.status.setText("Неизвестная линия: " + str(bend_id))
+                    self.status.setText(tr("Неизвестная линия: ") + str(bend_id))
                     return
                 if not self.session.can_reorder():
                     self.status.setText(
@@ -8394,7 +8365,7 @@ class _PreviewPanel:
                 checkpoint("update_status")
                 self._update_manual_hint()
                 self.status.setText(
-                    "РУЧНОЙ ПОРЯДОК {}/{} (НЕ ПРОВЕРЕН): {}".format(
+                    tr("РУЧНОЙ ПОРЯДОК {}/{} (НЕ ПРОВЕРЕН): {}").format(
                         len(prefix), len(self.session.bend_order),
                         " → ".join(prefix or self.session.bend_order)
                     )
@@ -8433,7 +8404,7 @@ class _PreviewPanel:
                 self._flat_scene = scene
                 scene.clear()
                 if self.session is None:
-                    scene.addSimpleText("Развёртка не загружена")
+                    scene.addSimpleText(tr("Развёртка не загружена"))
                     return
                 polygon_pen = QtGui.QPen(QtGui.QColor("#738194"))
                 polygon_pen.setWidthF(0.35)
@@ -8461,7 +8432,7 @@ class _PreviewPanel:
                 staged = controller.has_stages
                 operation_labels = {}
                 if staged:
-                    names = {"PREBEND": "предгиб", "FINISH": "догиб", "SINGLE": "гиб"}
+                    names = {"PREBEND": tr("предгиб"), "FINISH": tr("догиб"), "SINGLE": tr("гиб")}
                     for index, step in enumerate(controller.operation_steps, 1):
                         operation_labels.setdefault(step.bend_id, []).append(
                             f"{index}. {step.operation_id} · {names[step.kind]} "
@@ -8537,11 +8508,11 @@ class _PreviewPanel:
                     )
                 retract_status = self._manual_retract_verdicts.get(b.bend_id)
                 retract_label = {
-                    "SAMPLED_CLEAR": "ПРОЙДЕН",
-                    "CONDITIONAL": "УСЛОВНО",
-                    "COLLISION": "КОЛЛИЗИЯ",
-                    "NOT_EVALUATED": "НЕ ВЫПОЛНЕН",
-                    "UNVERIFIED": "НЕ ПРОВЕРЕН",
+                    "SAMPLED_CLEAR": tr("ПРОЙДЕН"),
+                    "CONDITIONAL": tr("УСЛОВНО"),
+                    "COLLISION": tr("КОЛЛИЗИЯ"),
+                    "NOT_EVALUATED": tr("НЕ ВЫПОЛНЕН"),
+                    "UNVERIFIED": tr("НЕ ПРОВЕРЕН"),
                 }.get(retract_status, "—")
                 flat_mm = self.session.local_bend_dimensions_mm.get(b.bend_id)
                 gauge = (
@@ -8557,10 +8528,10 @@ class _PreviewPanel:
                 if self.session.controller.has_stages:
                     done = (idx <= self.session.controller.completed_step_count)
                     status_str = (
-                        "ЭТАП ГОТОВ" if done else ("АКТИВНЫЙ ЭТАП" if is_active else "ОЖИДАНИЕ")
+                        tr("ЭТАП ГОТОВ") if done else (tr("АКТИВНЫЙ ЭТАП") if is_active else tr("ОЖИДАНИЕ"))
                     ) + " [UNVERIFIED]"
                 step_name = {
-                    "PREBEND": "предгиб", "FINISH": "догиб", "SINGLE": "обычный",
+                    "PREBEND": tr("предгиб"), "FINISH": tr("догиб"), "SINGLE": tr("обычный"),
                 }[op.kind]
                 return (
                     str(idx),
@@ -8593,9 +8564,7 @@ class _PreviewPanel:
                     if step.bend_id == bend_id and step.kind == "PREBEND"
                 ), None)
                 if prebend is None:
-                    self.status.setText(
-                        "Для {} предварительный гиб не задан.".format(bend_id)
-                    )
+                    self.status.setText(tr("Для {bend} предварительный гиб не задан.", bend=bend_id))
                     return False
                 if (self.timer.isActive() or self.playing
                         or not self.session.can_reorder()):
@@ -8606,14 +8575,10 @@ class _PreviewPanel:
                 final = controller.target_for(bend_id)
                 decision = QtWidgets.QMessageBox.question(
                     parent or self,
-                    "Удалить предварительный гиб?",
-                    (
-                        "Удалить {} (промежуточный угол {:+.2f}°)?\n\n"
-                        "Догиб {}.2 будет заменён обычным гибом {} "
-                        "до {:+.2f}°.\n"
-                        "Остальные операции, их порядок и углы не изменятся."
-                    ).format(bend_id + ".1", prebend.target_angle_deg,
-                             bend_id, bend_id, final),
+                    tr("Удалить предварительный гиб?"),
+                    tr("Удалить {prebend} (промежуточный угол {intermediate:+.2f}°)?\n\nДогиб {finish} будет заменён обычным гибом {bend} до {final:+.2f}°.\nОстальные операции, их порядок и углы не изменятся.",
+                       prebend=bend_id + ".1", intermediate=prebend.target_angle_deg,
+                       finish=bend_id + ".2", bend=bend_id, final=final),
                     QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
                     QtWidgets.QMessageBox.No,
                 )
@@ -8628,7 +8593,7 @@ class _PreviewPanel:
                         controller.restore_operation_snapshot(previous)
                     except SequenceError:
                         pass
-                    self.status.setText("Предгиб не удалён: " + str(exc))
+                    self.status.setText(tr("Предгиб не удалён: {error}", error=exc))
                     return False
                 _desktop_debug_event(
                     "STAGED_PREBEND_REMOVED",
@@ -8639,8 +8604,8 @@ class _PreviewPanel:
                     steps=controller.operation_snapshot(),
                 )
                 self._on_staged_plan_changed(
-                    "{}: предгиб удалён. Обычный гиб восстановлен до "
-                    "{:+.2f}°.".format(bend_id, final)
+                    tr("{bend}: предгиб удалён. Обычный гиб восстановлен до {angle:+.2f}°.",
+                       bend=bend_id, angle=final)
                 )
                 return True
 
@@ -8658,14 +8623,12 @@ class _PreviewPanel:
                     if step.bend_id == bend_id and step.kind == "PREBEND"
                 ), None)
                 dialog = QtWidgets.QDialog(self)
-                dialog.setWindowTitle("Предварительный гиб / догиб — " + bend_id)
+                dialog.setWindowTitle(tr("Предварительный гиб / догиб — {bend}", bend=bend_id))
                 dialog.setMinimumWidth(400)
                 layout = QtWidgets.QVBoxLayout(dialog)
                 explanation = QtWidgets.QLabel(
-                    "Физический гиб: {}\\nКонечный угол: {:+.2f}° (не меняется)\\n"
-                    "Задайте промежуточный абсолютный угол и перетащите "
-                    "только строку предгиба между зафиксированными операциями."
-                    .format(bend_id, final)
+                    tr("Физический гиб: {bend}\\nКонечный угол: {angle:+.2f}° (не меняется)\\nЗадайте промежуточный абсолютный угол и перетащите только строку предгиба между зафиксированными операциями.",
+                       bend=bend_id, angle=final)
                 )
                 explanation.setWordWrap(True)
                 layout.addWidget(explanation)
@@ -8705,11 +8668,11 @@ class _PreviewPanel:
                         ))
                 for op_id, physical_id, angle, kind in stages:
                     label = (
-                        "{}  —  ПРЕДГИБ (перетащите)".format(op_id)
+                        tr("{operation}  —  ПРЕДГИБ (перетащите)", operation=op_id)
                         if op_id == pre_id else
-                        "{}  —  догиб до {:+.1f}° (закреплён)".format(op_id, angle)
+                        tr("{operation}  —  догиб до {angle:+.1f}° (закреплён)", operation=op_id, angle=angle)
                         if op_id == finish_id else
-                        "{}  —  {:+.1f}° (закреплён)".format(op_id, angle)
+                        tr("{operation}  —  {angle:+.1f}° (закреплён)", operation=op_id, angle=angle)
                     )
                     item = QtWidgets.QListWidgetItem(label)
                     item.setData(QtCore.Qt.UserRole, op_id)
@@ -8755,8 +8718,7 @@ class _PreviewPanel:
                     )
                     delete_button.setObjectName("SMBS_DeletePrebend")
                     delete_button.setToolTip(
-                        "Удалить {}.1, заменить {}.2 одним исходным гибом {} "
-                        "и сохранить порядок остальных операций.".format(
+                        tr("Удалить {}.1, заменить {}.2 одним исходным гибом {} и сохранить порядок остальных операций.").format(
                             bend_id, bend_id, bend_id
                         )
                     )
@@ -8780,7 +8742,7 @@ class _PreviewPanel:
                         except SequenceError:
                             controller.restore_operation_snapshot(original)
                             raise
-                        operation = "Предгиб {}: {:+.2f}° → догиб до {:+.2f}°".format(
+                        operation = tr("Предгиб {}: {:+.2f}° → догиб до {:+.2f}°").format(
                             bend_id, spin.value(), final
                         )
                     else:
@@ -8862,7 +8824,7 @@ class _PreviewPanel:
                     "STAGED_BEND_STEPS_REORDERED", operation_ids=operation_ids,
                 )
                 self._on_staged_plan_changed(
-                    "Порядок этапов: " + " → ".join(operation_ids)
+                    tr("Порядок этапов: ") + " → ".join(operation_ids)
                 )
 
             def _on_staged_plan_changed(self, message, *, fast_apply=False):
@@ -8896,10 +8858,10 @@ class _PreviewPanel:
                 self._backgauge_preview_cache.clear()
                 self._manual_preview_unverified = self.session.controller.has_stages
                 self._manual_preview_notice.setText(
-                    "ПРЕДГИБ / ДОГИБ: кинематическая симуляция, "
-                    "проверка коллизий последовательности НЕ выполнена."
+                    tr("ПРЕДГИБ / ДОГИБ: кинематическая симуляция, "
+                    "проверка коллизий последовательности НЕ выполнена.")
                     if self.session.controller.has_stages else
-                    "РУЧНОЙ ПРОСМОТР — коллизии не проверены"
+                    tr("РУЧНОЙ ПРОСМОТР — коллизии не проверены")
                 )
                 self._manual_preview_notice.setVisible(
                     self.session.controller.has_stages
@@ -8972,9 +8934,9 @@ class _PreviewPanel:
                 self._clear_manual_check_feedback()
                 self._manual_preview_unverified = bool(self.session.controller.has_stages)
                 self._manual_preview_notice.setText(
-                    "ПРЕДГИБ/ДОГИБ — предварительная симуляция, коллизии не проверены"
+                    tr("ПРЕДГИБ/ДОГИБ — предварительная симуляция, коллизии не проверены")
                     if self.session.controller.has_stages else
-                    "РУЧНОЙ ПРОСМОТР — коллизии не проверены"
+                    tr("РУЧНОЙ ПРОСМОТР — коллизии не проверены")
                 )
                 self._manual_preview_notice.setVisible(self.session.controller.has_stages)
                 self._draw_flat_pattern()
@@ -8984,7 +8946,7 @@ class _PreviewPanel:
                     self._sync_tooling_to_active_bend()
                     self.draw()
                 self.status.setText(
-                    "Порядок гибки (KINEMATICALLY SIMULATED): {}".format(
+                    tr("Порядок гибки (KINEMATICALLY SIMULATED): {}").format(
                         " → ".join(self.session.bend_order)
                     )
                 )
@@ -9078,12 +9040,9 @@ class _PreviewPanel:
                                 orientations, bend_id, op.operation_id
                             ) else QtCore.Qt.Unchecked,
                         )
-                        tooltip = "Галочка — разворот заготовки на 180°. Снята — 0°."
+                        tooltip = tr("Галочка — разворот заготовки на 180°. Снята — 0°.")
                         if self.session.controller.has_stages:
-                            tooltip += (
-                                "\nНастройка относится только к операции "
-                                + op.operation_id + ", а не ко всем этапам " + bend_id + "."
-                            )
+                            tooltip += tr("\nНастройка относится только к операции {operation}, а не ко всем этапам {bend}.", operation=op.operation_id, bend=bend_id)
                         if (
                             (op.operation_id != bend_id and
                              op.operation_id in self._manual_operation_orientation_overrides)
@@ -9092,10 +9051,10 @@ class _PreviewPanel:
                         ):
                             tooltip += (
                                 "\n" + (
-                                    "Положение предложено FAST (UNVERIFIED)."
+                                    tr("Положение предложено FAST (UNVERIFIED).")
                                     if op.operation_id in self._fast_advisory_orientation_keys
-                                    else "Положение задано вручную."
-                                ) + " Правый клик возвращает автоподбор."
+                                    else tr("Положение задано вручную.")
+                                ) + tr(" Правый клик возвращает автоподбор.")
                             )
                         item.setToolTip(
                             _LOADING_ORIENTATION_COLUMN, tooltip,
@@ -9118,7 +9077,7 @@ class _PreviewPanel:
                                 edit_btn = QtWidgets.QToolButton(controls)
                                 edit_btn.setText(tr("Изм."))
                                 edit_btn.setToolTip(
-                                    "Изменить предгиб " + op.operation_id
+                                    tr("Изменить предгиб ") + op.operation_id
                                 )
                                 edit_btn.clicked.connect(
                                     lambda _checked=False, bid=bend_id:
@@ -9129,7 +9088,7 @@ class _PreviewPanel:
                                 delete_btn.setFixedWidth(25)
                                 delete_btn.setObjectName("SMBS_DeletePrebendRow")
                                 delete_btn.setToolTip(
-                                    "Удалить предгиб {} и вернуть обычный гиб {}".format(
+                                    tr("Удалить предгиб {} и вернуть обычный гиб {}").format(
                                         op.operation_id, bend_id
                                     )
                                 )
@@ -9144,9 +9103,9 @@ class _PreviewPanel:
                                 self.operations.setItemWidget(item, 9, controls)
                             else:
                                 add_btn = QtWidgets.QToolButton(self.operations)
-                                add_btn.setText("+" if op.kind == "SINGLE" else "Изм.")
+                                add_btn.setText("+" if op.kind == "SINGLE" else tr("Изм."))
                                 add_btn.setToolTip(
-                                    "Добавить или изменить предварительный угол гиба "
+                                    tr("Добавить или изменить предварительный угол гиба ")
                                     + bend_id
                                 )
                                 add_btn.clicked.connect(
@@ -9158,7 +9117,7 @@ class _PreviewPanel:
                             widget = self.operations.itemWidget(item, 9)
                             if isinstance(widget, QtWidgets.QToolButton):
                                 widget.setText(
-                                    "+" if op.kind == "SINGLE" else "Изм."
+                                    "+" if op.kind == "SINGLE" else tr("Изм.")
                                 )
                     if 0 <= self.session.active_bend_index < count:
                         active = self.operations.topLevelItem(self.session.active_bend_index)
@@ -9250,7 +9209,7 @@ class _PreviewPanel:
                     else:
                         self.session.set_active_angle(float(signed_angle_deg))
                 except Exception as exc:
-                    _error("Отклонено недопустимое изменение угла: {}".format(exc))
+                    _error(tr("Отклонено недопустимое изменение угла: {}").format(exc))
                     raise
                 self.angle = self.session.current_angle_deg
                 slider_pos = int(round(abs(self.angle) * _SLIDER_SCALE))
@@ -9291,13 +9250,9 @@ class _PreviewPanel:
                 self._collision_display_active = False
                 if (self._machine_pose_fault and
                         self.execution_mode == CycleExecutionMode.FULL_CYCLE):
-                    self.status.setText(
-                        "Full Cycle остановлен из-за геометрии: {}. "
-                        "Переключитесь на Bend Only для автоматической "
-                        "анимации всех гибов или Reset для повторной проверки.".format(
-                            self._machine_pose_fault
-                        )
-                    )
+                    self.status.setText(tr(
+                        "Full Cycle остановлен из-за геометрии: {reason}. Переключитесь на Bend Only для автоматической анимации всех гибов или Reset для повторной проверки.",
+                        reason=self._machine_pose_fault))
                     return
                 try:
                     pc = self._ensure_press_cycle_controller()
@@ -9334,20 +9289,14 @@ class _PreviewPanel:
                 if self.session.playback_status == PlaybackStatus.PLAYING:
                     if not self.timer.isActive():
                         self.timer.start()
-                    self.status.setText(
-                        "AUTO PLAY: {} | гиб {} | таймер {} мс".format(
-                            self.execution_mode.value,
-                            self.session.active_bend_id,
-                            self.timer.interval()
-                        )
-                    )
+                    self.status.setText(tr("AUTO PLAY: {mode} | гиб {bend} | таймер {timer} мс",
+                                           mode=self.execution_mode.value,
+                                           bend=self.session.active_bend_id,
+                                           timer=self.timer.interval()))
                 else:
-                    self.status.setText(
-                        "AUTO PLAY не запущен: статус {} | {}".format(
-                            self.session.playback_status.value,
-                            self._machine_pose_fault or "проверьте состояние последовательности"
-                        )
-                    )
+                    self.status.setText(tr("AUTO PLAY не запущен: статус {status} | {reason}",
+                                           status=self.session.playback_status.value,
+                                           reason=self._machine_pose_fault or tr("проверьте состояние последовательности")))
                 _log("Play All started at bend {}".format(self.session.active_bend_id))
 
             def pause(self):
@@ -9371,8 +9320,8 @@ class _PreviewPanel:
                     self.execution_mode == CycleExecutionMode.FULL_CYCLE
                 ):
                     self.status.setText(
-                        "Невозможно продолжить этот Full Cycle: {}. "
-                        "Выберите Bend Only в настройках режима или Reset.".format(
+                        tr("Невозможно продолжить этот Full Cycle: {}. "
+                        "Выберите Bend Only в настройках режима или Reset.").format(
                             self._machine_pose_fault
                         )
                     )
@@ -9500,7 +9449,7 @@ class _PreviewPanel:
 
             def _show_preview_limit(self):
                 self.status.setText(
-                    "Просмотр дошёл до границы проверки: {}/{} гибов."
+                    tr("Просмотр дошёл до границы проверки: {}/{} гибов.")
                     .format(self._partial_preview_limit, len(self.session.bend_order))
                 )
 
@@ -9533,9 +9482,7 @@ class _PreviewPanel:
                 if self.session.playback_status != PlaybackStatus.PLAYING:
                     self._stop_timer()
                     self.status.setText(
-                        "AUTO PLAY остановлен: {}".format(
-                            self.session.playback_status.value
-                        )
+                        tr("AUTO PLAY остановлен: {status}", status=self.session.playback_status.value)
                     )
                     return
                 now = time.monotonic()
@@ -9608,13 +9555,12 @@ class _PreviewPanel:
                             )
                         rendered = self._open_coin_preview()
                         reason = (
-                            "OCC COLLISION: {} | {} | угол {:+.2f}° | "
-                            "ram Z={:.3f} мм. {}"
+                            tr("OCC COLLISION: {} | {} | угол {:+.2f}° | ram Z={:.3f} мм. {}")
                         ).format(
                             native_hit["bend_id"], hit_phase,
                             float(native_pose["signed_angle_deg"]),
                             float(native_pose["ram_z_mm"]),
-                            "Сохранённый OCC-кадр показан в Coin3D."
+                            tr("Сохранённый OCC-кадр показан в Coin3D.")
                             if rendered else self._coin_frame_status.text(),
                         )
                         self.physical_check_result.setText(reason)
@@ -9634,14 +9580,11 @@ class _PreviewPanel:
                         self._last_3d_frame_at = -1.0
                         self._update_3d_preview(force=True)
                         self._finish_motion_trace("PLAYBACK_COMPLETED")
-                        self.status.setText(
-                            "AUTO PLAY завершён: {} | {} гибов{}".format(
-                                self.execution_mode.value,
-                                len(self.session.bend_order),
-                                " | РУЧНОЙ ПРОСМОТР БЕЗ ПРОВЕРКИ КОЛЛИЗИЙ"
-                                if self._manual_preview_unverified else "",
-                            )
-                        )
+                        self.status.setText(tr("AUTO PLAY завершён: {mode} | {count} гибов{warning}",
+                                               mode=self.execution_mode.value,
+                                               count=len(self.session.bend_order),
+                                               warning=(tr(" | РУЧНОЙ ПРОСМОТР БЕЗ ПРОВЕРКИ КОЛЛИЗИЙ")
+                                                        if self._manual_preview_unverified else "")))
                         _log("Sequence playback completed")
                     else:
                         phase = (
@@ -9651,23 +9594,22 @@ class _PreviewPanel:
                             else "BEND_ONLY"
                         )
                         self.status.setText(
-                            "AUTO PLAY: {} | {} | гиб {} | угол {:+.1f}° | {} мс{}".format(
-                                self.execution_mode.value,
-                                phase,
-                                self.session.active_bend_id,
-                                self.session.current_angle_deg,
-                                self.timer.interval(),
-                                (" | OCC:" + str(
+                            tr("AUTO PLAY: {mode} | {phase} | гиб {bend} | угол {angle:+.1f}° | {timer} мс{check}",
+                                mode=self.execution_mode.value,
+                                phase=phase,
+                                bend=self.session.active_bend_id,
+                                angle=self.session.current_angle_deg,
+                                timer=self.timer.interval(),
+                                check=(" | OCC:" + str(
                                     self._manual_3d_verdicts.get(
                                         self.session.active_bend_id,
                                         "UNVERIFIED",
                                     )
-                                ) + " (выборочная проверка)"
+                                ) + tr(" (выборочная проверка)")
                                  if self._matching_manual_occ_report(
                                      tuple(self.session.bend_order)
                                  ) is not None else
-                                 " | UNVERIFIED"),
-                            )
+                                 " | UNVERIFIED"))
                         )
                 except Exception as exc:
                     _desktop_debug_event("PLAYBACK_STEP_ERROR", error=str(exc),
@@ -9694,10 +9636,7 @@ class _PreviewPanel:
                     self._trace_event("AUTOPLAY_ERROR", reason=reason)
                     self._finish_motion_trace("AUTOPLAY_ERROR")
                     self._sync_playback_buttons()
-                    self.status.setText(
-                        reason + " | Состояние зафиксировано; "
-                        "Reset или смена режима для повторного запуска."
-                    )
+                    self.status.setText(reason + tr(" | Состояние зафиксировано; Reset или смена режима для повторного запуска."))
 
             def fit(self):
                 if not self._preview_3d._native and self._viewer_tabs.currentWidget() is self._flat_view:
@@ -9768,9 +9707,7 @@ class _PreviewPanel:
                 # both JSONL and the summary immediately; do not leave a
                 # buffered trace open waiting for a separate user action.
                 self._finish_motion_trace("KINEMATIC_POSE_HALT")
-                self.status.setText(
-                    "Симуляция остановлена. " + str(reason)
-                )
+                self.status.setText(tr("Симуляция остановлена. {reason}", reason=reason))
 
             def _backgauge_stations(self):
                 model = self.backgauge_model
@@ -9834,7 +9771,7 @@ class _PreviewPanel:
                         self._sequenced_gauge_envelopes(orientations).get(bend_id, ((), ()))[1]
                         if model.automatic else ()
                     )
-                    result = visual_gauge_target(model, bend_id, envelopes)
+                    result = visual_gauge_target(model, bend_id, envelopes, translate=tr)
                 except (ValueError, TypeError, KeyError) as exc:
                     _warn("Visual gauge target unavailable for {}: {}".format(
                         bend_id, exc,

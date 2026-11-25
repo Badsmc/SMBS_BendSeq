@@ -1,6 +1,6 @@
 """Manual bending of a single flat outline from an ASCII DXF."""
 from dataclasses import asdict, dataclass
-from freecad_smbs.ui.localization import tr
+from freecad_smbs.ui.localization import tr, tr_message
 from freecad_smbs.icon_theme import icon_path as _smbs_icon_path
 from itertools import combinations, groupby
 from math import copysign, dist, floor, isfinite, tau
@@ -324,8 +324,7 @@ def build_session(path, lines, angles, thickness, radius, k_factor, *,
         trace("build_faces", wires=[{"closed": is_closed, "edges": len(wire.Edges)}
                                     for wire, is_closed in zip(wires, closed)])
     if not wires:
-        raise ValueError("Нет рёбер контура DXF. Проверьте включённые слои "
-                         "и линии, назначенные гибами.")
+        raise ValueError(tr("Нет рёбер контура DXF. Проверьте включённые слои и линии, назначенные гибами."))
     faces = [_outline_face(wire, number, outline_tolerance)
              for number, wire in enumerate(wires, 1)]
     outer = max(faces, key=lambda face: face.Area)
@@ -449,15 +448,13 @@ def _folded_dxf_preview(session, trace):
               expected_mm3=exc.expected_mm3, joined_mm3=exc.joined_mm3)
         if not overlaps:
             raise ValueError(
-                f"Объём конечной формы {exc.joined_mm3:.3f} мм³, "
-                f"ожидалось {exc.expected_mm3:.3f} мм³. "
-                "При диагностике пересекающиеся пары не найдены."
+                tr("Объём конечной формы {actual:.3f} мм³, ожидалось {expected:.3f} мм³. При диагностике пересекающиеся пары не найдены.",
+                   actual=exc.joined_mm3, expected=exc.expected_mm3)
             ) from exc
         overlaps.sort(key=lambda row: row[2], reverse=True)
         pairs = ", ".join(f"{a.removeprefix('bend_zone:')} / {b.removeprefix('bend_zone:')}"
                           for a, b, _ in overlaps[:4])
-        return None, ("Конечная форма пересекает сама себя. "
-                      f"Компоненты: {pairs}. Открыта развёртка для симуляции.")
+        return None, tr("Конечная форма пересекает сама себя. Компоненты: {pairs}. Открыта развёртка для симуляции.", pairs=pairs)
 
 
 class DxfManualCommand:
@@ -493,7 +490,7 @@ class DxfManualCommand:
             lines = read_lines(path, layers=layers, unsupported=unsupported)
         except Exception as exc:
             log("DXF_READ_ERROR", error=str(exc), traceback=format_exc())
-            qt.QMessageBox.warning(parent, tr("Развёртка DXF"), str(exc))
+            qt.QMessageBox.warning(parent, tr("Развёртка DXF"), tr_message(exc))
             return
 
         log("DXF_READ_COMPLETED", unsupported=unsupported, geometry=[
@@ -798,9 +795,9 @@ class DxfManualCommand:
                     document=doc.Name if doc is not None else None,
                     error_type=type(exc).__name__, error=str(exc), traceback=error_trace)
                 App.Console.PrintError(error_trace)
-                detail = str(exc).strip() or type(exc).__name__
+                detail = tr_message(exc).strip() or type(exc).__name__
                 if doc is not None:
-                    detail = f"Модель создана в {doc.Name}. Не удалось открыть симуляцию: {detail}"
+                    detail = tr("Модель создана в {document}. Не удалось открыть симуляцию: {detail}", document=doc.Name, detail=detail)
                 feedback.setText(detail)
                 return
             finally:

@@ -172,24 +172,26 @@ def sequenced_gauge_envelopes(session, *, finger_count,
     return targets, errors
 
 
-def visual_gauge_target(model, bend_id, envelopes):
+def visual_gauge_target(model, bend_id, envelopes, translate=None):
     """Return stop-face coordinates and any differences between finger stations."""
+    translate = translate or (lambda source: source)
     if not model.automatic:
         centre = model.position_for(bend_id)
         return BackgaugePosition2D(centre.s_mm - model.width_s_mm / 2.0, centre.z_mm), ""
 
     if not envelopes:
-        return None, "Не найдена задняя грань для автоматической расстановки лапок"
+        return None, translate("Не найдена задняя грань для автоматической расстановки лапок")
     edges = tuple(edge for edge in envelopes if edge is not None)
     if not edges:
-        return None, "Край детали вне станций X заднего упора"
+        return None, translate("Край детали вне станций X заднего упора")
     # The fingers share the S/R axes. Set the common S beyond the rear-most
     # edge, so the other station's shallower edge cannot push that finger in.
     rear_s, rear_z = max(edges, key=lambda edge: edge[0])
     warnings = []
     for index, edge in enumerate(envelopes, 1):
         if edge is None:
-            warnings.append(f"упор {index} вне контура детали по X")
+            warnings.append(translate("упор {} вне контура детали по X").format(index))
         elif rear_s - edge[0] > 0.05:
-            warnings.append(f"упор {index} до края {rear_s - edge[0] + model.edge_clearance_mm:.2f} мм")
+            warnings.append(translate("упор {} до края {:.2f} мм").format(
+                index, rear_s - edge[0] + model.edge_clearance_mm))
     return BackgaugePosition2D(rear_s + model.edge_clearance_mm, rear_z), " · ".join(warnings)

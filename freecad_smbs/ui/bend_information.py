@@ -75,7 +75,7 @@ def bend_rows(workspace):
             else:
                 tools.append(tr("Нет раскладки") if inputs is not None else error)
         rows.append((str(index + 1), bend_id, operation.operation_id,
-                     tr(tr(OPERATION_NAMES[operation.kind])),
+                     tr(OPERATION_NAMES[operation.kind]),
                      f"{stop.s_mm:.2f}" if stop is not None else "—",
                      f"{flange:.2f}" if flange is not None else "—",
                      f"{operation.target_angle_deg:+.2f}", *tools))
@@ -137,7 +137,7 @@ def _update_bend_callouts(document, page, view, session, center):
         dy = (start[1] + end[1]) / 2 - center.y
         x, y = c * dx - s * dy, s * dx + c * dy
         direction = "Down" if op.target_angle_deg < 0 else "Up"
-        label = f"{index}. {OPERATION_NAMES[op.kind]} {op.target_angle_deg:+.2f}° {direction}"
+        label = f"{index}. {tr(OPERATION_NAMES[op.kind])} {op.target_angle_deg:+.2f}° {direction}"
         # Reserve generous text extents in view coordinates, with a leader
         # back to the bend midpoint when a label is moved to avoid overlap.
         width = len(label) * 1.6 / scale
@@ -194,7 +194,7 @@ def export_bend_information(document, session, rows, *, create_page=True):
             sheet.clearAll()
         sheet.Label = tr("SMBS — таблица гибов")
         columns = ascii_uppercase[:len(HEADERS)]
-        for line, row in enumerate((HEADERS, *rows), 1):
+        for line, row in enumerate((tuple(tr(label) for label in HEADERS), *rows), 1):
             for column, value in zip(columns, row):
                 sheet.set(f"{column}{line}", value)
         sheet.setStyle(f"A1:{columns[-1]}1", "bold", "add")

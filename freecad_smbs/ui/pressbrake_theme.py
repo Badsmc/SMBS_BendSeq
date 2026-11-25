@@ -66,6 +66,7 @@ def classify_status(message: str) -> tuple[str, str]:
     if any(term in lower for term in (
         "ошибка", "сбой", "невозможно", "отклонен", "отклонён",
         "не удалось", "cannot", "failed", "error:", "стоп:",
+        "could not", "unable", "unavailable", "stopped due to", "invalid", "rejected",
     )):
         return "error", "Error"
     if any(term in upper for term in ("UNVERIFIED", "UNSUPPORTED", "NOT_VERIFIED")):
@@ -73,16 +74,20 @@ def classify_status(message: str) -> tuple[str, str]:
     if any(term in lower for term in (
         "conditional", "предупрежден", "предупреждён", "не подтвержден",
         "не подтверждён", "не проверен", "не проверён", "частичный",
+        "not checked", "not verified", "incomplete", "preliminary",
+        "did not start", "not started", "no candidates found", "no solution",
     )):
         return "warning", "Warning"
     if any(term in lower for term in (
         "выполняется", "проверяется", "идёт поиск", "ищем",
-        "auto play:", "поиск последовательности (глубина",
+        "auto play: ", "поиск последовательности (глубина",
+        "checking", "searching", "calculating", "in progress",
     )):
         return "running", "Running"
     if any(term in lower for term in (
         "загружен", "сохранён", "сохранен", "завершён",
         "завершен", "найден", "ready",
+        "loaded", "saved", "completed", "found", "applied",
     )):
         return "success", "Ready"
     return "ready", "Ready"

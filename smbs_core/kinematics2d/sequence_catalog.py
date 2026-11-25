@@ -81,7 +81,7 @@ def _warning_bends(steps: Any, explicit: Any = ()) -> tuple[str, ...]:
     return tuple(dict.fromkeys(result))
 
 
-def parse_diagnostic(data: Mapping[str, Any], source: str) -> list[CatalogEntry]:
+def parse_diagnostic(data: Mapping[str, Any], source: str, translate=None) -> list[CatalogEntry]:
     """Extract all full/partial candidates, or one operator-defined sequence.
 
     Never infer a score from absent costs, or a clean status from missing
@@ -89,6 +89,7 @@ def parse_diagnostic(data: Mapping[str, Any], source: str) -> list[CatalogEntry]
     """
     if not isinstance(data, dict):
         raise ValueError("Diagnostic JSON root must be an object")
+    translate = translate or (lambda source: source)
     entries = []
     if isinstance(data.get("candidates"), list):
         weights = _weights(data.get("operation_weights"))
@@ -108,7 +109,7 @@ def parse_diagnostic(data: Mapping[str, Any], source: str) -> list[CatalogEntry]
                 seq, "AUTO", source, evidence, cost,
                 bool(cand.get("cost_complete", False)) and cost is not None,
                 len(wb), wb, tuple(
-                    f"{bend}: RETRACT/условная 2D-проверка" for bend in wb
+                    translate("{}: RETRACT/условная 2D-проверка").format(bend) for bend in wb
                 ), weights,
                 tuple(v for v in breakdown if isinstance(v, dict))
                 if isinstance(breakdown, list) else (),
@@ -126,7 +127,7 @@ def parse_diagnostic(data: Mapping[str, Any], source: str) -> list[CatalogEntry]
                         _cost(partial.get("cost")),
                         bool(partial.get("cost_complete", False)),
                         len(wb), wb,
-                        tuple(f"{bid}: частичный маршрут" for bid in wb),
+                        tuple(translate("{}: частичный маршрут").format(bid) for bid in wb),
                         weights, (), partial=True,
                     ))
             except ValueError:
@@ -147,11 +148,11 @@ def parse_diagnostic(data: Mapping[str, Any], source: str) -> list[CatalogEntry]
         ) and score is not None
         warn_bends = _warning_bends(data.get("steps"), data.get("retract_warnings"))
         blocker = data.get("first_blocker")
-        msgs = [f"{bid}: RETRACT/условная 2D-проверка" for bid in warn_bends]
+        msgs = [translate("{}: RETRACT/условная 2D-проверка").format(bid) for bid in warn_bends]
         if isinstance(blocker, dict):
             msgs.append(
                 "STOP: " + str(blocker.get("bend_id", "?")) +
-                " / " + str(blocker.get("reason", "2D-ошибка"))
+                " / " + translate(str(blocker.get("reason", "2D-ошибка")))
             )
         model = data.get("model", {})
         return [CatalogEntry(
@@ -170,10 +171,10 @@ def parse_diagnostic(data: Mapping[str, Any], source: str) -> list[CatalogEntry]
     raise ValueError("Unsupported SMBS diagnostic JSON format")
 
 
-def load_catalog_file(path: str | Path) -> list[CatalogEntry]:
+def load_catalog_file(path: str | Path, translate=None) -> list[CatalogEntry]:
     p = Path(path)
     if p.stat().st_size > 25 * 1024 * 1024:
         raise ValueError("Diagnostic exceeds 25 MiB safety limit")
     with p.open("r", encoding="utf-8") as stream:
         payload = json.load(stream)
-    return parse_diagnostic(payload, str(p))
+    return parse_diagnostic(payload, str(p), translate=translate)

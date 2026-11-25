@@ -1,5 +1,6 @@
 """CAD display layers for the Coin3D simulation scene."""
 from __future__ import annotations
+from freecad_smbs.ui.localization import tr
 
 import json
 from contextlib import contextmanager
@@ -219,7 +220,7 @@ class CoinMachineScene:
                 self.clamp_height, self.clamp_depth = config.height_mm, config.depth_mm
                 self.clamp_spans = clamp_spans_for_centres(config.centres_mm, config.width_mm)
         except (OSError, ClampValidatorError) as exc:
-            self.clamp_config_error = f"Лапки: {exc}"
+            self.clamp_config_error = tr("Лапки: {error}", error=exc)
         spans = self.clamp_spans if not self.clamp_config_error else ()
         if not spans:
             self.clamps.whichChild.setValue(self.coin.SO_SWITCH_NONE)
@@ -251,7 +252,7 @@ class CoinMachineScene:
                     component.addChild(item)
                     self.frame.addChild(component)
             except (OSError, ValueError, RuntimeError, TypeError, AttributeError, KeyError) as exc:
-                self.frame_error = f"Станок: {exc}"
+                self.frame_error = tr("Станок: {error}", error=exc)
             else:
                 self.frame_error = ""
         self.frame.whichChild.setValue(self.coin.SO_SWITCH_ALL if visible and not self.frame_error
@@ -284,7 +285,7 @@ class CoinMachineScene:
             try:
                 self.gauge_mesh = _mesh_node(self.coin, load_gauge_mesh(library_root), (0.83, 0.49, 0.19))
             except (OSError, ValueError, RuntimeError, TypeError, AttributeError, KeyError) as exc:
-                self.gauge_error = f"Задние упоры: {exc}"
+                self.gauge_error = tr("Задние упоры: {error}", error=exc)
             else:
                 self.gauge_error = ""
         if self.gauge_error:

@@ -7,7 +7,7 @@ from tempfile import TemporaryDirectory
 
 from freecad_smbs.ui.tool_segment_display import native_display_sections, segment_color, suggested_sections
 from freecad_smbs.ui.coin3d_machine import CLAMP_HEIGHT_MM, load_frame_meshes, load_gauge_mesh
-from freecad_smbs.ui.localization import tr as _translate
+from freecad_smbs.ui.localization import tr as _translate, tr_message
 from smbs_core.geometry_backend.io.clamp_validator import ClampValidatorError, load_clamp_config
 from smbs_core.kinematics2d.coupled_kinematics_2d import CoupledAirBendingKinematics
 from smbs_core.kinematics2d.gauge_preview import (
@@ -380,11 +380,12 @@ def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positio
             elif model.automatic:
                 stations = centered_gauge_stations(before, len(workspace._backgauge_stations()))
                 envelopes = tuple(gauge_rear_envelope_from_faces(before, x) for x in stations)
-                stop, note = visual_gauge_target(model, bid, envelopes)
+                stop, note = visual_gauge_target(model, bid, envelopes, translate=tr)
             elif not model.part_label or model.part_label == session.part_label:
                 stations = workspace._backgauge_stations()
-                stop, note = visual_gauge_target(model, bid, ())
+                stop, note = visual_gauge_target(model, bid, (), translate=tr)
 
+        note = " · ".join(tr_message(part, language="en") for part in note.split(" · "))
         virtual_length = length if tooling.match_active_bend_length else None
         if virtual_length not in native_by_length:
             native_by_length[virtual_length] = ()
