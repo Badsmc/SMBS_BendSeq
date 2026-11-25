@@ -25,3 +25,5 @@ Licensing: LGPL-2.1-or-later for original code and CC-BY-SA-4.0 for original ass
 
 - Parametric punch and die editor with live dimensioned drawing, DXF and FCStd export, centered punch tip and shank with adjustable body offset.
 - Coin3D machine frame: fixed lh/rh/down/up bodies; moving z layer and clamps follow the existing ram trajectory.
+
+- Remove distributed punch/die CAD profiles, sidecars and legacy tooling sets; retain local tooling workflows.

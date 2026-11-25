@@ -23,7 +23,7 @@ from pivy import coin
 
 If the import fails, check whether your FreeCAD distribution provides a matching Pivy package or use a FreeCAD build that includes it. Pivy must be available to the Python runtime that FreeCAD uses.
 
-For a tooling-based collision check, select both a punch and a die. Start with the supplied [tooling library](toollibrary) or add compatible `.FCStd` tool models.
+For a tooling-based collision check, select both a punch and a die. Punch and die models are not distributed. Create original demonstration tools using the [parametric editor](docs/PARAMETRIC_TOOL_GENERATOR.md), or import your own compatible models.
 
 ## Installation
 
@@ -75,7 +75,7 @@ For a session linked to a SheetMetal unfold, saving the document in FreeCAD with
 
 To investigate an error, enable **Log SMBS activity and FreeCAD crashes** in SMBS settings and reproduce the problem. The desktop log is named `SMBS_debug_log.json`. Include the FreeCAD version, the SMBS version and commit, and the steps to reproduce the issue when reporting it. [Report an issue](https://github.com/Badsmc/SMBS_BendSeq/issues).
 
-Bundled profiles and their reference dimensions are listed in the [tooling library notes](toollibrary/README.md).
+See the [tooling library notes](toollibrary/README.md) for local tooling setup.
 
 ## Development and licensing
 

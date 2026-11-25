@@ -3419,21 +3419,11 @@ class _PreviewPanel:
                     return False
 
             def _auto_select_default_tooling(self):
-                """Select supplied default tools, then fall back to valid library entries."""
+                """Select available local tools; an empty library is supported."""
                 if self.tooling_setup.punch is not None and self.tooling_setup.die is not None:
                     return
                 try:
                     tools = sorted(self.tool_library.list_tools(), key=lambda tool: tool.tool_id)
-                    from freecad_smbs.resources.tooling_paths import PUNCH_PATH, DIE_PATH
-                    for tool in tools:
-                        if tool.validation_status == ValidationStatus.INVALID:
-                            continue
-                        if (self.tooling_setup.punch is None and tool.kind == ToolKind.PUNCH
-                                and tool.tool_id == PUNCH_PATH.stem):
-                            self.tooling_setup.select_punch(tool)
-                        if (self.tooling_setup.die is None and tool.kind == ToolKind.DIE
-                                and tool.tool_id == DIE_PATH.stem):
-                            self.tooling_setup.select_die(tool)
                     if self.tooling_setup.punch is None:
                         for t in tools:
                             if t.kind == ToolKind.PUNCH and t.validation_status != ValidationStatus.INVALID:
