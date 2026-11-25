@@ -48,3 +48,12 @@ pressbrake_traces/
 *.FCStd.bak
 .smbs_repo_path
 SMBS_demo_FCStd_17_files.zip
+
+# Local punch/die models and metadata must not be committed.
+/toollibrary/punch/*
+!/toollibrary/punch/.gitkeep
+/toollibrary/die/*
+!/toollibrary/die/.gitkeep
+/demo/legacy-tooling/punch/
+/demo/legacy-tooling/die/
+/demo/legacy-tooling/sets/

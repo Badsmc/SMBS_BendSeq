@@ -13,8 +13,8 @@ REPO_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 TOOL_LIBRARY_ROOT: Path = REPO_ROOT / "toollibrary"
 
 # Canonical paths for existing tooling assets
-PUNCH_PATH: Path = TOOL_LIBRARY_ROOT / "punch" / "PUNCH_AP_1029_88°_H99,40_R0,6.FCStd"
-DIE_PATH: Path = TOOL_LIBRARY_ROOT / "die" / "T-Die_AT_3018_88°_V25_H80.FCStd"
+PUNCH_PATH: Path = TOOL_LIBRARY_ROOT / "punch" / "user_punch.FCStd"
+DIE_PATH: Path = TOOL_LIBRARY_ROOT / "die" / "user_die.FCStd"
 PRESS_PATH: Path = TOOL_LIBRARY_ROOT / "presses" / "cncbender.FCStd"
 
 # Missing tooling paths (per β1 — expected path conventions, missing until client provides)
@@ -44,6 +44,8 @@ MISSING_TOOLS: List[str] = [
 
 def is_tool_available(name: str) -> bool:
     """Check canonical assets and known case variants on case-sensitive platforms."""
+    if name in ("punch", "die"):
+        return _find_fcstd_case_insensitive(TOOL_LIBRARY_ROOT / name) is not None
     if name == "backgauge":
         return resolve_backgauge_fcstd(TOOL_LIBRARY_ROOT) is not None
     if name == "clamps":
@@ -58,6 +60,8 @@ def get_tool_path_or_missing(name: str) -> Path:
     """Return tooling Path regardless of existence for status inspection."""
     if name not in ALL_TOOLING_PATHS:
         raise KeyError(f"Unknown tooling entity '{name}'")
+    if name in ("punch", "die"):
+        return _find_fcstd_case_insensitive(TOOL_LIBRARY_ROOT / name) or ALL_TOOLING_PATHS[name]
     return ALL_TOOLING_PATHS[name]
 
 
