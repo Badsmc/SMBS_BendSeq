@@ -81,4 +81,4 @@ Bundled profiles and their reference dimensions are listed in the [tooling libra
 
 `main` is the public release branch and `develop` is the active development branch. Both start from version 0.1.0. See [branch architecture](BRANCH_ARCHITECTURE.md) and [changelog](CHANGELOG.md). Historical experiments are preserved in Git archive tags. Historical reference data and tooling are kept outside the active tooling library under `demo/`.
 
-A software license has not yet been declared by the repository owner. The Addon Manager metadata therefore uses `NOASSERTION`; this is not a license grant. Official Addon Manager listing and full runtime acceptance remain pending.
+Original source code is licensed under [LGPL-2.1-or-later](LICENSE-Code) and original non-code resources under [CC-BY-SA-4.0](LICENSE-Assets). See [licensing and attribution](LICENSE.md). Third-party CAD redistribution rights still require confirmation; official Addon Manager listing and full runtime acceptance remain pending.
