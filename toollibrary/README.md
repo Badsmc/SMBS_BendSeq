@@ -1,6 +1,6 @@
 # SMBS Tool Library
 
-This is the canonical shared equipment library for the integrated development branch `main`.
+This is the equipment library in the historical `main` baseline. The active development branch is `develop`.
 
 ## Inventory (2026-11-09)
 
@@ -33,4 +33,4 @@ The FreeCAD UI uses `freecad_smbs.integration.smbs_bridge.get_tooling_library()`
 
 Keep these FCStd files and JSON sidecars paired. Do not change datums, tool dimensions or file IDs without validating in real FreeCAD and updating tests. On `main` the files have been checked for existence, reference IDs and Git blob consistency; **geometry and machine collision verification in FreeCAD has not been performed**.
 
-The `smbs` install branch is not automatically updated when `main` changes. A validated release promotion is required.
+Changes in `develop` do not automatically update `main`. Reconcile and validate tooling assets before promoting a development snapshot to the public release branch.

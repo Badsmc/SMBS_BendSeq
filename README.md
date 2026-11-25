@@ -1,31 +1,24 @@
-# SMBS BendSeq — integrated development
+# SMBS BendSeq
 
-## Repository branch map
+SMBS BendSeq is a FreeCAD workbench for planning press-brake operations, preparing bend sequences, and previewing tooling and sheet geometry.
 
-| Branch | Purpose | Installation |
+## Repository branches
+
+| Branch | Role | Current status |
 |---|---|---|
-| [main](https://github.com/Badsmc/SMBS_BendSeq/tree/main) | Integrates compatible, reviewed 2D / 3D / GUI / solver work | Development only until validated |
-| [2d](https://github.com/Badsmc/SMBS_BendSeq/tree/2d) | 2D and 2.5D section geometry, sequences, press cycle, previews, tests | Development |
-| [3d](https://github.com/Badsmc/SMBS_BendSeq/tree/3d) | 3D OCC / FreeCAD physical collisions, machine geometry and 3D validation | Development |
-| [gui](https://github.com/Badsmc/SMBS_BendSeq/tree/gui) | FreeCAD workbench interface, commands, task panels and UX acceptance tests | Development |
-| [core](https://github.com/Badsmc/SMBS_BendSeq/tree/core) | Headless solvers, contracts, graph model, geometry and physics interfaces | Development |
-| [smbs](https://github.com/Badsmc/SMBS_BendSeq/tree/smbs) | Minimal runtime-only user install (currently 2.5D preview) | Installable preview, **not qualified for production** |
+| [main](https://github.com/Badsmc/SMBS_BendSeq/tree/main) | Stable public release destination | Historical baseline; release integration and acceptance pending |
+| [develop](https://github.com/Badsmc/SMBS_BendSeq/tree/develop) | Active addon development | Latest installable development preview; not qualified for production |
 
-**Branch names describe development ownership, not a claim that code is exclusively present there.** Shared imports remain where required for runnable development environments. Never install multiple checkouts simultaneously in FreeCAD's `Mod` directory.
+The development branch was previously named `smbs`. Its commit history has been preserved.
 
-A feature is merged into `main` via tested integration; `smbs` is generated from an accepted runtime snapshot only after real FreeCAD GUI acceptance. These are different stages. Historic branches remain available as references.
+For the current development version and installation instructions, see the [develop README](https://github.com/Badsmc/SMBS_BendSeq/blob/develop/README.md) or download the [development ZIP](https://github.com/Badsmc/SMBS_BendSeq/archive/refs/heads/develop.zip). Install only one checkout in FreeCAD's Mod directory at a time.
 
-## Current integration status
+Historical implementations are retained as [archive tags](https://github.com/Badsmc/SMBS_BendSeq/tags) under `archive/2026-11-25/`. The former 2D, 3D, GUI and core branches are no longer active development targets.
 
-The current `main` still contains the legacy headless bend-sequence pipeline and original FreeCAD command set. It **does not yet integrate** the newer standalone `2d` / `3d` implementations. The interface, geometry and solver APIs must be reconciled before merge. Do **not** assume that all branches have been combined or physically verified.
+## Development and release policy
 
-See [BRANCH_ARCHITECTURE.md](BRANCH_ARCHITECTURE.md) for merge gates, release rules and FreeCAD verification checklist.
+New features, fixes and experiments start from `develop`. Reviewed changes return to `develop` before release acceptance.
 
-## Integration criteria
+The current `main` still contains legacy code and reference data. It is not the latest addon and must not be treated as an already validated stable release. Reconcile its useful reference assets with the current development tree before promoting a release. See [BRANCH_ARCHITECTURE.md](BRANCH_ARCHITECTURE.md) for the acceptance gates.
 
-- Preserve a single FreeCAD entry point and unique command IDs.
-- Preserve SheetMetal as the authoritative unfold/angle source.
-- Keep 2D clearance distinct from verified 3D collision claims.
-- Run deterministic unit and regression tests plus real GUI smoke/acceptance tests.
-- Reject silent fallback to physically unvalidated sequences.
-- Prepare runtime-only artifact, verify in a clean FreeCAD installation, then promote to `smbs`.
+A planned sequence or sampled collision check does not establish production readiness.

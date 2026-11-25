@@ -2,38 +2,35 @@
 
 ## Permanent branches
 
-| Branch | Role | Source / status |
-|---|---|---|
-| `main` | Integration branch: assembled, reviewed features | Current legacy headless planner baseline; 2D/2.5D integration **pending** |
-| `2d` | 2D/2.5D sequence planning, simulation, physical checks | Started from `2D` at `4513acc` |
-| `3d` | True 3D physical modeling and collision validation | Started from `d6-native-3d` |
-| `gui` | FreeCAD UI, task panels and commands | Started from `2D`; UI changes should be backported via PR |
-| `core` | Solver, geometry backend and shared contracts | Started from `main` |
-| `smbs` | Minimal end-user installation | Runtime-only **preview** snapshot from `2D`; independent acceptance pending |
+| Branch | Role |
+|---|---|
+| `main` | Stable public release destination after acceptance |
+| `develop` | Active development and integration of the FreeCAD addon (formerly `smbs`) |
 
-## Integration process
+Temporary branches use `feature/*`, `fix/*`, or `experiment/*` and start from the current `develop` baseline.
 
-1. Work on feature branch (`2d`, `3d`, `gui`, `core`).
-2. Add tests, migration notes and a real FreeCAD verification plan on that branch.
-3. Merge into `main` **only after** import checks, tests, compatibility audit, and FreeCAD smoke test. Do not blindly replace `main` with the 2D tree: the two branches currently have different GUI entry points and solver architecture.
-4. Create a deterministic runtime-only release tree from an approved `main` commit and advance `smbs` only after a fresh-install test.
-5. Ship only imports and assets required by registered workbench commands. Tests, developer tools, fixtures, demos, logs, caches and generated files must not be in `smbs`.
+## Integration and release process
 
-## Status on 2026-11-09
+1. Start changes from `develop`, with a focused test and verification plan.
+2. Preserve the FreeCAD entry point, unique command IDs, geometry contracts and tooling compatibility.
+3. Run import checks and deterministic tests, then verify changed GUI or physical behavior in FreeCAD.
+4. Integrate reviewed changes into `develop`. Remove temporary branches after their useful history is reachable from a retained ref.
+5. Before promoting to `main`, reconcile the historical baseline and reference assets with the current development tree. Do not blindly overwrite `main` or merge incompatible solver architectures.
+6. Promote an accepted snapshot to `main` and publish a release only after clean-install and regression acceptance.
 
-The initial `smbs` preview is a minimal 2.5D runtime snapshot and is **not** equivalent to an integrated `main` release. The 2D/3D integration remains incomplete. This document describes required gates, not evidence that they have passed.
+## Current status — 2026-11-25
 
-## Existing historical branch names
+The latest addon implementation is on `develop`. The current `main` remains a historical baseline containing legacy code and reference assets. The intended stable release role is a policy, not a claim that this baseline has passed acceptance.
 
-The pre-existing `2D`, `d6-*`, `d5-*`, `fix/*`, `experiment/*`, and other named branches were deliberately preserved to prevent losing work or invalidating references. New work should use the semantic permanent branches above. Archive or delete old refs only after verifying their commit tips remain reachable through a backup tag or archive branch, checking open pull requests, and verifying that CI or local clones do not depend on them.
+Older algorithm experiments and alternative implementations are retained under `archive/2026-11-25/` Git tags. See [GitHub tags](https://github.com/Badsmc/SMBS_BendSeq/tags). The former permanent branches are historical references, not active merge targets.
 
-## FreeCAD acceptance checklist for a promotion to `smbs`
+## FreeCAD acceptance checklist before release
 
-- Clean `Mod` directory, exactly one SMBS installation, no duplicate workbench menus
-- Startup and command registration without hidden exceptions
-- SheetMetal unfold input recognized and signed bend angles correct
-- Tested L, U, Z and box models including negative bends
-- Play/pause/slider/reset and reopen reliably work
-- Tooling library persists and loads models correctly
-- 2D/2.5D limits and unsupported 3D collision cases explicitly reported
-- No untested solver marked as production-ready
+- Clean Mod directory with exactly one SMBS installation and no duplicate workbench menus.
+- Startup and command registration without hidden exceptions.
+- Recognize SheetMetal unfold input and signed bend angles.
+- Exercise L, U, Z and box reference models, including negative bends.
+- Verify manual ordering, staged bends, play/pause, slider, reset and reopening.
+- Verify DXF input, session persistence, tooling selection and language switching.
+- Check FAST and Mesh behavior, and distinguish sampled checks from continuous physical validation.
+- Never label an unverified sequence as production-ready.
