@@ -1,7 +1,6 @@
 """FreeCAD workbench for manual bend orders, tooling, and Coin3D simulation."""
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 try:
@@ -11,10 +10,7 @@ except ImportError:
     FreeCADGui = None
     Workbench = object
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
 _ICON_ROOT = Path(__file__).resolve().parent / "resources" / "icons"
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
 
 from freecad_smbs.ui.localization import tr
 from freecad_smbs.commands.pressbrake_2d import (

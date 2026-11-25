@@ -71,7 +71,13 @@ def _point(vertex):
 
 
 def _calculator(unfold):
-    import SheetMetalNewUnfolder as SM
+    try:
+        import SheetMetalNewUnfolder as SM
+    except ImportError as exc:
+        raise UnfoldReadError(
+            "Install or update SheetMetal Workbench using FreeCAD Addon Manager "
+            "and restart FreeCAD. ASCII DXF input is independent of SheetMetal."
+        ) from exc
 
     for prop in ("KFactor", "KFactorStandard"):
         if not hasattr(unfold, prop):
@@ -145,7 +151,13 @@ def read_unfold(unfold_name="Body_Unfold", document=None):
     modification occurs.
     """
     import FreeCAD as App
-    import SheetMetalNewUnfolder as SM
+    try:
+        import SheetMetalNewUnfolder as SM
+    except ImportError as exc:
+        raise UnfoldReadError(
+            "Install or update SheetMetal Workbench using FreeCAD Addon Manager "
+            "and restart FreeCAD. ASCII DXF input is independent of SheetMetal."
+        ) from exc
 
     doc = document if document is not None else App.ActiveDocument
     if doc is None:

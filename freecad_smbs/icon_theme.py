@@ -11,12 +11,9 @@ _MINIMAL = _ORIGINAL / "minimal24"
 def is_dark_theme() -> bool:
     """Read the active Qt application palette without creating an application."""
     try:
-        from PySide6 import QtWidgets
+        from PySide import QtWidgets
     except ImportError:
-        try:
-            from PySide2 import QtWidgets
-        except ImportError:
-            return False
+        return False
     app = QtWidgets.QApplication.instance()
     if app is None:
         return False

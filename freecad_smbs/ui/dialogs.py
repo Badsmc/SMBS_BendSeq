@@ -1,7 +1,7 @@
 """
 dialogs.py - User dialog wrappers for SMBS FreeCAD Addon.
 
-Headless-safe: PySide6 imports are strictly lazy inside functions.
+Headless-safe: FreeCAD Qt imports are strictly lazy inside functions.
 Falls back to FreeCAD.Console if running without GUI display.
 """
 from __future__ import annotations
@@ -26,7 +26,7 @@ def show_info(title: str, msg: str) -> None:
     """Display an informative message dialog."""
     title, msg = tr_message(title), tr_message(msg)
     try:
-        from PySide6 import QtWidgets
+        from PySide import QtWidgets
         app = QtWidgets.QApplication.instance()
         if app is not None:
             QtWidgets.QMessageBox.information(None, title, msg)
@@ -40,7 +40,7 @@ def show_error(title: str, msg: str) -> None:
     """Display an error message dialog."""
     title, msg = tr_message(title), tr_message(msg)
     try:
-        from PySide6 import QtWidgets
+        from PySide import QtWidgets
         app = QtWidgets.QApplication.instance()
         if app is not None:
             QtWidgets.QMessageBox.critical(None, title, msg)
@@ -54,7 +54,7 @@ def show_unverified_warning(title: str, msg: str) -> None:
     """Display a warning dialog regarding unverified or failed sequence."""
     title, msg = tr_message(title), tr_message(msg)
     try:
-        from PySide6 import QtWidgets
+        from PySide import QtWidgets
         app = QtWidgets.QApplication.instance()
         if app is not None:
             QtWidgets.QMessageBox.warning(None, title, msg)
@@ -113,7 +113,7 @@ class ProgressContext:
 
     def __enter__(self) -> ProgressContext:
         try:
-            from PySide6 import QtWidgets, QtCore
+            from PySide import QtWidgets, QtCore
             app = QtWidgets.QApplication.instance()
             if app is not None:
                 dlg = QtWidgets.QProgressDialog(self.text, None, 0, 0)
@@ -131,7 +131,7 @@ class ProgressContext:
     def update_text(self, text: str) -> None:
         if self._dlg is not None:
             try:
-                from PySide6 import QtWidgets
+                from PySide import QtWidgets
                 self._dlg.setLabelText(text)
                 app = QtWidgets.QApplication.instance()
                 if app is not None:

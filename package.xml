@@ -5,9 +5,9 @@
   <version>0.1.0</version>
   <date>2026-11-25</date>
   <maintainer email="109237230+Badsmc@users.noreply.github.com">Badsmc</maintainer>
-  <license>NOASSERTION</license>
+  <license>UNLICENSED</license>
   <url type="repository" branch="main">https://github.com/Badsmc/SMBS_BendSeq</url>
-  <url type="readme">https://github.com/Badsmc/SMBS_BendSeq/blob/main/README.md</url>
+  <url type="readme">https://github.com/Badsmc/SMBS_BendSeq/raw/main/README.md</url>
   <url type="bugtracker">https://github.com/Badsmc/SMBS_BendSeq/issues</url>
   <icon>freecad_smbs/resources/icons/gui_workbench.svg</icon>
   <freecadmin>1.1.0</freecadmin>
@@ -17,9 +17,12 @@
   <tag>Simulation</tag>
   <content>
     <workbench>
+      <name>PressBrakeSim</name>
+      <icon>freecad_smbs/resources/icons/gui_workbench.svg</icon>
       <classname>SMBSWorkbench</classname>
       <subdirectory>./</subdirectory>
-      <depend type="addon" optional="true">SheetMetal</depend>
+      <depend type="addon" optional="true">SheetMetal Workbench</depend>
+      <depend type="internal">part</depend>
       <depend type="internal" optional="true">techdraw</depend>
     </workbench>
   </content>

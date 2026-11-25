@@ -45,4 +45,12 @@ assert package.attrib["format"] == "1"
 for tag in ("name", "version", "date", "description", "maintainer", "license", "icon", "content"):
     assert package.find(f"p:{tag}", ns) is not None, f"Missing {tag}"
 assert (ROOT / package.findtext("p:icon", namespaces=ns)).is_file()
-print("Manifest required fields and icon: OK")
+assert package.findtext("p:content/p:workbench/p:classname", namespaces=ns) == "SMBSWorkbench"
+dependencies = {node.text for node in package.findall(".//p:depend", ns)}
+assert dependencies == {"part", "SheetMetal Workbench", "techdraw"}, dependencies
+for name in findings:
+    assert not name.startswith("sys.path."), f"Runtime import-path modification: {name}"
+print("Manifest required fields, icon, dependencies and import-path policy: OK")
+if package.findtext("p:license", namespaces=ns) == "UNLICENSED":
+    print("SUBMISSION BLOCKER: owner has not chosen a license")
+
