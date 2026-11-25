@@ -29,7 +29,7 @@ Run Addon preflight and review results. Syntax, import inventory, manifest and h
 
 ## Remaining release gates
 
-- Owner selects a license and confirms redistribution rights for bundled CAD models, tool profiles, documentation and icons. Add matching full license texts and SPDX identifiers. Until then UNLICENSED is not suitable for index submission.
+- Code and original assets are licensed LGPL-2.1-or-later and CC-BY-SA-4.0; full texts and manifest SPDX identifiers are present. Confirm redistribution rights for the supplied CAD files and resolve [asset provenance](ASSET_PROVENANCE.md) before submission.
 - Confirm maintainer contact and repository topics freecad and addon.
 - Capture authentic screenshots and user testing feedback; record FreeCAD versions, platforms and outcomes.
 - Complete real FreeCAD acceptance; no claims of continuous collision certification.
@@ -37,4 +37,4 @@ Run Addon preflight and review results. Syntax, import inventory, manifest and h
 
 ## Draft submission notes
 
-SMBS BendSeq (PressBrakeSim) 0.1.0 is an independent FreeCAD workbench for sheet-metal press-brake sequence planning, manual operations, FAST candidates, Coin3D previews and sampled collision checks. The public branch is main. The native runtime uses Part and FreeCAD-provided Qt/Pivy components. SheetMetal Workbench and TechDraw are optional depending on workflow. It does not certify manufacturing feasibility. License and test evidence must be supplied before submitting this draft.
+SMBS BendSeq (PressBrakeSim) 0.1.0 is an independent FreeCAD workbench for sheet-metal press-brake sequence planning, manual operations, FAST candidates, Coin3D previews and sampled collision checks. The public branch is main. The native runtime uses Part and FreeCAD-provided Qt/Pivy components. SheetMetal Workbench and TechDraw are optional depending on workflow. It does not certify manufacturing feasibility. CAD redistribution permissions and real FreeCAD test evidence must be supplied before submitting this draft.

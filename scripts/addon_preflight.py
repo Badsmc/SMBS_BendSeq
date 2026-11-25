@@ -51,6 +51,10 @@ assert dependencies == {"part", "SheetMetal Workbench", "techdraw"}, dependencie
 for name in findings:
     assert not name.startswith("sys.path."), f"Runtime import-path modification: {name}"
 print("Manifest required fields, icon, dependencies and import-path policy: OK")
-if package.findtext("p:license", namespaces=ns) == "UNLICENSED":
-    print("SUBMISSION BLOCKER: owner has not chosen a license")
+licenses = {node.text: node.get("file") for node in package.findall("p:license", ns)}
+assert licenses == {"LGPL-2.1-or-later": "LICENSE-Code", "CC-BY-SA-4.0": "LICENSE-Assets"}
+for filename in licenses.values():
+    assert (ROOT / filename).is_file()
+print("License identifiers and referenced license files: OK")
+print("RELEASE GATE: confirm CAD asset provenance and redistribution permissions")
 

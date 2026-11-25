@@ -18,3 +18,5 @@ Limitations: full FreeCAD acceptance, continuous machine collision verification,
 manufacturing certification and official Addon Manager listing are pending.
 
 - Addon Index preparation: canonical SheetMetal dependency, native Part, FreeCAD Qt wrappers, host-managed import paths and standard-library tooling-set validation.
+
+Licensing: LGPL-2.1-or-later for original code and CC-BY-SA-4.0 for original assets, with full license texts and a separate CAD provenance review.
