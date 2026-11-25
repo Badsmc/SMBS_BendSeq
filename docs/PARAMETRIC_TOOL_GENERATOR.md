@@ -48,11 +48,15 @@ Controller force and safety fields are intentionally not simulated.
 
 ## Punch transverse offset and drawing contrast
 
-The signed ΔX parameter moves the body and mounting shank horizontally:
-positive right, negative left. The working tip stays at (0,0); the original
-tangent flanks retain the included angle and radius, and intersect the body
-sides at different heights. The relief dimensions reference the chosen side.
-Offsets that leave insufficient flank geometry or violate closure are rejected.
-The mounting datum follows the shank; the working axis remains unchanged.
+The signed ΔX parameter moves only the body horizontally:
+positive right, negative left. Both the working tip and the mounting shank
+center stay on X=0. Original tangent flanks retain the included angle and
+radius, intersecting the body sides at different heights. At H1 horizontal
+shoulders join the offset body to the centered shank. The relief dimensions
+reference the chosen side. Insufficient flank geometry and invalid contours
+are rejected. Both mounting and working datums stay on the same axis.
+The DXF and native FCStd export validate the centered mounting base.
+Previously saved tools are not rewritten; create a new tool ID to regenerate
+a model using the revised offset definition.
 The technical drawing uses a dedicated dark background, yellow dimensions
 and white active dimension, independently of the host UI theme.

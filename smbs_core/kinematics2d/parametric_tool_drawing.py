@@ -30,7 +30,7 @@ def drawing_model(recipe: ToolRecipe):
         add("working_height","H1",top,"v",(0,0),(rx,top),1)
         add("width","L6",2*w,"h",(lx,top),(rx,top),-2)
         add("shank_width","L5",recipe.shank_width,"h",(sl,h),(sr,h),-1)
-        add("punch_offset","ΔX",offset,"h",(0,h),(offset,h),-3)
+        add("punch_offset","ΔX",offset,"h",(0,top),(offset,top),-3)
         add("shank_height","H2-H1",recipe.shank_height,"v",(sl,top),(sl,h),-1)
         add("radius","r",r,"leader",(0,0),(0,0),-1)
         add("angle","α",recipe.angle,"leader",(x,y),(0,0),1)

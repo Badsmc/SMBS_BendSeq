@@ -93,8 +93,9 @@ def _lines(points):
 def punch_layout(recipe: ToolRecipe):
     """Shared coordinates: tip and tangent flanks stay fixed on the working axis.
 
-    The body and shank translate by punch_offset. Their vertical sides meet
-    the original tangent flanks at potentially different heights.
+    Only the body translates by punch_offset. Both the working tip and
+    mounting shank remain on X=0. Horizontal shoulders connect the centered
+    shank to the shifted body at H1, with a positive overlap at that plane.
     """
     w, r = recipe.width/2, recipe.radius
     a = radians(recipe.angle/2)
@@ -110,7 +111,9 @@ def punch_layout(recipe: ToolRecipe):
     if max(ly,ry)+4 >= top:
         raise ValueError("Punch body is too short or narrow for the tip and angle")
     sw = recipe.shank_width/2
-    return x,y,left,right,ly,ry,top,recipe.punch_offset-sw,recipe.punch_offset+sw
+    if min(right,sw)-max(left,-sw) <= 1e-5:
+        raise ValueError("Centered mounting shank does not overlap the punch body")
+    return x,y,left,right,ly,ry,top,-sw,sw
 
 
 def build_contour(recipe: ToolRecipe) -> Contour2D:
@@ -188,7 +191,7 @@ def tooling_metadata(recipe: ToolRecipe) -> dict:
     y = recipe.height if recipe.kind == "punch" else -recipe.height
     punch = recipe.kind == "punch"
     datums = {
-        "mounting_plane": {"kind":"plane","origin":[recipe.punch_offset if punch else 0,y,0],
+        "mounting_plane": {"kind":"plane","origin":[0,y,0],
                            "normal":[0,-1 if punch else 1,0],"tolerance_mm":0.05},
         "working_axis": {"kind":"axis","origin":[0,0,0],"direction":[0,0,1],
                          "tolerance_mm":0.02},
@@ -206,7 +209,8 @@ def tooling_metadata(recipe: ToolRecipe) -> dict:
                 "parametric_recipe":asdict(recipe)}
     if punch:
         metadata.update(radius_mm=recipe.radius,working_height_mm=recipe.height-recipe.shank_height,
-                        punch_offset_mm=recipe.punch_offset)
+                        punch_offset_mm=recipe.punch_offset, shank_center_x_mm=0.0,
+                        punch_offset_mode="body_only_fixed_tip_and_shank")
     else:
         metadata.update(v_width_mm=recipe.opening,shoulder_radius_mm=recipe.radius,
                         base_width_mm=recipe.base_width,base_height_mm=recipe.base_height)

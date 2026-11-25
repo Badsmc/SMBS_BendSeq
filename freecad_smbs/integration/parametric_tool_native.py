@@ -74,6 +74,16 @@ def create_tool(recipe, library_root):
         if recipe.kind == "punch":
             if abs(float(verified.punch_datums.included_angle_deg) - recipe.angle) > 0.1 or abs(float(verified.tip_radius_mm) - recipe.radius) > 0.05:
                 raise ValueError("Generated FCStd punch dimensions do not match the recipe")
+            for checked in (profile, verified):
+                datums = checked.punch_datums
+                left, right = datums.mounting_base
+                if (abs(datums.working_tip[0]) > 0.05
+                        or abs(datums.working_tip[1]) > 0.05
+                        or abs(left[0]+recipe.shank_width/2) > 0.05
+                        or abs(right[0]-recipe.shank_width/2) > 0.05
+                        or abs(left[1]-recipe.height) > 0.05
+                        or abs(right[1]-recipe.height) > 0.05):
+                    raise ValueError("Generated punch tip or mounting shank is not centered")
         else:
             if abs(float(verified.v_opening_mm) - recipe.opening) > 0.05 or abs(float(verified.die_angle_deg) - recipe.angle) > 0.1:
                 raise ValueError("Generated FCStd die dimensions do not match the recipe")
