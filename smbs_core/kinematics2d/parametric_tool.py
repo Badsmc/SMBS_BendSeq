@@ -92,7 +92,7 @@ def build_contour(recipe: ToolRecipe) -> Contour2D:
         edges.append(ArcSegment2D((-tx, ty), (-center_x, 0), (-center_x, -r), r, True))
         edges += _lines([(-center_x, 0), (-w, 0), (-w, -h)])
     contour = Contour2D(segments=tuple(edges))
-    if not contour.is_closed(1e-7) or has_self_intersection(contour) or contour.area() <= 0:
+    if not contour.is_closed(1e-7) or has_self_intersection(contour) or contour.area <= 0:
         raise ValueError("Generated profile is not a valid closed contour")
     return contour
 
