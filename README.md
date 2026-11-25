@@ -79,7 +79,7 @@ See the [tooling library notes](toollibrary/README.md) for local tooling setup.
 
 ## Development and licensing
 
-`main` is the public release branch and `develop` is the active development branch. Both start from version 0.1.0. See [branch architecture](BRANCH_ARCHITECTURE.md) and [changelog](CHANGELOG.md). Historical experiments are preserved in Git archive tags. Historical reference data and tooling are kept outside the active tooling library under `demo/`.
+`main` is the public release branch and `develop` is the active development branch. Both start from version 0.1.0. See [branch architecture](BRANCH_ARCHITECTURE.md) and [changelog](CHANGELOG.md). Historical experiment code is preserved in rewritten Git archive tags. Bundled punch/die assets and historical diagnostic data were removed from published branch and tag histories; demo sheet-metal parts remain under `demo/`. Existing Git clones must be replaced with fresh clones to avoid reintroducing old history.
 
 Original source code is licensed under [LGPL-2.1-or-later](LICENSE-Code) and original non-code resources under [CC-BY-SA-4.0](LICENSE-Assets). See [licensing and attribution](LICENSE.md). Third-party CAD redistribution rights still require confirmation; official Addon Manager listing and full runtime acceptance remain pending.
 
