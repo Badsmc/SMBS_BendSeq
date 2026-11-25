@@ -103,7 +103,7 @@ class StagedBendSequenceController(BendSequenceController):
     def set_bend_order(self, order: Sequence[str]) -> None:
         if self._stage_steps is not None and self.has_stages:
             raise SequenceError(
-                "Для предгибов изменяйте порядок операций, а не исходных гибов."
+                "For pre-bends, change the operation order instead of the original bend order."
             )
         super().set_bend_order(order)
         if self._stage_steps is not None:
@@ -156,11 +156,11 @@ class StagedBendSequenceController(BendSequenceController):
         """Create/update the PREBEND then FINISH operations for one bend."""
         self._ensure_can_reorder()
         if bend_id not in self.canonical_order:
-            raise SequenceError("Неизвестный физический гиб: " + bend_id)
+            raise SequenceError("Unknown physical bend: " + bend_id)
         try:
             intermediate = float(intermediate_angle_deg)
         except (ValueError, TypeError) as exc:
-            raise SequenceError("Введите числовой промежуточный угол.") from exc
+            raise SequenceError("Enter a numeric intermediate angle.") from exc
         final = self.target_for(bend_id)
         if not isfinite(intermediate) or (
             intermediate * final <= 0.0
@@ -168,8 +168,8 @@ class StagedBendSequenceController(BendSequenceController):
             or abs(intermediate) >= abs(final) - ANGLE_EPS
         ):
             raise SequenceError(
-                "Предварительный угол должен быть одного знака с конечным "
-                "и строго между 0° и заданным конечным углом."
+                "The intermediate angle must have the same sign as the final angle "
+                "and lie strictly between 0° and the specified final angle."
             )
         steps = list(self._stage_steps)
         existing = next(
@@ -215,13 +215,13 @@ class StagedBendSequenceController(BendSequenceController):
         by_id = {step.operation_id: step for step in self._stage_steps}
         if (len(ids) != len(by_id) or len(set(ids)) != len(ids)
                 or set(ids) != set(by_id)):
-            raise SequenceError("Порядок операций содержит пропуски или дубликаты.")
+            raise SequenceError("The operation order contains missing or duplicate entries.")
         steps = tuple(by_id[op_id] for op_id in ids)
         seen: set[str] = set()
         for op in steps:
             if op.kind == "FINISH" and op.bend_id not in seen:
                 raise SequenceError(
-                    f"Догиб {op.bend_id} нельзя ставить раньше предварительного гиба."
+                    f"Finish bend {op.bend_id} cannot precede its pre-bend."
                 )
             if op.kind == "PREBEND":
                 seen.add(op.bend_id)
@@ -237,43 +237,43 @@ class StagedBendSequenceController(BendSequenceController):
     def restore_operation_snapshot(self, data: Sequence[dict]) -> None:
         self._ensure_can_reorder()
         if not isinstance(data, (list, tuple)) or len(data) > 2 * len(self.canonical_order):
-            raise SequenceError("Некорректный список операций предгиба.")
+            raise SequenceError("Invalid pre-bend operation list.")
         from collections import Counter
         counts = Counter()
         staged = []
         for entry in data:
             if not isinstance(entry, dict):
-                raise SequenceError("Некорректная операция.")
+                raise SequenceError("Invalid operation.")
             bid = entry.get("bend_id")
             kind = entry.get("kind")
             op_id = entry.get("operation_id")
             if bid not in self.canonical_order or kind not in ("SINGLE", "PREBEND", "FINISH"):
-                raise SequenceError("Неизвестный гиб или этап операции.")
+                raise SequenceError("Unknown bend or operation stage.")
             counts[(bid, kind)] += 1
             target = entry.get("target_angle_deg")
             if isinstance(target, bool) or not isinstance(target, (int, float)) or not isfinite(target):
-                raise SequenceError("Недопустимый угол этапа.")
+                raise SequenceError("Invalid stage angle.")
             final = self.target_for(bid)
             if kind in ("SINGLE", "FINISH") and abs(target - final) > ANGLE_EPS:
-                raise SequenceError("Конечный угол изменён относительно модели.")
+                raise SequenceError("Final angle differs from the model.")
             if kind == "PREBEND" and not (target * final > 0 and ANGLE_EPS < abs(target) < abs(final) - ANGLE_EPS):
-                raise SequenceError("Недопустимый угол предгиба.")
+                raise SequenceError("Invalid pre-bend angle.")
             expected_id = bid if kind == "SINGLE" else bid + (".1" if kind == "PREBEND" else ".2")
             if op_id != expected_id:
-                raise SequenceError("Нарушена идентификация операции.")
+                raise SequenceError("Operation identity mismatch.")
             staged.append(BendOperation(op_id, bid, float(target), kind))
         for bid in self.canonical_order:
             kinds = [s.kind for s in staged if s.bend_id == bid]
             if sorted(kinds) not in (["SINGLE"], ["FINISH", "PREBEND"]):
-                raise SequenceError("Каждый гиб должен иметь один финальный этап.")
+                raise SequenceError("Each bend must have exactly one final stage.")
         if len({s.operation_id for s in staged}) != len(staged):
-            raise SequenceError("Дублирование идентификатора операции.")
+            raise SequenceError("Duplicate operation identifier.")
         seen = set()
         for step in staged:
             if step.kind == "PREBEND":
                 seen.add(step.bend_id)
             if step.kind == "FINISH" and step.bend_id not in seen:
-                raise SequenceError("Догиб указан раньше предгиба.")
+                raise SequenceError("Finish bend precedes pre-bend.")
         self._stage_steps = tuple(staged)
         self.active_index = 0
         self._completed_steps = 0
@@ -323,13 +323,13 @@ class StagedBendSequenceController(BendSequenceController):
             return super().set_manual_angle(signed_angle_deg)
         if self.active_index != self._completed_steps:
             raise SequenceError(
-                "Для изменения угла выберите следующий этап или выполните Reset."
+                "Select the next stage or press Reset before changing the angle."
             )
         angle = float(signed_angle_deg)
         start = self.operation_start_deg(self.active_index)
         end = self.target_angle_deg
         if not isfinite(angle) or not min(start, end) - ANGLE_EPS <= angle <= max(start, end) + ANGLE_EPS:
-            raise SequenceError("Угол выходит за границы выбранного этапа.")
+            raise SequenceError("Angle is outside the selected stage range.")
         if self.status == PlaybackStatus.PLAYING:
             self.status = PlaybackStatus.PAUSED
         self.fold_state.set_angle(self.active_bend_id, angle)
@@ -344,7 +344,7 @@ class StagedBendSequenceController(BendSequenceController):
             self.reset()
         valid, _ = self.is_valid_sequential_prefix()
         if not valid:
-            raise SequenceError("Нарушен порядок углов. Выполните Reset.")
+            raise SequenceError("Angle order is invalid. Press Reset.")
         self.active_index = min(self._completed_steps, self.total_steps - 1)
         self.status = PlaybackStatus.PLAYING
 
@@ -356,7 +356,7 @@ class StagedBendSequenceController(BendSequenceController):
             return
         step = self._stage_steps[self._completed_steps]
         if abs(self.fold_state.angles[step.bend_id] - step.target_angle_deg) > ANGLE_EPS:
-            raise SequenceError("Фактический угол не достиг целевого для этапа.")
+            raise SequenceError("Actual angle has not reached the stage target.")
         self._completed_steps += 1
         if self._completed_steps == self.total_steps:
             self.status = PlaybackStatus.COMPLETED
@@ -389,7 +389,7 @@ class StagedBendSequenceController(BendSequenceController):
             self.pause()
         valid, _ = self.is_valid_sequential_prefix()
         if not valid:
-            raise SequenceError("Нарушен порядок этапов. Выполните Reset.")
+            raise SequenceError("Stage order is invalid. Press Reset.")
         if self._completed_steps < self.total_steps:
             op = self._stage_steps[self._completed_steps]
             self.fold_state.set_angle(op.bend_id, op.target_angle_deg)
@@ -414,7 +414,7 @@ class StagedBendSequenceController(BendSequenceController):
             self.pause()
         valid, _ = self.is_valid_sequential_prefix()
         if not valid:
-            raise SequenceError("Нарушен порядок этапов. Выполните Reset.")
+            raise SequenceError("Stage order is invalid. Press Reset.")
         if self._completed_steps < self.total_steps:
             current = self._stage_steps[self._completed_steps]
             start = self.operation_start_deg(self._completed_steps)
@@ -430,7 +430,7 @@ class StagedBendSequenceController(BendSequenceController):
             return super().status_line()
         step = self.operation_at(self.active_index)
         return (
-            f"Этап {self.active_index+1}/{self.total_steps} | "
+            f"Stage {self.active_index+1}/{self.total_steps} | "
             f"{step.operation_id} ({step.kind}) | "
             f"{self.current_angle_deg:+.1f}° / {step.target_angle_deg:+.1f}° | "
             f"{self.status.value}"

@@ -180,18 +180,18 @@ def visual_gauge_target(model, bend_id, envelopes, translate=None):
         return BackgaugePosition2D(centre.s_mm - model.width_s_mm / 2.0, centre.z_mm), ""
 
     if not envelopes:
-        return None, translate("Не найдена задняя грань для автоматической расстановки лапок")
+        return None, translate("No rear edge was found for automatic backgauge placement")
     edges = tuple(edge for edge in envelopes if edge is not None)
     if not edges:
-        return None, translate("Край детали вне станций X заднего упора")
+        return None, translate("Workpiece edge is outside the backgauge X stations")
     # The fingers share the S/R axes. Set the common S beyond the rear-most
     # edge, so the other station's shallower edge cannot push that finger in.
     rear_s, rear_z = max(edges, key=lambda edge: edge[0])
     warnings = []
     for index, edge in enumerate(envelopes, 1):
         if edge is None:
-            warnings.append(translate("упор {} вне контура детали по X").format(index))
+            warnings.append(translate("gauge {} is outside the workpiece outline along X").format(index))
         elif rear_s - edge[0] > 0.05:
-            warnings.append(translate("упор {} до края {:.2f} мм").format(
+            warnings.append(translate("gauge {} is {:.2f} mm from the edge").format(
                 index, rear_s - edge[0] + model.edge_clearance_mm))
     return BackgaugePosition2D(rear_s + model.edge_clearance_mm, rear_z), " · ".join(warnings)

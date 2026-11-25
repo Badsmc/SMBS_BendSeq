@@ -109,7 +109,7 @@ def parse_diagnostic(data: Mapping[str, Any], source: str, translate=None) -> li
                 seq, "AUTO", source, evidence, cost,
                 bool(cand.get("cost_complete", False)) and cost is not None,
                 len(wb), wb, tuple(
-                    translate("{}: RETRACT/условная 2D-проверка").format(bend) for bend in wb
+                    translate("{}: RETRACT/conditional 2D check").format(bend) for bend in wb
                 ), weights,
                 tuple(v for v in breakdown if isinstance(v, dict))
                 if isinstance(breakdown, list) else (),
@@ -127,7 +127,7 @@ def parse_diagnostic(data: Mapping[str, Any], source: str, translate=None) -> li
                         _cost(partial.get("cost")),
                         bool(partial.get("cost_complete", False)),
                         len(wb), wb,
-                        tuple(translate("{}: частичный маршрут").format(bid) for bid in wb),
+                        tuple(translate("{}: partial path").format(bid) for bid in wb),
                         weights, (), partial=True,
                     ))
             except ValueError:
@@ -148,11 +148,11 @@ def parse_diagnostic(data: Mapping[str, Any], source: str, translate=None) -> li
         ) and score is not None
         warn_bends = _warning_bends(data.get("steps"), data.get("retract_warnings"))
         blocker = data.get("first_blocker")
-        msgs = [translate("{}: RETRACT/условная 2D-проверка").format(bid) for bid in warn_bends]
+        msgs = [translate("{}: RETRACT/conditional 2D check").format(bid) for bid in warn_bends]
         if isinstance(blocker, dict):
             msgs.append(
                 "STOP: " + str(blocker.get("bend_id", "?")) +
-                " / " + translate(str(blocker.get("reason", "2D-ошибка")))
+                " / " + translate(str(blocker.get("reason", "2D error")))
             )
         model = data.get("model", {})
         return [CatalogEntry(

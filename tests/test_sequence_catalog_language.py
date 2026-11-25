@@ -15,7 +15,7 @@ class SequenceCatalogLanguageTest(unittest.TestCase):
             }]
         }
         english = parse_diagnostic(diagnostic, "report.json", translate=lambda value: tr(value, language="en"))
-        russian = parse_diagnostic(diagnostic, "report.json")
+        russian = parse_diagnostic(diagnostic, "report.json", translate=lambda value: tr(value, language="ru"))
         self.assertEqual(english[0].warnings, ("B01: RETRACT/conditional 2D check",))
         self.assertEqual(russian[0].warnings, ("B01: RETRACT/условная 2D-проверка",))
 

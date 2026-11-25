@@ -20,9 +20,20 @@ def _catalog(language):
     return data
 
 
-SOURCE_KEYS = json.loads(
-    (Path(__file__).resolve().parents[1] / "translations" / "source_keys.json").read_text(encoding="utf-8")
-)
+@lru_cache(maxsize=1)
+def _source_keys():
+    """Resolve English and legacy Russian text without a duplicate catalog."""
+    keys = {}
+    for language in ("en", "ru"):
+        for key, message in _catalog(language).items():
+            keys.setdefault(message, key)
+    return keys
+
+
+def _translation_key(source):
+    if source in _catalog("en"):
+        return source
+    return _source_keys().get(source, source)
 
 
 def resolve_language(freecad_language="", system_language="en"):
@@ -40,7 +51,7 @@ def interface_language():
     try:
         import FreeCAD as App
     except ImportError:
-        return "ru"
+        return "en"
     general = App.ParamGet("User parameter:BaseApp/Preferences/General")
     preference = general.GetString("Language", "")
     try:
@@ -59,9 +70,9 @@ def interface_language():
 
 def tr(source, *, language=None, **values):
     language = interface_language() if language is None else language
-    key = SOURCE_KEYS.get(source, source)
+    key = _translation_key(source)
     source = _catalog(language).get(key, _catalog("en").get(key, source))
-    if language == "en" and values:
+    if values:
         diagnostic_fields = {"error", "reason", "details", "warning", "message", "text"}
         values = {
             key: tr_message(value, language=language)
@@ -71,14 +82,14 @@ def tr(source, *, language=None, **values):
     return source.format(**values) if values else source
 
 
-@lru_cache(maxsize=1)
-def _message_patterns():
+@lru_cache(maxsize=4)
+def _message_patterns(source_language, target_language):
     """Match already formatted diagnostics from the headless core."""
     patterns = []
     formatter = Formatter()
-    for source, key in SOURCE_KEYS.items():
-        translated = _catalog("en")[key]
-        if "{" not in source or not re.search(r"[А-Яа-яЁё]", source):
+    for key, source in _catalog(source_language).items():
+        translated = _catalog(target_language).get(key, source)
+        if "{" not in source or source == translated:
             continue
         try:
             chunks = list(formatter.parse(source))
@@ -99,14 +110,15 @@ def tr_message(message, *, language=None):
     """Translate a fully formatted core error without making core depend on FreeCAD."""
     value = str(message)
     language = interface_language() if language is None else language
-    if language != "en" or not re.search(r"[А-Яа-яЁё]", value):
-        return value
+    if language not in ("en", "ru"):
+        language = "en"
     if value.startswith("UNVERIFIED: "):
         return "UNVERIFIED: " + tr_message(value[len("UNVERIFIED: "):], language=language)
-    exact = _catalog("en").get(SOURCE_KEYS.get(value, value))
+    exact = _catalog(language).get(_translation_key(value))
     if exact is not None:
         return exact
-    for _, pattern, chunks, translated in _message_patterns():
+    source_language = "ru" if language == "en" else "en"
+    for _, pattern, chunks, translated in _message_patterns(source_language, language):
         match = pattern.fullmatch(value)
         if match is None:
             continue

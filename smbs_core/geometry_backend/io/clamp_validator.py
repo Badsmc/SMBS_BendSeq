@@ -59,7 +59,7 @@ class ClampConfig:
                                       self.height_mm, self.depth_mm))):
             raise ClampValidatorError("Clamp dimensions and tolerances must be finite numbers")
         if self.height_mm <= 0 or self.depth_mm <= 0:
-            raise ClampValidatorError("Высота и глубина зажима должны быть положительными")
+            raise ClampValidatorError("Clamp height and depth must be positive")
         if self.width_mm <= 0:
             raise ClampValidatorError(f"width_mm must be positive, got {self.width_mm}")
         if self.gap_between_mm < 0:

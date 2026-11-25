@@ -22,7 +22,7 @@ def parse_manual_bend_order(text: str, bend_ids: Sequence[str]) -> tuple[str, ..
     """Resolve IDs or their numeric labels into a unique manual order/prefix."""
     tokens = tuple(filter(None, re.split(r"[\s,;→–—-]+", text.replace("->", " "))))
     if not tokens:
-        raise SequenceError("Введите номера гибов или выберите линии на развёртке.")
+        raise SequenceError("Enter bend numbers or select lines on the flat pattern.")
     by_id = {bend_id.upper(): bend_id for bend_id in bend_ids}
     by_number = {}
     for bend_id in bend_ids:
@@ -37,9 +37,9 @@ def parse_manual_bend_order(text: str, bend_ids: Sequence[str]) -> tuple[str, ..
             if len(matches) == 1:
                 bend_id = matches[0]
         if bend_id is None:
-            raise SequenceError(f"Неизвестный гиб «{token}». Используйте номера с развёртки.")
+            raise SequenceError(f"Unknown bend “{token}”. Use numbers from the flat pattern.")
         if bend_id in order:
-            raise SequenceError(f"Гиб {bend_id} указан несколько раз.")
+            raise SequenceError(f"Bend {bend_id} is listed more than once.")
         order.append(bend_id)
     return tuple(order)
 
@@ -107,17 +107,17 @@ class BendSequenceController:
         known = set(self._canonical_order)
         if len(candidate) != len(self._canonical_order):
             raise SequenceError(
-                "Некорректная длина последовательности: ожидалось {}, получено {}.".format(
+                "Incorrect sequence length: expected {}, got {}.".format(
                     len(self._canonical_order), len(candidate)
                 )
             )
         if len(set(candidate)) != len(candidate):
-            raise SequenceError("Последовательность содержит дублирующиеся ID гибов.")
+            raise SequenceError("The sequence contains duplicate bend IDs.")
         if set(candidate) != known:
             unknown = sorted(set(candidate) - known)
             missing = sorted(known - set(candidate))
             raise SequenceError(
-                "Некорректный состав гибов (неизвестные: {}, пропущенные: {}).".format(
+                "Incorrect bend set (unknown: {}, missing: {}).".format(
                     unknown, missing
                 )
             )
@@ -132,11 +132,11 @@ class BendSequenceController:
     def _ensure_can_reorder(self) -> None:
         if self.status == PlaybackStatus.PLAYING:
             raise SequenceError(
-                "Нельзя менять порядок гибки во время воспроизведения. Нажмите Pause и Reset (|<)."
+                "The bending order cannot be changed during playback. Press Pause and Reset (|<)."
             )
         if not all(self.is_bend_flat(bid) for bid in self.order):
             raise SequenceError(
-                "Изменение порядка гибки допускается только для плоской заготовки (все углы 0°). Нажмите Reset (|<)."
+                "The bending order can only be changed with a flat workpiece (all angles 0°). Press Reset (|<)."
             )
 
     def set_bend_order(self, order: Sequence[str]) -> None:
@@ -312,8 +312,8 @@ class BendSequenceController:
         valid, resume_idx = self.is_valid_sequential_prefix()
         if not valid:
             raise SequenceError(
-                "Углы гибов изменены вручную вне порядка последовательности. "
-                "Нажмите Reset (|<) для запуска Play All с плоской заготовки."
+                "Bend angles were changed manually outside the sequence. "
+                "Press Reset (|<) to start Play All from a flat workpiece."
             )
         self.active_index = resume_idx
         self.status = PlaybackStatus.PLAYING
@@ -379,7 +379,7 @@ class BendSequenceController:
         valid, first_inc = self.is_valid_sequential_prefix()
         if not valid:
             raise SequenceError(
-                "Состояние изменено вручную вне порядка. Нажмите Reset (|<) перед пошаговым переходом."
+                "The state was changed manually outside the sequence. Press Reset (|<) before stepping."
             )
 
         if all(self.is_bend_completed(bid) for bid in self.order):
@@ -405,7 +405,7 @@ class BendSequenceController:
         valid, first_inc = self.is_valid_sequential_prefix()
         if not valid:
             raise SequenceError(
-                "Состояние изменено вручную вне порядка. Нажмите Reset (|<) перед пошаговым переходом."
+                "The state was changed manually outside the sequence. Press Reset (|<) before stepping."
             )
 
         if all(self.is_bend_flat(bid) for bid in self.order):

@@ -11,6 +11,7 @@ class GaugeLanguageTest(unittest.TestCase):
         model = SimpleNamespace(automatic=True, edge_clearance_mm=2.0)
         english = visual_gauge_target(model, "B01", ((10.0, 0.0), None),
                                       translate=lambda source: tr(source, language="en"))
-        russian = visual_gauge_target(model, "B01", ((10.0, 0.0), None))
+        russian = visual_gauge_target(model, "B01", ((10.0, 0.0), None),
+                                      translate=lambda source: tr(source, language="ru"))
         self.assertIn("gauge 2 is outside the workpiece outline along X", english[1])
         self.assertIn("упор 2 вне контура детали по X", russian[1])

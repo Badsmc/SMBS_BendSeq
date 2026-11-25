@@ -109,14 +109,14 @@ def native_tool_meshes(tooling, virtual_length, check_budget=lambda: None):
         check_budget()
         path = _source_path(getattr(tooling, kind))
         if path is None:
-            raise ValueError("Нет проверенного FCStd для " + kind)
+            raise ValueError("No verified FCStd for " + kind)
         tool = load(path, virtual_length_mm=virtual_length, **native_section_options(tooling, kind))
         check_budget()
         vertices, facets = tool.machine_shape.tessellate(0.1)
         check_budget()
         points = [(float(v.x), float(v.y), float(v.z)) for v in vertices]
         if not facets or not all(isfinite(c) for p in points for c in p):
-            raise ValueError("Непригодная сетка оснастки: " + kind)
+            raise ValueError("Invalid tooling mesh: " + kind)
         yield kind, tool, tuple(tuple(points[i] for i in facet) for facet in facets)
 
 
@@ -145,11 +145,11 @@ def _panel_meshes(session, state, check_budget):
         vertices, facets = solid.tessellate(0.1)
         check_budget()
         if not facets:
-            raise ValueError("Пустая сетка панели " + panel.panel_id)
+            raise ValueError("Empty mesh for panel " + panel.panel_id)
         points = tuple((float(v.x), float(v.y), float(v.z)) for v in vertices)
         meshes[panel.panel_id] = (points, facets)
     if set(meshes) != set(state.graph.panels):
-        raise ValueError("Геометрия панелей Mesh не совпадает с деталью")
+        raise ValueError("Mesh panel geometry does not match the workpiece")
     return meshes
 
 
@@ -275,7 +275,7 @@ def screen_mesh_sequence(session, preview_cycle, order, *, budget_seconds=60.0, 
             sequence.select_operation(index)
             bend_id = cycle.active_bend_id
             if operation_id != sequence.active_operation_id:
-                raise ValueError("Порядок Mesh не совпадает с порядком симуляции")
+                raise ValueError("Mesh sequence does not match the simulation order")
             if progress is not None:
                 progress(index, len(order), operation_id)
             cycle._sync_bounds_and_orientation_for_active_bend()

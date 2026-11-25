@@ -330,7 +330,7 @@ def find_operator_templates(fold_state, operations, outline_xy,
             evidence="OPERATOR_TEMPLATE_MATCH_UNVERIFIED_3D",
         )
         matched.append(TemplateMatch(
-            candidate, str(record.get("title","Шаблон"))[:100],
+            candidate, str(record.get("title","Template"))[:100],
             str(record.get("id","")),
             dict(record.get("source_tooling") or {}),
         ))

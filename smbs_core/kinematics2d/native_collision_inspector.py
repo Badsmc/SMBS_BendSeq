@@ -260,11 +260,11 @@ def open_exact_collision_document(
         root = doc.addObject("App::DocumentObjectGroup", "SMBS_Objects")
         root.Label = "SMBS"
         context = doc.addObject("App::DocumentObjectGroup", "MachineScene")
-        context.Label = translate("Машинная установка — контекст (прозрачный)")
+        context.Label = translate("Machine setup — context (transparent)")
         contacts = doc.addObject("App::DocumentObjectGroup", "ExactCollisions")
-        contacts.Label = translate("ТОЧНЫЕ пересечения OCC — красные тела")
+        contacts.Label = translate("EXACT OCC intersections — red solids")
         affected = doc.addObject("App::DocumentObjectGroup", "AffectedComponents")
-        affected.Label = translate("Задетые панели и зоны — оранжевые тела")
+        affected.Label = translate("Affected panels and zones — orange solids")
         root.Group = [context, contacts, affected]
 
         def add(group, object_name, label, shape, rgb, transparency=0):
@@ -282,16 +282,16 @@ def open_exact_collision_document(
                 pass
             return obj
 
-        add(context, "Sheet", translate("Деталь — заданный угол"), shapes["sheet"],
+        add(context, "Sheet", translate("Workpiece — selected angle"), shapes["sheet"],
             (0.55, 0.68, 0.77), 85)
-        add(context, "Punch", translate("Пуансон — действительная форма FCStd"),
+        add(context, "Punch", translate("Punch — actual FCStd shape"),
             shapes["punch"], (0.19, 0.49, 0.85), 82)
-        add(context, "Die", translate("Матрица — действительная форма FCStd"),
+        add(context, "Die", translate("Die — actual FCStd shape"),
             shapes["die"], (0.20, 0.68, 0.46), 82)
         contact_objects = []
         for kind, solid in shapes["common"].items():
-            label = translate("КОЛЛИЗИЯ: деталь × {} — {:.6f} мм³").format(
-                translate("пуансон") if kind == "PUNCH" else translate("матрица"),
+            label = translate("COLLISION: workpiece × {} — {:.6f} mm³").format(
+                translate("punch") if kind == "PUNCH" else translate("die"),
                 shapes["volumes_mm3"][kind],
             )
             contact_objects.append(add(
@@ -302,10 +302,10 @@ def open_exact_collision_document(
             tag = entry["component_id"]
             add(
                 affected, "Affected{:02d}".format(i),
-                translate("ПАНЕЛЬ/ЗОНА: ") + tag,
+                translate("PANEL/ZONE: ") + tag,
                 entry["component_shape"], (0.98, 0.63, 0.11), 40,
             )
-            label = translate("{} × {} — {:.6f} мм³").format(
+            label = translate("{} × {} — {:.6f} mm³").format(
                 tag, entry["tool"], entry["volume_mm3"],
             )
             obj = add(

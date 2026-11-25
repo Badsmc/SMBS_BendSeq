@@ -24,4 +24,4 @@ Add the same key to both language catalogs.
 
 Preserve formatting placeholders across languages. Restart FreeCAD after editing catalogs.
 
-The source_keys.json mapping supports existing source strings, saved diagnostics and headless core errors. New UI text should use English identifiers directly.
+The English and Russian catalogs are the only translation sources. English identifiers are canonical. The compatibility lookup is generated from catalog values at runtime, so previously saved Russian diagnostics remain readable. Headless core diagnostics use English by default; the UI can translate them into the selected language.

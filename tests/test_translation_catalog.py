@@ -31,7 +31,7 @@ class TranslationCatalogTest(unittest.TestCase):
             for node in ast.walk(tree):
                 if (isinstance(node, ast.Constant) and isinstance(node.value, str)
                         and RUSSIAN.search(node.value)
-                        and node.value not in catalog and node.value not in json.loads((ROOT / "translations/source_keys.json").read_text()) and node.value not in fragments):
+                        and node.value not in catalog and node.value not in json.loads((ROOT / "translations/ru/catalog.json").read_text(encoding="utf-8")).values() and node.value not in fragments):
                     missing.append(f"{source_file.relative_to(CORE)}:{node.lineno}: {node.value[:90]}")
         self.assertEqual(missing, [])
 
@@ -48,7 +48,7 @@ class TranslationCatalogTest(unittest.TestCase):
             for node in ast.walk(tree):
                 if (isinstance(node, ast.Constant) and isinstance(node.value, str)
                         and RUSSIAN.search(node.value)
-                        and node.value not in catalog and node.value not in json.loads((ROOT / "translations/source_keys.json").read_text()) and node.value not in internal):
+                        and node.value not in catalog and node.value not in json.loads((ROOT / "translations/ru/catalog.json").read_text(encoding="utf-8")).values() and node.value not in internal):
                     missing.append(f"{source_file.relative_to(ROOT)}:{node.lineno}: {node.value[:90]}")
         self.assertEqual(missing, [])
 
@@ -58,9 +58,9 @@ class TranslationCatalogTest(unittest.TestCase):
         self.assertEqual(resolve_language("English", "ru_RU"), "en")
         self.assertEqual(resolve_language("Русский", "en_US"), "ru")
         self.assertEqual(resolve_language("", "ru_RU"), "ru")
-        self.assertEqual(tr("Симуляция остановлена. {reason}", language="en", reason="B01"),
+        self.assertEqual(tr("simulation_stopped_b76a8926", language="en", reason="B01"),
                          "Simulation stopped. B01")
-        self.assertEqual(tr("Симуляция остановлена. {reason}", language="ru", reason="B01"),
+        self.assertEqual(tr("simulation_stopped_b76a8926", language="ru", reason="B01"),
                          "Симуляция остановлена. B01")
 
     def test_formatted_core_errors_are_translated_at_ui_boundary(self):
@@ -75,8 +75,11 @@ class TranslationCatalogTest(unittest.TestCase):
                          "Гиб B02 указан несколько раз.")
         with self.assertRaises(ValueError) as raised:
             parse_manual_bend_order("B01 B01", ("B01", "B02"))
+        self.assertEqual(str(raised.exception), "Bend B01 is listed more than once.")
         self.assertEqual(tr_message(raised.exception, language="en"),
                          "Bend B01 is listed more than once.")
+        self.assertEqual(tr_message(raised.exception, language="ru"),
+                         "Гиб B01 указан несколько раз.")
         self.assertEqual(tr_message("UNVERIFIED: Гиб B01 указан несколько раз.", language="en"),
                          "UNVERIFIED: Bend B01 is listed more than once.")
         from freecad_smbs.ui.localization import tr
@@ -99,9 +102,15 @@ class TranslationCatalogTest(unittest.TestCase):
                 if not node.args or not isinstance(node.args[0], ast.Constant) or not isinstance(node.args[0].value, str):
                     continue
                 source = node.args[0].value
-                if RUSSIAN.search(source) and source not in catalog:
+                if source not in catalog:
                     missing.append(f"{source_file.relative_to(ROOT)}:{node.lineno}: {source[:90]}")
         self.assertEqual(missing, [])
+
+    def test_catalog_keys_are_english_identifiers(self):
+        english = json.loads((ROOT / "translations/en/catalog.json").read_text(encoding="utf-8"))
+        russian = json.loads((ROOT / "translations/ru/catalog.json").read_text(encoding="utf-8"))
+        self.assertEqual(set(english), set(russian))
+        self.assertTrue(all(re.fullmatch(r"[a-z0-9_]+", key) for key in english))
 
     def test_catalog_format_fields_match_sources(self):
         catalog = json.loads((ROOT / "translations/en/catalog.json").read_text(encoding="utf-8"))
