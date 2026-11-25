@@ -1070,5 +1070,14 @@
   "pdf_collision_notice": "Текущих результатов Mesh: {count}. Страницы коллизий показывают проверенные положения, а не гарантируют отсутствие столкновений.",
   "pdf_generate": "Создать PDF",
   "pdf_folder_missing": "Папка сохранения не существует.",
-  "pdf_confirm_overwrite": "Файл существует. Нажмите «Создать PDF» повторно для перезаписи."
+  "pdf_confirm_overwrite": "Файл существует. Нажмите «Создать PDF» повторно для перезаписи.",
+  "mesh_grouped_mode": "По гибам — общая карта",
+  "mesh_exact_mode": "Точный кадр — по отдельности",
+  "mesh_view_mode": "Просмотр коллизий",
+  "mesh_sheet_alpha": "Прозрачность детали",
+  "mesh_tool_alpha": "Прозрачность оснастки",
+  "mesh_next_view": "Следующий кадр коллизий",
+  "mesh_group_summary": "{operation}: подтверждённых {confirmed}, условных {conditional}",
+  "mesh_group_reference": "Общая карта; кадр {phase}, {angle}°; не одновременно",
+  "mesh_component_only": "Некоторые зоны выделены целиком по затронутому элементу"
 }

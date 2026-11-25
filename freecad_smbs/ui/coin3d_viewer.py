@@ -341,7 +341,7 @@ def create_coin_viewer(parent=None):
             self._initial_fit_done = False
             self._last_faces = ()
 
-        def set_sheet_faces(self, faces, highlighted=()):
+        def set_sheet_faces(self, faces, highlighted=(), transparency=0.0):
             """Batch persistent panel/bend meshes by material, not by face.
 
             In a 10-bend model this reduces per-frame Python/Pivy calls
@@ -349,14 +349,14 @@ def create_coin_viewer(parent=None):
             material kind. SoIndexedFaceSet stores multiple polygons in
             one GPU mesh, with -1 marking the end of each polygon.
             """
-            highlighted = set(highlighted)
+            highlighted = dict(highlighted) if isinstance(highlighted,dict) else dict.fromkeys(highlighted,1)
             groups = {}
             drawable_faces = 0
             for face in faces:
                 # No invented filled surface across hole-bearing polygons.
                 if len(face.vertices) < 3 or face.holes:
                     continue
-                key = (face.kind, face.identifier in highlighted)
+                key = (face.kind, highlighted.get(face.identifier,0), float(transparency))
                 groups.setdefault(key, []).append(face)
                 drawable_faces += 1
 
@@ -369,13 +369,14 @@ def create_coin_viewer(parent=None):
                 self._sheet_root.removeAllChildren()
                 self._sheet_batches = {}
                 for key, lengths in topology:
-                    kind, is_highlighted = key
+                    kind, mark, alpha = key
                     node = coin.SoSeparator()
                     material = coin.SoMaterial()
                     material.diffuseColor.setValue(*(
-                        (0.91, 0.14, 0.12) if is_highlighted
-                        else COLORS.get(kind, (0.55, 0.65, 0.75))
+                        (0.91, 0.14, 0.12) if mark==1 else
+                        (1.0,0.52,0.12) if mark==2 else COLORS.get(kind, (0.55, 0.65, 0.75))
                     ))
+                    material.transparency.setValue(0.0 if mark else alpha)
                     coordinates = coin.SoCoordinate3()
                     geometry = coin.SoIndexedFaceSet()
                     indices = []
@@ -408,7 +409,7 @@ def create_coin_viewer(parent=None):
                 self.reset_camera()
                 self._initial_fit_done = True
 
-        def update_tools(self, tooling, ram_z, *, active_bend_length_mm=None, section_preview=None):
+        def update_tools(self, tooling, ram_z, *, active_bend_length_mm=None, section_preview=None, transparency=0.0):
             from smbs_core.kinematics2d.preview_mesh_3d import (
                 build_tool_preview_faces,
             )
@@ -419,7 +420,7 @@ def create_coin_viewer(parent=None):
             punch_transform = tooling.punch_machine_transform
             die_transform = tooling.die_machine_transform
             key = (
-                id(punch), id(die), bool(tooling.visible),
+                id(punch), id(die), bool(tooling.visible), float(transparency),
                 bool(tooling.match_active_bend_length),
                 round(float((tooling.active_bend_length_mm if active_bend_length_mm is None
                              else active_bend_length_mm) or 0.0), 5)
@@ -467,6 +468,7 @@ def create_coin_viewer(parent=None):
                         group = coin.SoSeparator()
                         material = coin.SoMaterial()
                         material.diffuseColor.setValue(*segment_color(kind, section_index))
+                        material.transparency.setValue(float(transparency))
                         coordinates = coin.SoCoordinate3()
                         points = [(-y, x, z) for triangle in facets for x, y, z in triangle]
                         coordinates.point.setValues(0, len(points), points)
@@ -485,6 +487,7 @@ def create_coin_viewer(parent=None):
                             outline = coin.SoSeparator()
                             ink = coin.SoMaterial()
                             ink.diffuseColor.setValue(0.08, 0.08, 0.10)
+                            ink.transparency.setValue(float(transparency))
                             ink.setOverride(True)
                             outline.addChild(ink)
                             style = coin.SoDrawStyle()
@@ -502,6 +505,7 @@ def create_coin_viewer(parent=None):
                     node = _face_node(coin, face)
                     if node is None:
                         continue
+                    node.material.transparency.setValue(float(transparency))
                     if face.kind.startswith("punch"):
                         punch_root.addChild(node.root)
                     else:
@@ -528,25 +532,19 @@ def create_coin_viewer(parent=None):
             self._collision_count = len(boxes)
             if not boxes:
                 return
+            from smbs_core.kinematics2d.collision_groups import BOX_EDGES,bbox_corners
             for bound in boxes:
-                # Native OCC AABB (machine XYZ) -> preview (-Ym, Xm, Zm).
-                lo = (bound["xmin"], bound["ymin"], bound["zmin"])
-                hi = (bound["xmax"], bound["ymax"], bound["zmax"])
-                corners = [
-                    (-y, x, z)
-                    for x in (lo[0], hi[0])
-                    for y in (lo[1], hi[1])
-                    for z in (lo[2], hi[2])
-                ]
-                vertices = []
-                for i in range(8):
-                    for j in range(i + 1, 8):
-                        if sum(corners[i][k] != corners[j][k]
-                               for k in range(3)) == 1:
-                            vertices.extend((corners[i], corners[j]))
+                corners_xyz = bound.get("corners_xyz") or bbox_corners(bound)
+                if len(corners_xyz)!=8:
+                    continue
+                corners = tuple((-y,x,z) for x,y,z in corners_xyz)
+                vertices = [corners[i] for edge in BOX_EDGES for i in edge]
                 root = coin.SoSeparator()
                 color = coin.SoBaseColor()
-                color.rgb.setValue(1.0, 0.08, 0.08)
+                color.rgb.setValue(*( (1.0,0.52,0.12) if bound.get("conditional") else (1.0,0.08,0.08) ))
+                style = coin.SoDrawStyle()
+                style.lineWidth.setValue(3.0)
+                root.addChild(style)
                 coords = coin.SoCoordinate3()
                 coords.point.setValues(0, len(vertices), vertices)
                 segments = coin.SoLineSet()

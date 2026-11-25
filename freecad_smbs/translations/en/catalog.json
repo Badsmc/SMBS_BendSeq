@@ -1070,5 +1070,14 @@
   "pdf_collision_notice": "Current recorded Mesh findings: {count}. Collision pages show sampled evidence, not clearance certification.",
   "pdf_generate": "Generate PDF",
   "pdf_folder_missing": "Destination folder does not exist.",
-  "pdf_confirm_overwrite": "File exists. Press Generate PDF again to overwrite."
+  "pdf_confirm_overwrite": "File exists. Press Generate PDF again to overwrite.",
+  "mesh_grouped_mode": "By bend — combined map",
+  "mesh_exact_mode": "Exact sample — individual",
+  "mesh_view_mode": "Collision display",
+  "mesh_sheet_alpha": "Part transparency",
+  "mesh_tool_alpha": "Tool transparency",
+  "mesh_next_view": "Next collision view",
+  "mesh_group_summary": "{operation}: confirmed {confirmed}, conditional {conditional}",
+  "mesh_group_reference": "Combined map; reference {phase}, {angle}°; not simultaneous",
+  "mesh_component_only": "Some zones marked by entire affected component"
 }

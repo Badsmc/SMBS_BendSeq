@@ -1606,6 +1606,9 @@ class _PreviewPanel:
                 self._mesh_collision_hits = ()
                 self._mesh_collision_index = None
                 self._mesh_collision_identity = None
+                self._mesh_grouped = QtCore.QSettings("SMBS","BendSeq").value("mesh/grouped_view",True,type=bool)
+                self._mesh_sheet_transparency = 35
+                self._mesh_tool_transparency = 55
                 self._collision_inspection = None
                 self._alternate_retract_inspection = None
                 self._last_assisted_lift_inspection = None
@@ -3247,10 +3250,18 @@ class _PreviewPanel:
                     and not self.timer.isActive()
                 )
                 mesh_hit = None
+                mesh_group = ()
                 if (self._collision_display_active and not show_proposal
                         and self._mesh_collision_index is not None):
                     if self._mesh_collision_identity == self._mesh_preview_identity():
-                        mesh_hit = self._mesh_collision_hits[self._mesh_collision_index]
+                        from smbs_core.kinematics2d.collision_groups import representative_hit
+                        groups = self._mesh_view_groups()
+                        if 0 <= self._mesh_collision_index < len(groups):
+                            mesh_group = groups[self._mesh_collision_index]
+                            mesh_hit = representative_hit(mesh_group)
+                        else:
+                            self._mesh_collision_index = None
+                            self._collision_display_active = False
                     else:
                         self._mesh_collision_index = None
                         self._collision_display_active = False
@@ -3276,16 +3287,23 @@ class _PreviewPanel:
                             translation=tuple(pose["translation"]),
                         )
                         inspected_length = math.dist(*fold_state.bends[bend_id].axis_xyz)
-                        highlighted = (mesh_hit["component"],)
-                        if mesh_hit["overlap_bbox_xyz_mm"] is not None:
-                            bounds = [mesh_hit["overlap_bbox_xyz_mm"]]
-                        tool_name = {"punch": tr("punch_44f13e39"), "die": tr("die_f5194d67")}[mesh_hit["tool"]]
-                        mesh_label = "Mesh Conditional" if mesh_hit.get("conditional") else "Mesh"
-                        message = (
-                            f"{mesh_label} {self._mesh_collision_index + 1}/{len(self._mesh_collision_hits)}"
-                            f" · {mesh_hit['operation']} · {mesh_hit['phase']} · {tool_name}" +
-                            tr("mm_4c0af55e", component=mesh_hit['component'], volume=mesh_hit['occ_overlap_volume_mm3'])
-                        )
+                        from smbs_core.kinematics2d.collision_groups import projected_zones, component_colors
+                        zones = projected_zones(self.session.fold_state.graph,self.session.fold_state.fixed_panel,
+                                                mesh_group,mesh_hit,grouped=self._mesh_grouped)
+                        bounds = [zone for zone in zones if zone["corners_xyz"]]
+                        highlighted = component_colors(zones,all_components=not self._mesh_grouped)
+                        confirmed = sum(not h.get("conditional") for h in mesh_group)
+                        message = (f"Mesh {self._mesh_collision_index+1}/{len(self._mesh_view_groups())} · "
+                                   + tr("mesh_group_summary",operation=mesh_hit["operation"],confirmed=confirmed,
+                                        conditional=len(mesh_group)-confirmed))
+                        if self._mesh_grouped:
+                            message += " · " + tr("mesh_group_reference",phase=mesh_hit["phase"],
+                                                   angle=round(float(mesh_hit["angle_deg"]),2))
+                        else:
+                            message += f" · {mesh_hit['phase']} · {mesh_hit['tool']}" + tr(
+                                "mm_4c0af55e",component=mesh_hit["component"],volume=mesh_hit["occ_overlap_volume_mm3"])
+                        if any(zone["component_only"] for zone in zones):
+                            message += " · " + tr("mesh_component_only")
                     elif inspection:
                         from smbs_core.kinematics2d.native_collision_attribution import collision_preview_boxes
                         from smbs_core.kinematics2d.workpiece_placement_validation_3d import (
@@ -3350,7 +3368,8 @@ class _PreviewPanel:
                         )
                         self._coin_fold_mesh_key = fold_signature
                     faces = transform_preview_faces(self._coin_fold_mesh_faces, placement)
-                    viewer.set_sheet_faces(faces, highlighted=highlighted)
+                    viewer.set_sheet_faces(faces, highlighted=highlighted,
+                                           transparency=self._mesh_sheet_transparency/100 if mesh_hit else 0.0)
                     tooling = self.tooling_setup
                     stations, contact, gauge_note = self._coin_backgauge_positions(
                         self.session.bend_order.index(bend_id), at_collision=bool(inspection or mesh_hit),
@@ -3376,6 +3395,7 @@ class _PreviewPanel:
                             else math.dist(*fold_state.bends[bend_id].axis_xyz)
                         ),
                         section_preview=section_preview,
+                        transparency=self._mesh_tool_transparency/100 if mesh_hit else 0.0,
                     )
                     viewer.set_collision_boxes(bounds)
                     status = " · ".join(filter(None, (message, *messages, gauge_note)))
@@ -7231,6 +7251,11 @@ class _PreviewPanel:
                     frozenset(self._fast_advisory_orientation_keys), interface_language(),
                 )
 
+            def _mesh_view_groups(self):
+                from smbs_core.kinematics2d.collision_groups import collision_groups
+                order = tuple(op.operation_id for op in self.session.controller.operation_steps) if self.session else ()
+                return collision_groups(self._mesh_collision_hits,grouped=self._mesh_grouped,operation_order=order)
+
             def _show_next_mesh_collision(self):
                 if self.session is None or self._mesh_collision_identity != self._mesh_preview_identity():
                     self.mesh_show_collision_btn.hide()
@@ -7243,7 +7268,7 @@ class _PreviewPanel:
                 self._stop_timer()
                 index = self._mesh_collision_index if self._collision_display_active else None
                 index = 0 if index is None else index + 1
-                self._collision_display_active = index < len(self._mesh_collision_hits)
+                self._collision_display_active = index < len(self._mesh_view_groups())
                 self._mesh_collision_index = index if self._collision_display_active else None
                 self._open_coin_preview()
 
@@ -7266,6 +7291,40 @@ class _PreviewPanel:
                 overlap.setSingleStep(0.0001)
                 overlap.setValue(preferences.value("mesh/min_overlap_mm3", 0.0001, type=float))
                 form.addRow(tr("minimum_penetration_volume_mm"), overlap)
+                mode = QtWidgets.QComboBox()
+                mode.addItem(tr("mesh_grouped_mode"),True)
+                mode.addItem(tr("mesh_exact_mode"),False)
+                mode.setCurrentIndex(0 if self._mesh_grouped else 1)
+                form.addRow(tr("mesh_view_mode"),mode)
+                sheet_alpha = QtWidgets.QSpinBox()
+                tool_alpha = QtWidgets.QSpinBox()
+                for spin,value,label in ((sheet_alpha,self._mesh_sheet_transparency,"mesh_sheet_alpha"),
+                                         (tool_alpha,self._mesh_tool_transparency,"mesh_tool_alpha")):
+                    spin.setRange(0,100)
+                    spin.setSuffix(" %")
+                    spin.setValue(value)
+                    form.addRow(tr(label),spin)
+                next_hit = QtWidgets.QPushButton(tr("mesh_next_view"))
+                form.addRow(next_hit)
+                next_hit.clicked.connect(self._show_next_mesh_collision)
+
+                def view_changed(*_):
+                    previous = self._mesh_grouped
+                    self._mesh_grouped = bool(mode.currentData())
+                    self._mesh_sheet_transparency = sheet_alpha.value()
+                    self._mesh_tool_transparency = tool_alpha.value()
+                    preferences.setValue("mesh/grouped_view",self._mesh_grouped)
+                    if previous != self._mesh_grouped:
+                        self._mesh_collision_index = None
+                        self._collision_display_active = False
+                        if self.session and self._mesh_collision_identity == self._mesh_preview_identity() and self._mesh_collision_hits:
+                            self._show_next_mesh_collision()
+                            return
+                    if self._collision_display_active:
+                        self._update_3d_preview(force=True)
+                mode.currentIndexChanged.connect(view_changed)
+                sheet_alpha.valueChanged.connect(view_changed)
+                tool_alpha.valueChanged.connect(view_changed)
                 run = QtWidgets.QPushButton(tr("run_mesh"))
                 export = QtWidgets.QPushButton(tr("save_latest_collision"))
                 run.setIcon(QtGui.QIcon(str(_smbs_icon_path("control_mesh.svg"))))
