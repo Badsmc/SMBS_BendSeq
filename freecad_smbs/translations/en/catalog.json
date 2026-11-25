@@ -1018,5 +1018,12 @@
   "parametric_relief_depth": "Relief depth",
   "parametric_relief_height": "Relief height",
   "parametric_opening": "V opening",
-  "parametric_quantity": "Stock quantity (0 = unspecified)"
+  "parametric_quantity": "Stock quantity (0 = unspecified)",
+  "parametric_base_width": "Base width (0 = rectangular)",
+  "parametric_base_height": "Base height (0 = rectangular)",
+  "parametric_working_height": "Working height",
+  "parametric_live_drawing": "Live profile · dimensions in mm",
+  "parametric_preview_stock": "Reference length: {length} mm | Stock quantity: {quantity}",
+  "parametric_invalid_profile": "Invalid profile: {error}",
+  "parametric_valid_profile": "Closed profile is valid. Native solid will be checked before saving."
 }

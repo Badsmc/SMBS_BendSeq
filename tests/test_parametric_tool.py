@@ -41,3 +41,30 @@ class ParametricToolTest(unittest.TestCase):
                        ToolRecipe("bad", relief_depth=100), ToolRecipe("bad", radius=float("nan"))):
             with self.subTest(recipe=recipe), self.assertRaises(ValueError):
                 build_contour(recipe)
+
+    def test_live_drawing_matches_export_and_updates_dimensions(self):
+        from smbs_core.kinematics2d.parametric_tool_drawing import drawing_model
+        for recipe in starter_recipes():
+            with self.subTest(tool=recipe.tool_id):
+                contour, dimensions = drawing_model(recipe)
+                self.assertEqual(dxf_text(contour), dxf_text(build_contour(recipe)))
+                values = {d.key:d.value for d in dimensions}
+                self.assertEqual(values["height"],recipe.height)
+                self.assertEqual(values["angle"],recipe.angle)
+                self.assertEqual(values["radius"],recipe.radius)
+                if recipe.kind == "punch":
+                    self.assertEqual(values["working_height"],recipe.height-recipe.shank_height)
+                else:
+                    self.assertEqual(values["opening"],recipe.opening)
+                    if recipe.base_width:
+                        self.assertEqual(values["base_width"],recipe.base_width)
+                        self.assertAlmostEqual(contour.bbox()[2]-contour.bbox()[0],recipe.base_width)
+                updated = replace(recipe,height=recipe.height+10)
+                changed, dims = drawing_model(updated)
+                self.assertNotEqual(dxf_text(contour),dxf_text(changed))
+                self.assertEqual(next(d.value for d in dims if d.key=="height"),updated.height)
+
+    def test_stepped_die_rejects_partial_or_inverted_base(self):
+        for width,height in ((60,0),(0,18),(10,18),(60,100)):
+            with self.subTest(width=width,height=height), self.assertRaises(ValueError):
+                build_contour(ToolRecipe("bad",kind="die",base_width=width,base_height=height))

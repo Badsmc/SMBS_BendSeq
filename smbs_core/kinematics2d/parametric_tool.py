@@ -26,6 +26,8 @@ class ToolRecipe:
     shank_height: float = 15.0
     relief_depth: float = 0.0
     relief_height: float = 25.0
+    base_width: float = 0.0
+    base_height: float = 0.0
 
     def validate(self):
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}", self.tool_id):
@@ -45,8 +47,14 @@ class ToolRecipe:
                 raise ValueError("Invalid mounting shank dimensions")
             if not (0 <= self.relief_depth < self.width - 4 and self.relief_height > 0):
                 raise ValueError("Invalid relief dimensions")
-        elif not isfinite(self.opening) or not 0 < self.opening < self.width:
-            raise ValueError("V opening must be smaller than the body width")
+        else:
+            if not isfinite(self.opening) or not 0 < self.opening < self.width:
+                raise ValueError("V opening must be smaller than the body width")
+            if not all(isfinite(v) and v >= 0 for v in (self.base_width, self.base_height)):
+                raise ValueError("Invalid die base dimensions")
+            if self.base_width or self.base_height:
+                if not (self.width < self.base_width <= 5000 and 0 < self.base_height < self.height):
+                    raise ValueError("Stepped die requires a wider base and a positive base height")
 
 
 def _lines(points):
@@ -86,11 +94,19 @@ def build_contour(recipe: ToolRecipe) -> Contour2D:
         ty = -r + r * sin(a)
         if center_x + 1 >= w or tx <= 0 or depth + 2 >= h or ty <= -depth:
             raise ValueError("V groove or shoulder radius does not fit the die body")
-        edges = _lines([(-w, -h), (w, -h), (w, 0), (center_x, 0)])
+        if recipe.base_width:
+            b = recipe.base_width / 2
+            level = -h + recipe.base_height
+            right_body = [(-b, -h), (b, -h), (b, level), (w, level), (w, 0), (center_x, 0)]
+            left_body = [(-center_x, 0), (-w, 0), (-w, level), (-b, level), (-b, -h)]
+        else:
+            right_body = [(-w, -h), (w, -h), (w, 0), (center_x, 0)]
+            left_body = [(-center_x, 0), (-w, 0), (-w, -h)]
+        edges = _lines(right_body)
         edges.append(ArcSegment2D((center_x, 0), (tx, ty), (center_x, -r), r, True))
         edges += _lines([(tx, ty), (0, -depth), (-tx, ty)])
         edges.append(ArcSegment2D((-tx, ty), (-center_x, 0), (-center_x, -r), r, True))
-        edges += _lines([(-center_x, 0), (-w, 0), (-w, -h)])
+        edges += _lines(left_body)
     contour = Contour2D(segments=tuple(edges))
     if not contour.is_closed(1e-7) or has_self_intersection(contour) or contour.area <= 0:
         raise ValueError("Generated profile is not a valid closed contour")
@@ -138,7 +154,8 @@ def tooling_metadata(recipe: ToolRecipe) -> dict:
     if punch:
         metadata.update(radius_mm=recipe.radius,working_height_mm=recipe.height-recipe.shank_height)
     else:
-        metadata.update(v_width_mm=recipe.opening,shoulder_radius_mm=recipe.radius)
+        metadata.update(v_width_mm=recipe.opening,shoulder_radius_mm=recipe.radius,
+                        base_width_mm=recipe.base_width,base_height_mm=recipe.base_height)
     return {"schema_version":"1.0","id":recipe.tool_id,"kind":recipe.kind,
             "source":recipe.tool_id+".FCStd","datums":datums,"metadata":metadata}
 
@@ -153,3 +170,7 @@ def starter_recipes():
     for opening in (6,8,10,12,16,20,25,32,40,50,80):
         yield ToolRecipe(f"SMBS_DEMO_V{opening}", kind="die", opening=opening,
                          width=max(24,opening+16), height=max(35,opening), radius=min(2,opening/6))
+    yield ToolRecipe("SMBS_DEMO_TV10", kind="die", opening=10, width=16,
+                     height=80, radius=0.5, base_width=60, base_height=18)
+    yield ToolRecipe("SMBS_DEMO_TV25", kind="die", opening=25, width=36,
+                     height=80, radius=1, base_width=60, base_height=18)

@@ -18,3 +18,18 @@ and existing loader's extracted datums before publishing it. Verify in FreeCAD
 1.1.x, including 2D preview, Coin3D, FAST and Mesh, before adopting as default.
 The prior tooling and provenance gate are unchanged; the generator alone does
 not clear the redistribution rights of existing third-party models.
+
+## CNC-style live editor
+
+The resizable dialog shows the parameter form on the left and a proportional
+cross-section with dimensions, centerline and active-field highlighting on the
+right. Every edit rebuilds the same geometric contour used by DXF and FCStd.
+Invalid dimensions clear the drawing and disable Create; no stale geometry is
+saved. H1 is derived from H2 minus the mounting shank height. V is the nominal
+opening at the die top plane. L and quantity refer to the longitudinal stock,
+not the transverse drawing. Two independent generic T-base die presets (V10,
+V25) supplement the rectangular dies. B and T control base width and height;
+set both to zero for a rectangular die. Dimension symbols are SMBS conventions,
+not a claim of compatibility with a specific CNC controller's L1–L9 schema.
+No controller safety or force settings are copied. The diagrams are screen
+previews; the exported circular arcs are exact.

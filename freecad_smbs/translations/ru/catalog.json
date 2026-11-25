@@ -1018,5 +1018,12 @@
   "parametric_relief_depth": "Глубина выреза",
   "parametric_relief_height": "Высота выреза",
   "parametric_opening": "Раскрытие V",
-  "parametric_quantity": "Количество сегментов (0 = не задано)"
+  "parametric_quantity": "Количество сегментов (0 = не задано)",
+  "parametric_base_width": "Ширина основания (0 = прямоугольная)",
+  "parametric_base_height": "Высота основания (0 = прямоугольная)",
+  "parametric_working_height": "Рабочая высота",
+  "parametric_live_drawing": "Динамический профиль · размеры в мм",
+  "parametric_preview_stock": "Длина модели: {length} мм | Количество сегментов: {quantity}",
+  "parametric_invalid_profile": "Некорректный профиль: {error}",
+  "parametric_valid_profile": "Контур замкнут и корректен. Перед сохранением будет проверено 3D-тело."
 }
