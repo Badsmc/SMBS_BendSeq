@@ -1,0 +1,26 @@
+name: Remove merged tooling feature
+on:
+  push:
+    branches: [develop]
+    paths: ['.github/workflows/temporary-remove-merged-feature.yml']
+permissions:
+  contents: write
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Delete only the merged feature at the audited SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref=refs/heads/feature/parametric-tool-generator
+          expected=dfc44b2b7f63e4ca6d0f3fa6f0c55c66c260642b
+          actual=$(git ls-remote --heads origin "$ref" | cut -f1)
+          test "$actual" = "$expected"
+          git fetch origin "$ref"
+          git merge-base --is-ancestor "$expected" HEAD
+          git push --force-with-lease="$ref:$expected" origin ":$ref"
+          test -z "$(git ls-remote --heads origin "$ref")"
