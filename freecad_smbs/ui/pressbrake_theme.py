@@ -6,6 +6,8 @@ Only content spacing and font weights are adjusted here.
 """
 from __future__ import annotations
 
+from freecad_smbs.ui.localization import language_metadata
+
 # Small, style-neutral layout metrics. Physical pixels; Qt scales on HiDPI.
 OUTER_MARGIN = 6
 SECTION_PADDING = 2
@@ -63,30 +65,27 @@ def classify_status(message: str) -> tuple[str, str]:
     raw = str(message or "")
     upper = raw.upper()
     lower = raw.lower()
+    tokens = language_metadata("ru").get("status_tokens", {})
     if any(term in lower for term in (
-        "ошибка", "сбой", "невозможно", "отклонен", "отклонён",
-        "не удалось", "cannot", "failed", "error:", "стоп:",
+        *tokens.get("error", ()), "cannot", "failed", "error:",
         "could not", "unable", "unavailable", "stopped due to", "invalid", "rejected",
     )):
         return "error", "Error"
     if any(term in upper for term in ("UNVERIFIED", "UNSUPPORTED", "NOT_VERIFIED")):
         return "unverified", "Unverified"
     if any(term in lower for term in (
-        "conditional", "предупрежден", "предупреждён", "не подтвержден",
-        "не подтверждён", "не проверен", "не проверён", "частичный",
+        *tokens.get("warning", ()), "conditional",
         "not checked", "not verified", "incomplete", "preliminary",
         "did not start", "not started", "no candidates found", "no solution",
     )):
         return "warning", "Warning"
     if any(term in lower for term in (
-        "выполняется", "проверяется", "идёт поиск", "ищем",
-        "auto play: ", "поиск последовательности (глубина",
+        *tokens.get("running", ()), "auto play: ",
         "checking", "searching", "calculating", "in progress",
     )):
         return "running", "Running"
     if any(term in lower for term in (
-        "загружен", "сохранён", "сохранен", "завершён",
-        "завершен", "найден", "ready",
+        *tokens.get("success", ()), "ready",
         "loaded", "saved", "completed", "found", "applied",
     )):
         return "success", "Ready"

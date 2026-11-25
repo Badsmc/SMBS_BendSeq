@@ -283,7 +283,7 @@ def _overview_html(session, operations, rows, tooling, core, gui, diagrams):
                  f'<td>{escape(_bend_direction(op.target_angle_deg))}</td>'
                  f'<td>{escape(row[4])}</td><td>{escape(row[5])}</td></tr>')
     html += '</table><table width="100%"><tr>'
-    for kind, title in (("punch", "Пуансон"), ("die", "Матрица")):
+    for kind, title in (("punch", "punch"), ("die", "die")):
         tool = getattr(tooling, kind)
         html += f'<td width="50%"><h2>{escape(tr(title))}</h2>'
         if tool is not None:

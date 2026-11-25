@@ -84,7 +84,7 @@ def write_inventory(fcstd_path, rows):
     if (not isinstance(data, dict) or data.get("kind") not in ("punch", "die")
             or (data.get("id") != fcstd_path.stem
                 and data.get("source") != fcstd_path.name)):
-        raise AssemblyPlanningError("Метаданные принадлежат другому инструменту.")
+        raise AssemblyPlanningError("Metadata belongs to a different tool.")
     metadata = data.setdefault("metadata", {})
     if not isinstance(metadata, dict):
         raise AssemblyPlanningError("metadata must be an object")

@@ -15,10 +15,10 @@ from freecad_smbs.integration.document_group import group_document_objects
 from smbs_core.geometry_backend.io.clamp_validator import ClampValidatorError
 from smbs_core.kinematics2d.segment_assembly_planner import plan_pair_for_bend
 
-HEADERS = ("№ операции", "Линия", "Операция", "Этап", "Упор S, мм",
-           "Полка по развёртке, мм", "Целевой угол, °",
-           "Пуансон, мм × шт.", "Матрица, мм × шт.")
-OPERATION_NAMES = {"SINGLE": "Гиб", "PREBEND": "Предгиб", "FINISH": "Догиб"}
+HEADERS = ("operation_no", "line", "operation", "stage", "gauge_s_mm",
+           "flat_flange_mm", "target_angle",
+           "punch_mm_qty", "die_mm_qty")
+OPERATION_NAMES = {"SINGLE": "bend", "PREBEND": "prebend", "FINISH": "finish_bend"}
 
 
 def _format_segments(lengths):

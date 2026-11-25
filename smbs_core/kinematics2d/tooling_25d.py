@@ -2395,7 +2395,7 @@ class ToolingSetup2D:
     def set_tool_assembly(self, assembly: ToolAssembly | None) -> None:
         if assembly is not None:
             if self.match_active_bend_length:
-                raise ValueError("Отключи виртуальную длину перед применением набора.")
+                raise ValueError("Disable virtual length before applying the tool set.")
             self.punch_section_offsets_xm = ()
             self.die_section_offsets_xm = ()
         self.tool_assembly = assembly
@@ -2518,7 +2518,7 @@ class ToolingSetup2D:
         - Does NOT modify `PanelGraph`, `FoldState`, `BendZone`, or `BendSequenceController`.
         """
         if self.punch is None and self.die is None:
-            raise ToolingError("Не выбран ни пуансон (PUNCH), ни матрица (DIE) для выравнивания.")
+            raise ToolingError("Neither a punch (PUNCH) nor a die (DIE) is selected for alignment.")
         if not math.isfinite(float(clearance_mm)) or float(clearance_mm) <= 0.0:
             raise ToolingError(
                 f"Initial punch clearance_mm must be a positive number in mm, got {clearance_mm!r}"

@@ -1346,19 +1346,19 @@ class _WorkspaceActionCommand:
 
 
 class FastSearchCommand(_WorkspaceActionCommand):
-    label = "FAST · найти последовательности (до 30 с)"
+    label = "fast_find_sequences_up_to_30_s"
     method = "_run_fast_sequence_search"
     icon = "gui_simulation.svg"
 
 
 class BendInformationCommand(_WorkspaceActionCommand):
-    label = "Информация"
+    label = "information"
     method = "_show_bend_information"
     icon = "gui_part.svg"
 
 
 class BendInstructionsPdfCommand(_WorkspaceActionCommand):
-    label = "Карта гибки PDF"
+    label = "bend_plan_pdf"
     method = "_save_bend_instructions_pdf"
     icon = "control_save.svg"
 
@@ -2210,7 +2210,7 @@ class _PreviewPanel:
                 # as the preview design. No duplicate playback/controller widgets.
                 simulation = QtWidgets.QWidget()
                 sim_layout = QtWidgets.QVBoxLayout(simulation)
-                # The native Tasks header already says "Симуляция": no duplicate
+                # The native Tasks header already says "Simulation": no duplicate
                 # section title or large diagnostic card above playback.
                 playback = QtWidgets.QWidget(simulation)
                 playback.setObjectName("SMBS_FixedPlayback")
@@ -2774,9 +2774,9 @@ class _PreviewPanel:
                     badge.style().unpolish(badge)
                     badge.style().polish(badge)
                 badge.setText(tr({
-                    "Ready": "Готово", "Running": "Расчёт…",
-                    "Warning": "Предупреждение", "Error": "Ошибка",
-                    "Unverified": "Не проверено",
+                    "Ready": "ready", "Running": "working",
+                    "Warning": "warning", "Error": "error",
+                    "Unverified": "unverified_5f496335",
                 }.get(caption, caption)))
 
             def _on_physical_result_change(self, message):
@@ -4303,8 +4303,8 @@ class _PreviewPanel:
                         for kind in ("punch","die")
                     )
                     candidate_sources.append(
-                        "шаблон: " + (tr("template") if hit.title == "Шаблон" else hit.title) +
-                        (" (другая оснастка)" if changed_tools else "")
+                        "template: " + (tr("template") if tr_message(hit.title, language="en") == "Template" else hit.title) +
+                        (" (different tooling)" if changed_tools else "")
                     )
                 for candidate in report.candidates:
                     key = (
@@ -4358,7 +4358,7 @@ class _PreviewPanel:
                         )
                         order = tuple(
                             index for index in order
-                            if (candidate_sources[index].startswith("шаблон:")
+                            if (candidate_sources[index].startswith("template:")
                                 or screen_report.checks[index].failed_transition
                                 not in blocked)
                         )
@@ -4415,7 +4415,7 @@ class _PreviewPanel:
                         )
                         is_template = candidate_sources[
                             source_index
-                        ].startswith("шаблон:")
+                        ].startswith("template:")
                         if is_template:
                             verdict += tr("ntemplate_cost_was_not_calculated_the_saved_plan_has")
                         details = (
@@ -4437,8 +4437,8 @@ class _PreviewPanel:
                                 check.clear_prefix_steps if check else 0,
                                 len(candidate.operation_ids)
                             ),
-                            (candidate_sources[source_index].replace("шаблон: ", tr("template_e69f50ad"), 1)
-                             .replace(" (другая оснастка)", tr("different_tooling")) if is_template
+                            (candidate_sources[source_index].replace("template: ", tr("template_e69f50ad"), 1)
+                             .replace(" (different tooling)", tr("different_tooling")) if is_template
                              else candidate_sources[source_index]),
                             candidate.operation_ids[0],
                             ", ".join(reversed_ids) if reversed_ids else "—",
@@ -4524,7 +4524,7 @@ class _PreviewPanel:
                     # NEVER assumed to have passed machine collision tests.
                     findings = []
                     for idx, source in enumerate(candidate_sources):
-                        if (not source.startswith("шаблон:")
+                        if (not source.startswith("template:")
                                 or idx >= len(current_screen.checks)):
                             continue
                         template_candidate = all_candidates[idx]
@@ -7357,7 +7357,7 @@ class _PreviewPanel:
                 try:
                     for name, label, shape, color, transparency in (
                         ("Sheet", hit["component"], component, (0.7, 0.7, 0.7), 75),
-                        ("Tool", tr({"punch": "пуансон", "die": "матрица"}[hit["tool"]]),
+                        ("Tool", tr({"punch": "punch_44f13e39", "die": "die_f5194d67"}[hit["tool"]]),
                          tool, (0.5, 0.6, 0.8), 75),
                         ("Overlap", f'{hit["operation"]} · {hit["phase"]}',
                          common, (1.0, 0.0, 0.0), 0),

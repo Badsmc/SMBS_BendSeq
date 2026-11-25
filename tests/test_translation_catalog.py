@@ -13,44 +13,15 @@ RUSSIAN = re.compile(r"[А-Яа-яЁё]")
 
 
 class TranslationCatalogTest(unittest.TestCase):
-    def test_core_diagnostic_fragments_are_accounted_for(self):
-        catalog = json.loads((ROOT / "translations/en/catalog.json").read_text(encoding="utf-8"))
-        # These pieces are assembled into formatted catalog templates or are
-        # internal identifiers; a new literal must be translated explicitly.
-        fragments = {
-            "Нет проверенного FCStd для ", "Непригодная сетка оснастки: ",
-            "Пустая сетка панели ", "Шаблон", "Этап ",
-            "Неизвестный физический гиб: ", "Догиб ",
-            " нельзя ставить раньше предварительного гиба.",
-            "Неизвестный гиб «", "». Используйте номера с развёртки.",
-            "Гиб ", " указан несколько раз.",
-        }
-        missing = []
-        for source_file in CORE.rglob("*.py"):
-            tree = ast.parse(source_file.read_text(encoding="utf-8"))
-            for node in ast.walk(tree):
-                if (isinstance(node, ast.Constant) and isinstance(node.value, str)
-                        and RUSSIAN.search(node.value)
-                        and node.value not in catalog and node.value not in json.loads((ROOT / "translations/ru/catalog.json").read_text(encoding="utf-8")).values() and node.value not in fragments):
-                    missing.append(f"{source_file.relative_to(CORE)}:{node.lineno}: {node.value[:90]}")
-        self.assertEqual(missing, [])
-
-    def test_russian_ui_literals_have_catalog_entries(self):
-        catalog = json.loads((ROOT / "translations/en/catalog.json").read_text(encoding="utf-8"))
-        # These are input tokens used to recognize locale or status, not UI output.
-        internal = {
-            "русский", "стоп:", "предупрежден", "предупреждён",
-            "поиск последовательности (глубина", r"[А-Яа-яЁё]",
-        }
-        missing = []
-        for source_file in ROOT.rglob("*.py"):
-            tree = ast.parse(source_file.read_text(encoding="utf-8"))
-            for node in ast.walk(tree):
-                if (isinstance(node, ast.Constant) and isinstance(node.value, str)
-                        and RUSSIAN.search(node.value)
-                        and node.value not in catalog and node.value not in json.loads((ROOT / "translations/ru/catalog.json").read_text(encoding="utf-8")).values() and node.value not in internal):
-                    missing.append(f"{source_file.relative_to(ROOT)}:{node.lineno}: {node.value[:90]}")
-        self.assertEqual(missing, [])
+    def test_production_python_sources_are_english(self):
+        """Translations belong in locale resources, not production Python."""
+        violations = []
+        for root in (ROOT, CORE):
+            for source_file in root.rglob("*.py"):
+                for lineno, line in enumerate(source_file.read_text(encoding="utf-8").splitlines(), 1):
+                    if RUSSIAN.search(line):
+                        violations.append(f"{source_file.relative_to(ROOT.parent)}:{lineno}")
+        self.assertEqual(violations, [])
 
     def test_freecad_language_preference_selects_catalog(self):
         from freecad_smbs.ui.localization import resolve_language, tr

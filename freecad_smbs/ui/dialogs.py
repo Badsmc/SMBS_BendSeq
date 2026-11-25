@@ -89,7 +89,7 @@ def show_pipeline_result(result: Any) -> None:
         steps_text = "\n".join(steps_lines) if steps_lines else tr("no_steps")
 
         if planning_status == "SUCCESS":
-            elig_str = "Готово к производству (production_eligible=true)" if prod_elig else "Не подтверждено для производства (production_eligible=false)"
+            elig_str = "ready_for_production_production_eligible_true" if prod_elig else "not_approved_for_production_production_eligible_false"
             msg = tr("sequence_calculated_successfully_bending_order_steps_verification_status_run", count=len(seq), steps=steps_text, verification=verif_status, eligibility=tr(elig_str), directory=run_dir)
             show_info(tr("smbs_calculation_complete"), msg)
         else:  # PARTIAL (EXPLORATORY / without physical tooling)
@@ -106,7 +106,7 @@ def show_pipeline_result(result: Any) -> None:
 class ProgressContext:
     """Progress dialog context manager, headless-safe."""
 
-    def __init__(self, title: str = "SMBS", text: str = "Выполняется расчёт..."):
+    def __init__(self, title: str = "SMBS", text: str = "calculating"):
         self.title = title
         self.text = tr(text)
         self._dlg = None

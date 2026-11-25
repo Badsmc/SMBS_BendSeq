@@ -60,7 +60,7 @@ COMMANDS_MAP = {
     "SMBS_VirtualClamps": VirtualClampsCommand,
     "SMBS_ToolLayout": ToolLayoutCommand,
 }
-TOOLING_TOOLBAR = "PressBrakeSim — оснастка"
+TOOLING_TOOLBAR = "pressbrakesim_tooling"
 _TOOLING_ACTIONS = [
     "SMBS_ToolLayout",
 ]

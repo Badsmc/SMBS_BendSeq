@@ -36,13 +36,24 @@ def _translation_key(source):
     return _source_keys().get(source, source)
 
 
+@lru_cache(maxsize=4)
+def language_metadata(language):
+    path = Path(__file__).resolve().parents[1] / "translations" / language / "metadata.json"
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+
+
 def resolve_language(freecad_language="", system_language="en"):
     language = freecad_language.strip().casefold()
     if language in ("", "system", "system default", "auto", "default"):
         language = system_language.strip().casefold()
     token = language.replace("-", "_").replace(" ", "_").split("_", 1)[0]
+    if token in language_metadata("ru").get("locale_names", ()):
+        return "ru"
     return {
-        "ru": "ru", "russian": "ru", "русский": "ru",
+        "ru": "ru", "russian": "ru",
         "en": "en", "english": "en",
     }.get(token, "en")
 
@@ -109,6 +120,8 @@ def _message_patterns(source_language, target_language):
 def tr_message(message, *, language=None):
     """Translate a fully formatted core error without making core depend on FreeCAD."""
     value = str(message)
+    if not value:
+        return value
     language = interface_language() if language is None else language
     if language not in ("en", "ru"):
         language = "en"

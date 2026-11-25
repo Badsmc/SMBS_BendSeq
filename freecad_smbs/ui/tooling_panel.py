@@ -647,7 +647,7 @@ class ToolingPanel:
                     if self._workspace is not None:
                         self._workspace._on_punch_orientation_changed(updated)
                     self._set_status(tr("rotation", tool=updated.name,
-                                        state=tr("включён" if checked else "выключен")))
+                                        state=tr("enabled" if checked else "disabled")))
 
                 def _on_selection_changed(self) -> None:
                     index = self.tabs.currentIndex()
@@ -675,9 +675,9 @@ class ToolingPanel:
                         )
                         self._show_picture(self.tool_picture, path, backgauge=True)
                         return
-                    self.import_tool_button.setText(tr(("Импорт пуансона", "Импорт матрицы")[index]))
-                    self.remove_tool_button.setText(tr(("Удалить пуансон", "Удалить матрицу")[index]))
-                    self.segments_button.setText(tr(("Сегменты пуансона", "Сегменты матрицы")[index]))
+                    self.import_tool_button.setText(tr(("import_punch", "import_die")[index]))
+                    self.remove_tool_button.setText(tr(("remove_punch", "remove_die")[index]))
+                    self.segments_button.setText(tr(("punch_segments", "die_segments")[index]))
                     desc = self._current_descriptor()
                     if index == 0:
                         self._refresh_punch_orientation(desc)
@@ -695,7 +695,7 @@ class ToolingPanel:
                     sidecar_str = tr("yes") if desc.has_sidecar else tr("no")
                     self.lbl_selected_id.setText(tr(
                         "selected_metadata_file",
-                        kind=tr(("Пуансон", "Матрица")[index]), tool=desc.tool_id,
+                        kind=tr(("punch", "die")[index]), tool=desc.tool_id,
                         sidecar=sidecar_str,
                     ))
                     meta_str = (

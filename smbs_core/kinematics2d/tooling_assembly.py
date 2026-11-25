@@ -21,12 +21,12 @@ class ToolAssembly:
     @classmethod
     def from_plan(cls, plan):
         if plan["status"] == "ASSEMBLY_SEARCH_LIMIT":
-            raise ValueError("Подбор остановился до проверки всех вариантов раскладки.")
+            raise ValueError("Selection stopped before all layout candidates were checked.")
         if plan["status"] != "ASSEMBLY_CANDIDATE_UNVERIFIED":
-            raise ValueError("Не удалось подобрать общий набор для самой длинной линии гиба.")
+            raise ValueError("Could not find a shared set for the longest bend line.")
         clamps = plan["clamps"]
         if clamps["proposed_reposition"]:
-            raise ValueError("Задайте фактические центры зажимов или их число для симметричного ряда.")
+            raise ValueError("Enter actual clamp centers or their count for a symmetric row.")
 
         def spans(kind):
             return normalize_section_spans(
@@ -61,9 +61,9 @@ def normalize_section_spans(spans) -> SectionSpans:
     spans = tuple(sorted((float(left), float(right)) for left, right in spans))
     if any(not (isfinite(left) and isfinite(right) and right - left > 1e-3)
            for left, right in spans):
-        raise ValueError("Недопустимые границы сегмента оснастки.")
+        raise ValueError("Invalid tooling segment bounds.")
     if any(a[1] > b[0] + 1e-6 for a, b in pairwise(spans)):
-        raise ValueError("Сегменты оснастки перекрываются по X.")
+        raise ValueError("Tooling segments overlap along X.")
     return spans
 
 

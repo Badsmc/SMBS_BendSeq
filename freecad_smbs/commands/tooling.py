@@ -81,7 +81,7 @@ class ToolingSettingsCommand:
             return
         _, _, qt = _qt()
         catalog = library.list_tools()
-        kinds = (("Пуансон", catalog.punches), ("Матрица", catalog.dies))
+        kinds = (("punch", catalog.punches), ("die", catalog.dies))
         tools = {f"{tr(kind)} · {tool.tool_id}": tool
                  for kind, entries in kinds for tool in entries}
         if not tools:
@@ -97,15 +97,15 @@ class ToolingSettingsCommand:
 
 
 class SegmentStockCommand(ToolingSettingsCommand):
-    label = "Сегменты и количество"
+    label = "segment_inventory"
     action = "stock"
 
 
 class VirtualClampsCommand(ToolingSettingsCommand):
-    label = "Виртуальные зажимы"
+    label = "virtual_clamps"
     action = "clamps"
 
 
 class ToolLayoutCommand(ToolingSettingsCommand):
-    label = "Рассчитать раскладку"
+    label = "calculate_tool_layout"
     action = "layout"
