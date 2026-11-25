@@ -1,147 +1,143 @@
-# SMBS: предварительный гиб / догиб (эксперимент)
+# SMBS: staged pre-bending and finishing (experimental)
 
-Основная ветка разработки: `manualmod.ui`; система предгиба перенесена из `experiment/prebend-rebend`.
-Статус: **операционная кинематика + GUI + FCStd-сохранение реализованы; геометрическая/технологическая проверка этапов не сертифицирована**.
+Original development branch: `manualmod.ui`. The pre-bend system was ported
+from `experiment/prebend-rebend`.
 
-## Цель
+Status: **operation-level kinematics, GUI, and FCStd persistence are
+implemented; geometric and manufacturing validation of staged bends is not
+certified**.
 
-Некоторые детали нельзя сформировать одним проходом по выбранной линии гиба.
-Для физической линии `B03` с окончательным углом `+90°` можно
-запрограммировать промежуточный этап `B03.1 → +35°`, затем выполнить
-`B01`, `B02` и `B04`, после чего вернуться к той же линии для
-`B03.2: +35° → +90°`.
+## Purpose
 
-Операции `B03.1` и `B03.2` **не являются двумя разными линиями гиба**:
-геометрия, ось, BendZone и идентификатор в `FoldState` остаются `B03`.
-Конечный угол взят из исходной развёртки и не изменяется. Промежуточный
-угол — **абсолютный**, а не прибавляемый к уже согнутому.
+Some parts cannot be formed in a single pass along the selected bend line.
+For physical line `B03` with a final angle of `+90°`, an intermediate operation
+`B03.1 → +35°` can be programmed, followed by `B01`, `B02`, and `B04`, before
+returning to the same line for `B03.2: +35° → +90°`.
 
-## Использование в GUI FreeCAD
+Operations `B03.1` and `B03.2` **are not two different bend lines**: the geometry,
+axis, BendZone, and identifier in `FoldState` remain `B03`. The final angle comes
+from the original unfold and does not change. The intermediate angle is
+**absolute**, not an increment added to the current angle.
 
-1. Загрузить развёртку SheetMetal или подготовленную DXF-сессию.
-2. В таблице «Ручной порядок гибов» у нужной строки нажать `+`
-   в колонке «Предгиб».
-3. В диалоге выбрать промежуточный угол (например, `+35°` при конечном
-   `+90°`, либо `-30°` при конечном `-90°`).
-4. В **том же диалоге** перетащить единственную активную строку
-   `B03.1 · предгиб` среди зафиксированных остальных операций.
-   `B03.2 · догиб` остаётся на своём месте; предгиб нельзя поместить
-   после догиба.
-5. Подтвердить. Основная таблица показывает обе операции и выбранный
-   порядок. В основной таблице также доступны перетаскивание или
-   кнопки ↑/↓ с тем же ограничением предгиб → догиб.
-6. Нажать Reset, затем Play / Next, чтобы просмотреть последовательность.
-   Между этапами промежуточный угол физической линии сохраняется.
-7. Для удаления ошибочно заданного предгиба нажать **×** рядом с
-   **Изм.** в строке `B03.1` или открыть **Изм.** и нажать отдельную
-   кнопку **«Удалить предгиб и вернуть обычный гиб»**.
-   Подтвердить удаление. Операция `B03.1` исчезнет, а `B03.2`
-   станет обычным `B03` с исходным конечным углом, на месте догиба.
-   Остальные операции и их позиции не изменяются.
-   После удаления устаревшие проверки сбрасываются; можно снова
-   добавить предгиб через **+**. Если симуляция уже проиграна,
-   перед редактированием нужно нажать **Reset**.
-8. Сохранить FreeCAD FCStd: вложенный SMBS JSON содержит `order.operation_steps`.
-   После повторного открытия этапы восстанавливаются (при совпадающей геометрии).
+## FreeCAD GUI usage
 
-Физические гибы по-прежнему однозначны: `order.bend_ids` содержит
-уникальные ID, а `order.operation_steps` — отдельный список
-этапов для воспроизведения.
+1. Load a SheetMetal unfold or a prepared DXF session.
+2. In the manual bend order table, click `+` in the Pre-bend column for the
+   relevant row.
+3. Choose an intermediate angle in the dialog (for example, `+35°` for a final
+   angle of `+90°`, or `-30°` for a final angle of `-90°`).
+4. In **the same dialog**, drag the only active row, `B03.1 · pre-bend`,
+   among the other fixed operations. `B03.2 · finish` remains in place; the
+   pre-bend cannot follow the finishing operation.
+5. Confirm. The main table shows both operations and the chosen order.
+   Dragging and the ↑/↓ buttons are also available in the main table,
+   subject to the same pre-bend-before-finish constraint.
+6. Click Reset, then Play or Next to review the sequence. The intermediate
+   angle of the physical bend line is retained between operations.
+7. To remove an incorrectly defined pre-bend, click **×** next to **Edit**
+   in row `B03.1`, or open **Edit** and click the separate button to remove
+   the pre-bend and restore a normal bend. Confirm the removal.
+   Operation `B03.1` disappears and `B03.2` becomes an ordinary `B03`
+   at the finishing operation's position, with the original final angle.
+   Other operations and their positions remain unchanged.
+   Obsolete checks are cleared; a new pre-bend can be added with **+**.
+   If playback has already run, click **Reset** before editing.
+8. Save the FreeCAD FCStd. Embedded SMBS JSON contains
+   `order.operation_steps`. Operations are restored on reopening if the
+   geometry matches.
 
-## Состояния и переходы
+Physical bends remain unambiguous: `order.bend_ids` contains unique IDs,
+whereas `order.operation_steps` is a separate list of playback operations.
 
-* `SINGLE`: обычный одинарный гиб (например, `B02` → `+60°`).
-* `PREBEND`: предварительный гиб до произвольного допустимого
-  промежуточного абсолютного угла (например, `B03.1` → `+35°`).
-* `FINISH`: завершающая операция той же линии с известного
-  промежуточного угла до исходного конечного (например,
-  `B03.2` → `+90°`).
+## States and transitions
 
-Контроллер хранит отдельный курсор завершённых операций и использует
-исходный `FoldState` как единственный источник углов. `Next` фиксирует
-целевой угол **операции**; `Previous` восстанавливает последовательный
-префикс операций. Для машинного цикла подтверждение этапа происходит
-после `RETRACT`, не сразу при достижении целевого угла.
+- `SINGLE`: an ordinary single-pass bend (for example, `B02 → +60°`).
+- `PREBEND`: a preliminary bend to any permitted intermediate absolute angle
+  (for example, `B03.1 → +35°`).
+- `FINISH`: the finishing operation on the same line, from a known intermediate
+  angle to the original final angle (for example, `B03.2 → +90°`).
 
-Величина догиба `Δangle` = `|final| - |intermediate|`.
-При смене инструмента и положении в сцене используется физическая
-линия гиба; новое геометрическое ребро не создаётся.
+The controller maintains a separate cursor for completed operations and uses
+the original `FoldState` as the single source of angles. Next commits the
+**operation's** target angle; Previous restores the corresponding operation
+prefix. In the machine cycle, an operation is committed after `RETRACT`,
+not immediately upon reaching the target angle.
 
-## Независимый разворот 0°/180° для каждого этапа
+The finishing increment is `Δangle = |final| - |intermediate|`.
+Tool changes and scene placement use the physical bend line; no new geometric
+edge is created.
 
-* В таблице `B03.1` и `B03.2` имеют **отдельные** галочки.
-  Например, `B03.1 = 180°`, `B03.2 = 0°` либо наоборот.
-* Значение записывается по **operation_id**. Физическая линия
-  `B03` в `FoldState` остаётся общей, но ориентация заготовки
-  относительно инструмента применяется отдельно при каждом проходе.
-* В `PressCycleController` и при передаче детали `TRANSFER`
-  положение берётся по текущему/следующему operation_id, с
-  обратной совместимостью для обычных одиночных гибов.
-* Изменение строки, перестановка этапов, повторное открытие
-  панели и восстановление FCStd не должны объединять галочки.
-* Вложенный JSON хранит `order.operation_orientation_overrides`
-  отдельно от прежнего `order.manual_orientation_overrides`.
-  Старые сохранения без нового поля продолжают загружаться.
-* Старый D6/OCC-проверяющий код не различает физические гибы с
-  разной пооперационной ориентацией и не должен выдавать PASS
-  для таких последовательностей: результат `UNVERIFIED`.
+## Independent 0°/180° orientation for each operation
 
-## Инварианты
+- `B03.1` and `B03.2` have **separate** checkboxes. For example,
+  `B03.1 = 180°` and `B03.2 = 0°`, or vice versa.
+- Values are stored by **operation_id**. Physical line `B03` remains shared
+  in `FoldState`, but workpiece orientation relative to the tooling is
+  applied independently for each pass.
+- `PressCycleController` and `TRANSFER` use the current or next
+  operation_id, retaining backward compatibility with ordinary single bends.
+- Editing a row, reordering operations, reopening the panel, and restoring
+  an FCStd must not merge the checkboxes.
+- Embedded JSON stores `order.operation_orientation_overrides` separately
+  from the older `order.manual_orientation_overrides`. Older saves without
+  the new field remain loadable.
+- Legacy D6/OCC verification cannot distinguish operations on one physical
+  bend with different orientations and must not report PASS for these
+  sequences: the result is `UNVERIFIED`.
 
-* `0 < |intermediate| < |final|` и одинаковый знак двух углов.
-* У каждого физического гиба ровно один конечный этап.
-* Пока поддерживается **один** предварительный этап на одну физическую
-  линию. Несколько физических гибов могут иметь собственные предгибы.
-* `PREBEND` должен находиться раньше соответствующего `FINISH`.
-* Перестановка разрешена только на плоской заготовке и при остановленном
-  воспроизведении.
-* Перестановка исходных линий через старое текстовое поле запрещена,
-  когда есть дробные этапы: используйте таблицу операций.
-* Нельзя считать старый одноходовой порядок
-  `order.bend_ids` достоверной последовательностью этапов.
+## Invariants
 
-## Безопасность, границы первой версии
+- `0 < |intermediate| < |final|`, and both angles have the same sign.
+- Each physical bend has exactly one finishing operation.
+- Currently, **one** preliminary operation per physical bend line is supported.
+  Multiple physical bends may have their own pre-bends.
+- `PREBEND` must precede its corresponding `FINISH`.
+- Reordering is allowed only with a flat workpiece and stopped playback.
+- Reordering original bend lines through the old text field is prohibited
+  when staged operations exist; use the operation table.
+- The old single-pass `order.bend_ids` is not a reliable operation sequence.
 
-* Это **кинематическая симуляция** на существующем `FoldState` и
-  `PressCycleController`. Отображаются накопленные углы и
-  существующие этапы пресса/переноса.
-* Старый OCC-валидатор ожидает каждый физический гиб **один раз**.
-  Полная проверка для плана с предгибами **отключена** с явным
-  сообщением `UNVERIFIED`; прежние результаты сбрасываются.
-* Отдельные проверки текущего кадра не подтверждают возможность всей
-  многоэтапной последовательности. Нужен новый пооперационный
-  replay (все `APPROACH/CONTACT/BENDING/RETRACT/TRANSFER`), учитывающий
-  и промежуточную геометрию до следующего прохода.
-* Положение 0°/180° теперь задаётся **для каждой операции отдельно**.
-  При этом часть настроек заднего упора всё ещё относится к физической
-  линии, а не к отдельным операциям; расчёт контакта для разных проходов
-  ещё требует доработки.
-* Непрерывные реальные коллизии, удержание заготовки, достаточность
-  усилия и допустимость самого частичного гиба НЕ проверяются.
-  Конечная форма при снятии нагрузки не включает упругий возврат.
-* Функциональность развивается в `manualmod.ui`. `ManualMode` и `main` изменения напрямую не затрагивают.
+## Safety and first-version limitations
 
-## Регрессии и ручная проверка
+- This is a **kinematic simulation** based on the existing `FoldState` and
+  `PressCycleController`. It displays accumulated angles and existing
+  press/transfer phases.
+- The legacy OCC validator expects each physical bend **once**. Full
+  validation for pre-bend plans is **disabled** with an explicit
+  `UNVERIFIED` result; previous check results are cleared.
+- Current-frame checks do not establish feasibility of the entire multi-stage
+  sequence. A new operation-level replay is required, including all
+  `APPROACH/CONTACT/BENDING/RETRACT/TRANSFER` phases and intermediate geometry
+  before the next pass.
+- 0°/180° orientation is now specified **per operation**. Some backgauge
+  settings still apply to the physical bend line rather than individual
+  operations; contact computation for separate passes needs further work.
+- Continuous real-world collisions, workpiece retention, sufficient force,
+  and feasibility of the partial bend itself are NOT verified.
+  The unloaded final shape does not include springback.
+- Historically, this feature was developed in `manualmod.ui`; the original
+  changes did not directly modify `ManualMode` or `main`.
 
-Headless: `python -m unittest discover -s tests -v`;
-GitHub Actions выполняет их при push в `manualmod.ui`.
+## Regression and manual verification
 
-В FreeCAD 1.1.x необходимо вручную проверить:
+Headless: `python -m unittest discover -s tests -v`.
+The original development workflow ran these tests when pushing to `manualmod.ui`.
 
-1. Нажатие `+`, положительные и отрицательные углы, «Изм.» и удаление.
-2. Перетаскивание B03.1 через B01/B02; запрет перемещения B03.2
-   раньше B03.1, включая восстановление строк после ошибки.
-3. Форма и непрерывность анимации 0°→35°, затем B01/B02,
-   затем B03 35°→90°; отдельные шаги Next/Previous/Reset/Play.
-4. Работа с реальным выбранным пуансоном/матрицей, позиция упора,
-   3D Coin3D, фиксированная камера; никакого ложного PASS.
-5. Закрытие и открытие панели, сохранение и восстановление FCStd.
-6. Загрузка обычной детали без предгибов: неизменность ManualMode.
+Manually verify in FreeCAD 1.1.x:
 
-Ключевые файлы:
+1. The `+` button, positive and negative angles, editing, and removal.
+2. Dragging B03.1 across B01/B02; rejecting a move of B03.2 before B03.1,
+   including restoring rows after an error.
+3. Shape and continuous animation from 0° to 35°, followed by B01/B02,
+   then B03 from 35° to 90°; separate Next/Previous/Reset/Play actions.
+4. Real selected punch and die, backgauge placement, Coin3D, fixed camera,
+   and no false PASS.
+5. Closing and reopening the panel, saving and restoring FCStd.
+6. Loading an ordinary part without staged bends: unchanged manual behavior.
+
+Key files:
 - `smbs_core/kinematics2d/staged_bends.py`
 - `smbs_core/kinematics2d/press_cycle.py`
 - `freecad_smbs/commands/pressbrake_2d.py`
 - `freecad_smbs/integration/fcstd_session_store.py`
-- `tests/test_staged_bends.py`
-- `tests/test_fcstd_staged_operations.py`
+- Historical tests: `tests/test_staged_bends.py` and `tests/test_fcstd_staged_operations.py`.

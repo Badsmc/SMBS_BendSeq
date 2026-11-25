@@ -1,64 +1,63 @@
-# FCStd: штатное сохранение и автоматическое восстановление SMBS
+# FCStd: native saving and automatic SMBS restoration
 
-## Поведение
+## Behavior
 
-1. Откройте SheetMetal-модель с развёрткой и запустите SMBS.
-2. После загрузки детали все изменения настройки SMBS остаются в открытом сеансе.
-3. **FreeCAD → Файл → Сохранить / Ctrl+S** автоматически обновляет встроенный
-   `SMBS_Data.SessionJSON` *до* штатной сериализации FCStd. Дополнительный
-   экспорт JSON и кнопка «Сохранить в FCStd» не требуются.
-4. При повторном открытии FCStd, когда активен верстак PressBrakeSim, аддон
-   находит `SMBS_Data`, берёт **точное имя** связанной развёртки и
-   автоматически загружает её. Если FCStd был открыт в другом верстаке,
-   переключение на PressBrakeSim запускает тот же безопасный процесс.
-5. Если симулятор уже открыт, команда «Симуляция» умеет восстановить
-   сохранённую деталь без ручного выбора в дереве.
-6. При закрытии окна симулятора текущий JSON помещается в документ;
-   после этого для записи на диск всё ещё нужен штатный Save FreeCAD.
+1. Open a SheetMetal model with an unfold and start SMBS.
+2. After loading the part, SMBS configuration changes remain in the open session.
+3. **FreeCAD → File → Save / Ctrl+S** automatically updates the embedded
+   `SMBS_Data.SessionJSON` *before* native FCStd serialization. A separate JSON
+   export or a "Save to FCStd" button is not required.
+4. When reopening an FCStd while PressBrakeSim is active, the addon finds
+   `SMBS_Data`, reads the **exact name** of the associated unfold, and loads it
+   automatically. If the file was opened in another workbench, switching to
+   PressBrakeSim starts the same safe process.
+5. If the simulator is already open, the Simulation command can restore the
+   saved part without requiring manual selection in the model tree.
+6. Closing the simulator stores the current JSON in the document. Native
+   FreeCAD Save is still required to write it to disk.
 
-## Хранимые данные
+## Stored data
 
-- Идентификатор и SHA256 геометрии, SheetMetal-развёртка, все гибы;
-- Порядок операций, предгиб/догиб, углы и независимые повороты 0°/180°;
-- Выбранные пуансон/матрица (**ссылки с контрольной суммой профиля**);
-- Настройки симуляции, скорости, допуски, веса и архив вариантов;
-- **Параметры заднего упора конкретного документа**:
-  режим AUTO/MANUAL, станции X, координаты S/Z, зазор и подача;
-- **Конфигурация зажимов конкретного документа**:
-  количество, положение, размеры, зазоры и правила сегментации;
-- Ограниченные исторические диагностические результаты.
+- Geometry identifier and SHA256, SheetMetal unfold, and all bends.
+- Operation order, pre-bends and finishing bends, angles, and independent 0°/180° rotations.
+- Selected punch and die (**references with profile checksums**).
+- Simulation settings, speeds, tolerances, weights, and archived candidates.
+- **Document-specific backgauge settings:** AUTO/MANUAL mode, X stations, S/Z
+  coordinates, clearance, and feed.
+- **Document-specific clamp configuration:** quantity, position, dimensions,
+  clearances, and segmentation rules.
+- Limited historical diagnostic results.
 
-Размер JSON ограничен 4 МиБ. Для старых FCStd отсутствующие
-`tooling.backgauge` и `tooling.clamps` остаются допустимыми.
+JSON size is limited to 4 MiB. Missing `tooling.backgauge` and
+`tooling.clamps` fields remain valid for older FCStd files.
 
-## Безопасность
+## Safety
 
-- Автозагрузка возможна **только** при существовании валидного
-  `SMBS_Data` и указанной в нём развёртки. Произвольный CAD-объект
-  не выбирается вместо отсутствующего.
-- Геометрия повторно сравнивается по SHA256. При расхождении
-  автоматическая перезапись старого JSON отключается до ручного решения.
-- Ошибка формирования JSON не отменяет сохранение самой CAD-модели.
-  В Report View отображается причина, и ранее сохранённые данные SMBS
-  могут оказаться не обновлены.
-- Восстановление настроек зажимов **не перезаписывает глобальный**
-  `toollibrary/config.json`. Изменения в окне зажимов для загруженной
-  детали записываются в её FCStd при следующем сохранении.
-- Внешние FCStd-файлы пуансонов, матриц, заднего упора и складские
-  `.tooling.json` **не копируются внутрь** документа. В другой
-  установке FreeCAD они должны быть доступны отдельно.
-- 3D/OCC-результаты проверок после восстановления относятся к истории,
-  а не считаются вновь подтверждёнными. Предгиб/догиб остаётся
-  `UNVERIFIED` до реализации совместимой проверки коллизий.
-- Это автоматическое вложение данных **при штатном сохранении** FreeCAD,
-  а не фоновая периодическая запись FCStd каждые N минут.
+- Automatic loading requires valid `SMBS_Data` and its specified unfold.
+  An arbitrary CAD object is not selected in place of a missing unfold.
+- The geometry is compared again using SHA256. If it differs, automatic
+  overwriting of the old JSON is disabled pending manual resolution.
+- A JSON generation error does not cancel saving the CAD model itself.
+  Report View shows the reason, and previously saved SMBS data may remain unchanged.
+- Restoring clamp settings **does not overwrite the global**
+  `toollibrary/config.json`. Clamp-dialog changes for the loaded part are
+  written to its FCStd on the next save.
+- External FCStd files for punches, dies, and the backgauge, and inventory
+  `.tooling.json` files, **are not embedded** in the document. They must remain
+  separately available on another FreeCAD installation.
+- Restored 3D/OCC check results are historical, not newly verified results.
+  Pre-bend/finish sequences remain `UNVERIFIED` until compatible collision
+  checking is implemented.
+- This embeds data automatically **during native FreeCAD saving**; it is not
+  a periodic background FCStd autosave every N minutes.
 
-## Проверка вручную в FreeCAD
+## Manual verification in FreeCAD
 
-Создать деталь с 3–4 гибами → изменить порядок, задать B01.1/B01.2 и
-их независимые галочки 180°, выбрать пуансон/матрицу, настроить упор и
-зажимы → Ctrl+S → закрыть документ/FreeCAD → снова открыть FCStd при
-активном PressBrakeSim → проверить восстановление без выбора развёртки,
-включая таблицу и окно настроек зажимов/упора. Повторить с документом
-без JSON, с двумя разными документами, с повреждённой ссылкой на
-оснастку и после изменения CAD-геометрии.
+Create a part with 3–4 bends → change its order, set B01.1/B01.2 and their
+independent 180° checkboxes, select a punch and die, configure the backgauge
+and clamps → Ctrl+S → close the document/FreeCAD → reopen the FCStd with
+PressBrakeSim active → verify restoration without selecting the unfold,
+including the table and the clamp/backgauge settings dialogs.
+
+Repeat with a document without JSON, two different documents, a broken tooling
+reference, and modified CAD geometry.

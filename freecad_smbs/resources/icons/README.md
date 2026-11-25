@@ -22,10 +22,10 @@ command IDs are unchanged.
 
 | File | Command |
 |---|---|
-| `gui_part.svg` | Деталь |
-| `gui_tooling.svg` | Оснастка |
+| `gui_part.svg` | Part |
+| `gui_tooling.svg` | Tooling |
 | `gui_manual.svg` | Manual |
-| `gui_settings.svg` | Настройки |
+| `gui_settings.svg` | Settings |
 
 `gui_simulation.svg`, `gui_sequence_catalog.svg`,
 `gui_backgauge.svg`, `gui_workbench.svg`, and `tooling.svg`
