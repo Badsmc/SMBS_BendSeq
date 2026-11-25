@@ -1,0 +1,944 @@
+"""On-demand native 3D tooling check for an operator-defined bend sequence.
+
+Runs the existing D6.3.4 trajectory validator ONE bend at a time using the
+actual selected FCStd punch/die. The FoldState used for validation is a fresh
+isolated instance; user playback and FCStd documents are never changed.
+
+The backgauge is purposely visual-only, outside this collision scope.
+Even a successful run proves only the sampled punch/die-vs-sheet trajectories,
+not continuous clearance, transfers, clamps, frame, or manufacturing safety.
+"""
+from __future__ import annotations
+
+import os
+
+from math import dist, isfinite
+from pathlib import Path
+from time import perf_counter
+from types import SimpleNamespace
+from typing import Any, Callable, Iterable, Optional, Sequence
+
+from .developer_debug_log import debug_event, summarize_native_trajectory
+from .tooling_assembly import has_native_sections, native_section_options
+from .native_kernel_metrics import count_native_kernel_calls
+from .native_sequence_geometry_cache import NativeSequenceGeometryCache
+from .runtime_build_identity import loaded_native_module_sources
+from .native_geometry_build_metrics import count_native_geometry_builds
+from .component_collision_oracle import count_component_shadow_checks
+from .panel_kinematics import FoldState
+from .physical_validation_25d import (
+    PhysicalEvidence,
+    _source_path,
+    check_active_25d_bend_trajectory,
+)
+
+
+CLEAR = PhysicalEvidence.SAMPLED_3D_CLEAR_NOT_CONTINUOUS
+
+# Prefer a clear sampled pose, then a conditional one. When a second pose
+# could not be checked, a collision in the first pose does not rule out the bend.
+_ORIENTATION_RANK = {
+    CLEAR.value: 3,
+    "COARSE_3D_NO_PROVEN_COLLISION": 3,
+    PhysicalEvidence.CONDITIONAL.value: 2,
+    "COARSE_3D_CONDITIONAL_END_ZONE": 2,
+    PhysicalEvidence.COLLISION.value: 0,
+}
+
+
+_NONBLOCKING_PHASES = {
+    "SAMPLED_INTERVAL_CONVERGED",
+    "ADAPTIVE_SAMPLING_CONVERGED",
+    "SAMPLED_INTERVAL_CONDITIONAL_END_ZONE",
+    "DISCRETE_SAMPLES_SAFE",
+}
+
+
+def _phase_status(phase):
+    status = getattr(phase, "evidence_status", "")
+    return str(getattr(status, "value", status))
+
+
+def _select_3d_blocker(trajectory):
+    """Prefer a proven forbidden hit, retaining uncertainty if none is known.
+
+    A phase timeout is evidence of incomplete validation, not a tool collision.
+    Use the same predicate as D6 early rejection and keep attribution attached
+    to the exact selected state, including when an earlier phase timed out.
+    """
+    from .motion_trajectory_3d import is_blocking_collision
+
+    phases = tuple(getattr(trajectory, "phase_results", ()) or ())
+    first = getattr(trajectory, "first_collision_state", None)
+    for phase in phases:
+        hits = [s for s in getattr(phase, "states", ()) or ()
+                if is_blocking_collision(s)]
+        if (is_blocking_collision(first)
+                and str(getattr(first, "phase", "")) == phase.phase_name
+                and not any(s is first for s in hits)):
+            hits.append(first)
+        if hits:
+            return phase, min(hits, key=lambda s: getattr(s, "path_u", float("inf")))
+    problem = next((p for p in phases
+                    if _phase_status(p) not in _NONBLOCKING_PHASES), None)
+    # Unknown or invalid states may supply a location but cannot name a tool.
+    rejected = (s for s in getattr(problem, "states", ()) or ()
+                if not getattr(s, "is_safe", True)
+                and not getattr(s, "is_conditional_safe", False))
+    return problem, next(rejected, None)
+
+
+def concise_3d_blocker(trajectory: Any) -> dict:
+    """Locate the first proven native hit, or the first unresolved phase.
+
+    Preserve actual phase, ram Z and individual punch/die overlap; never
+    infer which tool penetrated merely from an aggregate COLLISION label.
+    """
+    if trajectory is None:
+        return {
+            "phase": "UNKNOWN", "reason": "no_native_3d_trajectory",
+            "tool": "UNKNOWN", "punch_overlap_mm3": None,
+            "die_overlap_mm3": None, "ram_z_mm": None,
+            "angle_deg": None, "phase_status": "UNVERIFIED",
+        }
+
+    problem, candidate = _select_3d_blocker(trajectory)
+    if problem is None:
+        return {
+            "phase": "NONE", "reason": "no_rejected_native_phase",
+            "tool": "NONE", "punch_overlap_mm3": None,
+            "die_overlap_mm3": None, "ram_z_mm": None,
+            "angle_deg": None, "phase_status": "SAMPLED_CLEAR",
+        }
+
+    name = str(getattr(problem, "phase_name", "UNKNOWN"))
+    phase_status = str(getattr(getattr(problem, "evidence_status", None),
+                               "value", getattr(problem, "evidence_status", "")))
+    punch_overlap = float(getattr(problem, "max_punch_overlap_volume_mm3", 0.0))
+    die_overlap = float(getattr(problem, "max_die_overlap_volume_mm3", 0.0))
+    cr = getattr(candidate, "collision_report", None) if candidate else None
+    p = getattr(cr, "punch_result", None)
+    d = getattr(cr, "die_result", None)
+    punch_status = str(getattr(getattr(p, "status", None),
+                               "value", getattr(p, "status", "")))
+    die_status = str(getattr(getattr(d, "status", None),
+                             "value", getattr(d, "status", "")))
+    from .motion_trajectory_3d import is_blocking_collision
+    if not is_blocking_collision(candidate):
+        tool = "UNKNOWN"
+    elif punch_status == "PENETRATION" and die_status == "PENETRATION":
+        tool = "PUNCH_AND_DIE"
+    elif punch_status == "PENETRATION":
+        tool = "PUNCH"
+    elif die_status == "PENETRATION":
+        tool = "DIE"
+    else:
+        tool = "UNKNOWN"
+
+    diagnostics = [
+        str(line) for line in getattr(problem, "diagnostics", ()) or ()
+        if not str(line).startswith(("TIMINGS:", "CACHE:", "STATS:"))
+    ]
+    if getattr(problem, "discontinuities", None):
+        diagnostics.insert(0, str(problem.discontinuities[0]))
+    elif getattr(problem, "unresolved_intervals", None):
+        diagnostics.insert(0, "unresolved_native_interval")
+    elif getattr(problem, "uninspected_intervals", None):
+        diagnostics.insert(0, "uninspected_native_interval")
+    return {
+        "phase": name,
+        "phase_status": phase_status,
+        "other_problem_phases": [
+            {"phase": str(getattr(p, "phase_name", "UNKNOWN")),
+             "phase_status": _phase_status(p)}
+            for p in getattr(trajectory, "phase_results", ()) or ()
+            if p is not problem and _phase_status(p) not in _NONBLOCKING_PHASES
+        ],
+        "sampled_onset_bracket": getattr(
+            problem, "first_collision_bracket", None,
+        ),
+        "tool": tool,
+        # Peak overlap may be measured at the endpoint; the native XYZ
+        # intersection bbox below belongs to the *earliest sampled blocking*
+        # state. Keep them distinct in the forensic report.
+        "punch_overlap_mm3": round(punch_overlap, 6),
+        "die_overlap_mm3": round(die_overlap, 6),
+        "first_sample_punch_overlap_mm3": (
+            round(float(getattr(p, "overlap_volume_mm3", 0.0)), 6)
+            if candidate is not None else None
+        ),
+        "first_sample_die_overlap_mm3": (
+            round(float(getattr(d, "overlap_volume_mm3", 0.0)), 6)
+            if candidate is not None else None
+        ),
+        "intersection_bbox_xyz_mm": {
+            "punch": getattr(p, "overlap_bbox_xyz_mm", None),
+            "die": getattr(d, "overlap_bbox_xyz_mm", None),
+        },
+        "ram_z_mm": (
+            round(float(candidate.ram_z_mm), 6)
+            if candidate is not None else None
+        ),
+        "angle_deg": (
+            round(float(candidate.signed_angle_deg), 6)
+            if candidate is not None else None
+        ),
+        "sampled_machine_pose": (
+            {
+                "bend_id": str(candidate.active_bend_id),
+                "phase": name,
+                "signed_angle_deg": float(candidate.signed_angle_deg),
+                "ram_z_mm": float(candidate.ram_z_mm),
+                "support_plane_zm": float(candidate.support_plane_zm),
+                "completed_angles": dict(candidate.completed_angles),
+                "rotation": [
+                    list(r) for r in candidate.workpiece_placement.rotation
+                ],
+                "translation": list(
+                    candidate.workpiece_placement.translation
+                ),
+            } if candidate is not None and getattr(
+                candidate, "workpiece_placement", None
+            ) is not None else None
+        ),
+        "reason": (diagnostics[0][:400] if diagnostics
+                   else phase_status),
+    }
+
+
+def retract_evidence_from_trajectory(trajectory: Any) -> dict:
+    """Bounded, per-bend RETRACT evidence for the embedded FCStd JSON.
+
+    Distinguish the *planned* ram endpoints from the physical samples that
+    really ran. An unexecuted RETRACT after an earlier collision is NEVER
+    reported clear. Do not embed per-frame OCC shape objects in the FCStd.
+    """
+    planned = getattr(trajectory, "ram_cycle_positions_mm", None) or {}
+    out = {
+        "status": "NOT_EVALUATED",
+        "phase_evidence": "NOT_EVALUATED",
+        "start_z_mm": None,
+        "end_z_mm": None,
+        "contact_z_mm": None,
+        "bottom_z_mm": None,
+        "initial_clearance_mm": None,
+        "sample_count": 0,
+        "sampled_start_z_mm": None,
+        "sampled_end_z_mm": None,
+        "start_position_sampled": False,
+        "end_position_sampled": False,
+        "max_punch_overlap_mm3": None,
+        "max_die_overlap_mm3": None,
+        "reason": "RETRACT phase not reached",
+    }
+    for target, key in (
+        ("start_z_mm", "retract_start_z_mm"),
+        ("end_z_mm", "retract_end_z_mm"),
+        ("contact_z_mm", "contact_z_mm"),
+        ("bottom_z_mm", "bottom_z_mm"),
+        ("initial_clearance_mm", "initial_clearance_mm"),
+    ):
+        if key in planned:
+            val = float(planned[key])
+            if not isfinite(val):
+                raise ValueError("nonfinite planned RETRACT coordinate")
+            out[target] = round(val, 6)
+    for phase in getattr(trajectory, "phase_results", ()) or ():
+        if str(getattr(phase, "phase_name", "")) != "RETRACT":
+            continue
+        raw_status = getattr(phase.evidence_status, "value",
+                             str(phase.evidence_status))
+        out["phase_evidence"] = str(raw_status)
+        states = tuple(getattr(phase, "states", ()) or ())
+        out["sample_count"] = len(states)
+        if states:
+            first = min(states, key=lambda st: float(st.path_u))
+            last = max(states, key=lambda st: float(st.path_u))
+            out["sampled_start_z_mm"] = round(float(first.ram_z_mm), 6)
+            out["sampled_end_z_mm"] = round(float(last.ram_z_mm), 6)
+            out["start_position_sampled"] = abs(float(first.path_u)) < 1e-6
+            out["end_position_sampled"] = abs(float(last.path_u) - 1.0) < 1e-6
+        out["max_punch_overlap_mm3"] = round(
+            float(getattr(phase, "max_punch_overlap_volume_mm3", 0.0)), 6,
+        )
+        out["max_die_overlap_mm3"] = round(
+            float(getattr(phase, "max_die_overlap_volume_mm3", 0.0)), 6,
+        )
+        diags = tuple(str(x) for x in getattr(phase, "diagnostics", ()) or ())
+        out["reason"] = diags[0][:400] if diags else str(raw_status)
+        any_observed_collision = any(
+            getattr(getattr(st, "collision_report", None), "status", None)
+            is not None
+            and str(getattr(
+                getattr(st.collision_report, "status"), "value",
+                getattr(st.collision_report, "status"),
+            )) == "PENETRATION"
+            and not bool(getattr(st, "is_conditional_safe", False))
+            for st in states
+        )
+        # The native phase explicitly marks permitted punch END_ZONE_ONLY
+        # penetration as not strictly safe. Preserve CONDITIONAL for this
+        # precise case; never waive ordinary sheet/die or tool/tool hits.
+        native_conditional = (
+            raw_status == "SAMPLED_INTERVAL_CONDITIONAL_END_ZONE"
+        )
+        unresolved = bool(
+            getattr(phase, "unresolved_intervals", None)
+            or getattr(phase, "uninspected_intervals", None)
+            or getattr(phase, "discontinuities", None)
+            or (
+                getattr(phase, "is_safe", True) is False
+                and not native_conditional
+            )
+            or any(
+                getattr(st, "is_safe", True) is False
+                and not bool(getattr(st, "is_conditional_safe", False))
+                for st in states
+            )
+        )
+        if any_observed_collision:
+            out["status"] = "COLLISION"
+        elif raw_status == "SAMPLED_INTERVAL_CONDITIONAL_END_ZONE":
+            out["status"] = (
+                "CONDITIONAL" if (
+                    out["start_position_sampled"]
+                    and out["end_position_sampled"] and not unresolved
+                ) else "UNVERIFIED"
+            )
+        elif (raw_status in (
+            "SAMPLED_INTERVAL_CONVERGED", "ADAPTIVE_SAMPLING_CONVERGED",
+        ) and out["start_position_sampled"]
+                and out["end_position_sampled"] and not unresolved):
+            out["status"] = "SAMPLED_CLEAR"
+        else:
+            out["status"] = "UNVERIFIED"
+        # A green phase must reach the SAME planned end position as the
+        # simulated FULL_CYCLE retract; otherwise fail closed.
+        if out["status"] in ("SAMPLED_CLEAR", "CONDITIONAL"):
+            if (out["start_z_mm"] is None or out["end_z_mm"] is None
+                    or abs(out["sampled_start_z_mm"] - out["start_z_mm"]) > 1e-4
+                    or abs(out["sampled_end_z_mm"] - out["end_z_mm"]) > 1e-4):
+                out["status"] = "UNVERIFIED"
+                out["reason"] = (
+                    "RETRACT sampled start/end does not match "
+                    "configured bottom/upper Z"
+                )
+        return out
+    return out
+
+
+def _check_selected_tool_pair_at_sampled_rams(
+    punch_file: Path, die_file: Path, bend_length_mm: float,
+    tooling: Any, trajectory: Any, *, virtual_length: bool,
+) -> dict:
+    """Test punch-vs-die solids at EVERY distinct D6 sampled ram Z.
+
+    A tool/tool penetration is never covered by the sheet/tool end-zone
+    exception. Strictly reuse selected FCStd sources and their length mode.
+    This is discrete 3D evidence, not continuous collision certification.
+    """
+    from .native_collision_3d import CollisionClass, check_pair_clearance
+    from .native_tool_loader import (
+        load_native_die, load_native_punch, set_punch_ram_z,
+    )
+    import FreeCAD as App
+
+    phases = getattr(trajectory, "phase_results", None) or ()
+    positions = {}
+    for phase in phases:
+        phase_name = str(getattr(phase, "phase_name", "UNKNOWN"))
+        for state in getattr(phase, "states", ()) or ():
+            z = float(state.ram_z_mm)
+            if not isfinite(z):
+                raise ValueError("nonfinite sampled ram height")
+            positions.setdefault(round(z, 6), set()).add(phase_name)
+    if not positions:
+        return {
+            "status": "UNVERIFIED", "reason": "no_D6_ram_positions",
+            "checked_ram_positions": 0,
+        }
+
+    v_len = float(bend_length_mm) if virtual_length else None
+    original = getattr(getattr(App, "ActiveDocument", None), "Name", None)
+    try:
+        punch = load_native_punch(
+            punch_file, ram_z_mm=0.0, virtual_length_mm=v_len,
+            **native_section_options(tooling, "punch"),
+        )
+        die = load_native_die(
+            die_file, virtual_length_mm=v_len,
+            **native_section_options(tooling, "die"),
+        )
+        for i, ram_z in enumerate(sorted(positions)):
+            moved = set_punch_ram_z(punch, ram_z)
+            result = check_pair_clearance(
+                moved.machine_shape, die.machine_shape,
+                tool_label="PUNCH_DIE",
+            )
+            debug_event(
+                "PUNCH_DIE_NATIVE_RAM_SAMPLE",
+                ram_z_mm=ram_z,
+                phases=sorted(positions[ram_z]),
+                sample_number=i + 1,
+                status=result.status.value,
+                reason=result.reason,
+                overlap_mm3=result.overlap_volume_mm3,
+                distance_mm=getattr(result, "distance_mm", None),
+                overlap_bbox_xyz_mm=getattr(
+                    result, "overlap_bbox_xyz_mm", None,
+                ),
+                punch_file=str(punch_file),
+                die_file=str(die_file),
+                bend_length_mm=bend_length_mm,
+                virtual_length=virtual_length,
+            )
+            if result.status is CollisionClass.PENETRATION:
+                return {
+                    "status": "COLLISION",
+                    "reason": "punch_die_positive_overlap",
+                    "checked_ram_positions": i + 1,
+                    "ram_z_mm": ram_z,
+                    "phases": sorted(positions[ram_z]),
+                    "overlap_volume_mm3": float(result.overlap_volume_mm3),
+                }
+            if result.status not in (
+                CollisionClass.CLEAR, CollisionClass.NEAR_CONTACT,
+                CollisionClass.TOUCHING,
+            ):
+                return {
+                    "status": "UNVERIFIED",
+                    "reason": "punch_die_pair_unverified:" + str(result.reason),
+                    "checked_ram_positions": i + 1,
+                    "ram_z_mm": ram_z,
+                    "phases": sorted(positions[ram_z]),
+                }
+        return {
+            "status": "SAMPLED_CLEAR",
+            "reason": "selected_FCStd_punch_die_pair_clear_at_all_D6_sampled_rams",
+            "checked_ram_positions": len(positions),
+        }
+    finally:
+        if original and App.getDocument(original) is not None:
+            App.setActiveDocument(original)
+
+
+def check_manual_3d_sequence(
+    session: Any,
+    tooling: Any,
+    selected_order: Sequence[str],
+    *,
+    match_active_bend_length: bool = False,
+    allow_end_zone_collision: bool = False,
+    end_zone_length_mm: float = 0.0,
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    config: Any = None,
+    reverse_axis_by_bend: Optional[dict[str, bool]] = None,
+    auto_orientation: bool = False,
+    locked_orientation_bends: Iterable[str] = (),
+    orientation_retry_callback: Optional[Callable[[str, bool], None]] = None,
+    include_benchmark_metrics: bool = False,
+) -> dict:
+    """Check a selected prefix (or complete order) with native FCStd tools.
+
+    With auto_orientation, try the opposite loading pose on unlocked bends
+    when the preferred pose is blocked, conditional, or unresolved. Both
+    trials use the same signed fold history. Stop at the first bend without a usable pose.
+    """
+    t0 = perf_counter()
+    order = tuple(selected_order)
+    known = tuple(session.bend_order)
+    state_in = session.fold_state
+    if (not order or len(order) != len(set(order))
+            or len(order) > len(known)
+            or any(bid not in state_in.bends for bid in order)
+            or order != known[:len(order)]):
+        raise ValueError("manual selection must be an ordered prefix of the current bend order")
+
+    punch = getattr(tooling, "punch", None)
+    die = getattr(tooling, "die", None)
+    punch_id = str(getattr(punch, "tool_id", "")) if punch is not None else ""
+    die_id = str(getattr(die, "tool_id", "")) if die is not None else ""
+    p_path = _source_path(punch)
+    d_path = _source_path(die)
+    sections = has_native_sections(tooling)
+    virtual = bool(match_active_bend_length)
+    end_len = float(end_zone_length_mm)
+    # Normalize before early-return reporting: a failed precheck must
+    # still be serializable without an AttributeError.
+    reverse_axis_by_bend = dict(reverse_axis_by_bend or {})
+    locked_orientation_bends = frozenset(locked_orientation_bends)
+    orientation_attempts = []
+    alternative_orientation_blockers = []
+    coarse_occ = bool(getattr(config, "coarse_occ_screen", False))
+    if not isfinite(end_len) or end_len < 0.0:
+        raise ValueError("end_zone_length_mm must be finite and nonnegative")
+
+    def final_result(status, steps, reason):
+        if coarse_occ and status not in ("COLLISION", "UNVERIFIED"):
+            status = "UNVERIFIED"
+            reason = "coarse_OCC_cannot_certify_clear_or_conditional:" + reason
+        result = {
+            "schema_version": "smbs.manual_native_tooling.v1",
+            "status": str(status),
+            "reason": str(reason),
+            "requested_bends": list(order),
+            "total_part_bends": len(known),
+            "checked_bends": len(steps),
+            "complete_part_order_requested": len(order) == len(known),
+            "stopped_early": len(steps) < len(order),
+            "sampled_3d_only": True,
+            "validation_mode": (
+                "COARSE_OCC_5_BEND_ANGLES" if coarse_occ else "FULL_ADAPTIVE_D6"
+            ),
+            "continuous_motion_certified": False,
+            "backgauge_collisions_checked": False,
+            "transfer_clamps_frame_checked": False,
+            "punch_die_pair_checked": sum(
+                item.get("punch_die_pair") is not None for item in steps
+            ),
+            "punch": punch_id or None,
+            "die": die_id or None,
+            "punch_fcstd_source": str(p_path) if p_path else None,
+            "die_fcstd_source": str(d_path) if d_path else None,
+            "tool_length_mode": (
+                "VIRTUAL_MATCH_BEND" if virtual else
+                "SEGMENT_ASSEMBLY" if getattr(tooling, "tool_assembly", None) is not None else
+                "SELECTED_FCSTD_REAL_LENGTH"
+            ),
+            "allow_end_zone_collision": bool(allow_end_zone_collision),
+            "end_zone_length_mm": end_len,
+            "reverse_axis_by_bend": {bid: bool(reverse_axis_by_bend.get(bid, False)) for bid in order},
+            "orientation_attempts": orientation_attempts,
+            "alternative_orientation_blockers": alternative_orientation_blockers,
+            "steps": steps,
+            "elapsed_s": round(perf_counter() - t0, 4),
+        }
+        debug_event("MANUAL_NATIVE_CHECK_FINISHED", **result)
+        return result
+
+    debug_event(
+        "MANUAL_NATIVE_CHECK_STARTED",
+        bend_order=list(order),
+        original_angles=dict(state_in.angles),
+        punch_id=punch_id,
+        die_id=die_id,
+        punch_file=str(p_path) if p_path else None,
+        die_file=str(d_path) if d_path else None,
+        virtual_tool_length=virtual,
+        tool_sections={
+            "punch": getattr(tooling, "punch_section_offsets_xm", ()),
+            "die": getattr(tooling, "die_section_offsets_xm", ()),
+            "punch_spans_xm": getattr(tooling, "punch_section_spans_xm", ()),
+            "die_spans_xm": getattr(tooling, "die_section_spans_xm", ()),
+        },
+        conditional_end_zone_allowed=bool(allow_end_zone_collision),
+        end_zone_length_mm=end_len,
+        auto_orientation=bool(auto_orientation),
+        locked_orientation_bends=[bid for bid in order if bid in locked_orientation_bends],
+        component_reject_enabled=(os.environ.get(
+            "SMBS_COMPONENT_REJECT",
+            "1" if getattr(config, "component_reject_enabled", False) else "0"
+        ) == "1"),
+        machine_pose_reuse_enabled=(
+            os.environ.get("SMBS_MACHINE_POSE_REUSE", "0") == "1"
+        ),
+        adaptive_config=(
+            vars(config) if config is not None else None
+        ),
+        # The caller's end-zone policy overrides the sampling config's
+        # defaults. Log the *effective* policy separately so diagnostic
+        # readers do not mistake config defaults for the active setting.
+        effective_end_zone_policy={
+            "allow_end_zone_collision": bool(allow_end_zone_collision),
+            "end_zone_length_mm": end_len,
+            "classify_end_zone_length_mm": end_len if end_len > 0.0 else 10.0,
+        },
+    )
+
+    if p_path is None or d_path is None:
+        return final_result(
+            "UNVERIFIED", [],
+            "selected_punch_and_die_require_verified_real_FCStd_sources",
+        )
+    if sections and virtual:
+        return final_result(
+            "UNVERIFIED", [], "native_multi_sections_incompatible_with_virtual_length",
+        )
+
+    # Fully isolated state also protects against errors/early returns in D6.
+    # Do not mutate session.active_bend_index or the original FoldState.
+    independent = FoldState(state_in.graph, state_in.fixed_panel)
+    # Geometry is shared only inside this Manual validation call.
+    # All tool-specific collision verdict caches remain per validator.
+    sequence_geometry_cache = NativeSequenceGeometryCache(max_full_sheets=16)
+    previous = []
+    steps = []
+    any_conditional = False
+    check_kwargs = {
+        "config": config,
+        "match_active_bend_length": virtual,
+        "allow_end_zone_collision": bool(allow_end_zone_collision),
+        "end_zone_length_mm": end_len,
+        "classify_end_zone_length_mm": end_len if end_len > 0.0 else 10.0,
+        "sequence_geometry_cache": sequence_geometry_cache,
+    }
+    def evaluate_pose(i, bend_id, reverse_axis):
+        independent.reset_all()
+        for prev in previous:
+            independent.set_angle(
+                prev, float(independent.bends[prev].angle_deg),
+            )
+        pseudo_session = SimpleNamespace(
+            fold_state=independent,
+            panel_build=session.panel_build,
+            active_bend_id=bend_id,
+            bend_order=order,
+        )
+        debug_event(
+            "MANUAL_NATIVE_BEND_STARTED",
+            step=i + 1, total=len(order),
+            bend_id=bend_id,
+            target_angle_deg=float(independent.bends[bend_id].angle_deg),
+            signed_previous_bends=list(previous),
+            fold_angles=dict(independent.angles),
+            bend_axis_xyz=independent.bends[bend_id].axis_xyz,
+            punch_id=punch_id, die_id=die_id,
+            reverse_axis=reverse_axis,
+        )
+        started = perf_counter()
+        report = None
+        try:
+            # Phase A: measure ONLY the native D6 validation call.
+            # Post-collision per-panel attribution and UI rendering are
+            # outside this scope and must be benchmarked separately.
+            # This context does not alter OCC shapes, tolerances or results.
+            with (
+                count_native_kernel_calls() as kernel_counts,
+                count_native_geometry_builds() as geometry_counts,
+                count_component_shadow_checks() as shadow_counts,
+            ):
+                try:
+                    report = check_active_25d_bend_trajectory(
+                        pseudo_session, tooling,
+                        reverse_axis=reverse_axis,
+                        **check_kwargs,
+                    )
+                finally:
+                    # Record failures/timeouts too; otherwise slow/error
+                    # cases disappear from the performance evidence.
+                    debug_event(
+                        "PERF_NATIVE_BEND_KERNEL",
+                        bend_id=bend_id,
+                        reverse_axis=reverse_axis,
+                        step_number=i + 1,
+                        elapsed_s=round(perf_counter() - started, 6),
+                        kernel=kernel_counts.to_dict(),
+                        geometry_build=geometry_counts.to_dict(),
+                        component_shadow=shadow_counts.to_dict(),
+                        shared_geometry_cache=sequence_geometry_cache.statistics(),
+                        loaded_native_modules=loaded_native_module_sources(),
+                        scope="D6_VALIDATION_EXCLUDES_POST_COLLISION_FORENSICS",
+                    )
+            try:
+                complete_d6 = summarize_native_trajectory(report.raw_report)
+            except Exception as serialize_exc:
+                complete_d6 = {
+                    "log_serialization_error": str(serialize_exc),
+                }
+            blocker = concise_3d_blocker(report.raw_report)
+            attribution = None
+            _, state_hit = _select_3d_blocker(report.raw_report)
+            if (report.status is PhysicalEvidence.COLLISION
+                    and state_hit is not None
+                    and blocker.get("tool") in (
+                        "PUNCH", "DIE", "PUNCH_AND_DIE"
+                    )):
+                try:
+                    from .native_collision_attribution import (
+                        attribute_native_collision,
+                    )
+                    attribution = attribute_native_collision(
+                        pseudo_session, state_hit,
+                        punch_source=p_path, die_source=d_path,
+                        virtual_length=virtual,
+                        bend_length_mm=dist(
+                            *independent.bends[bend_id].axis_xyz
+                        ),
+                        tooling=tooling,
+                        segments=int(
+                            getattr(config, "arc_segments", 128)
+                        ),
+                        max_time_s=30.0,
+                    )
+                except Exception as diagnostic_exc:
+                    attribution = {
+                        "status": "UNVERIFIED",
+                        "hits": [], "errors": [
+                            "{}:{}".format(
+                                type(diagnostic_exc).__name__, diagnostic_exc
+                            )
+                        ],
+                        "complete": False,
+                    }
+                debug_event(
+                    "MANUAL_NATIVE_COMPONENT_ATTRIBUTION",
+                    bend_id=bend_id,
+                    phase=blocker.get("phase"),
+                    sampled_bracket=blocker.get("sampled_onset_bracket"),
+                    attribution=attribution,
+                )
+            if attribution is not None:
+                blocker["component_attribution"] = attribution
+            debug_event(
+                "MANUAL_NATIVE_BEND_TRAJECTORY",
+                bend_id=bend_id,
+                reverse_axis=reverse_axis,
+                status=report.status.value,
+                reason=report.reason,
+                native_status=report.native_status,
+                tool_length_info=report.tool_length_info,
+                first_blocker=blocker,
+                native_d6_samples=complete_d6,
+            )
+            status = report.status
+            if coarse_occ and status in (CLEAR, PhysicalEvidence.CONDITIONAL):
+                status = PhysicalEvidence.UNVERIFIED
+            if coarse_occ and status is PhysicalEvidence.COLLISION:
+                from .motion_trajectory_3d import is_blocking_collision
+                if not is_blocking_collision(
+                    getattr(report.raw_report, "first_collision_state", None)
+                ):
+                    status = PhysicalEvidence.UNVERIFIED
+            retract = retract_evidence_from_trajectory(report.raw_report)
+            # No sampled RETRACT -> no claim of a fully validated bend.
+            # This is separate from any already proven earlier collision.
+            if status in (CLEAR, PhysicalEvidence.CONDITIONAL):
+                if retract["status"] not in ("SAMPLED_CLEAR", "CONDITIONAL"):
+                    status = PhysicalEvidence.UNVERIFIED
+            tool_pair = None
+            if status in (CLEAR, PhysicalEvidence.CONDITIONAL):
+                try:
+                    tool_pair = _check_selected_tool_pair_at_sampled_rams(
+                        p_path, d_path,
+                        # True axis length, not one axis' X projection.
+                        dist(*independent.bends[bend_id].axis_xyz),
+                        tooling,
+                        report.raw_report,
+                        virtual_length=virtual,
+                    )
+                except Exception as pair_exc:
+                    tool_pair = {
+                        "status": "UNVERIFIED",
+                        "reason": "punch_die_pair_exception:{}:{}".format(
+                            type(pair_exc).__name__, pair_exc,
+                        ),
+                        "checked_ram_positions": 0,
+                    }
+            record = {
+                "step_number": i + 1,
+                "bend_id": bend_id,
+                "angle_deg": float(independent.bends[bend_id].angle_deg),
+                "completed_before_step": list(previous),
+                "reverse_axis": reverse_axis,
+                "status": status.value,
+                "reason": report.reason,
+                "native_status": report.native_status,
+                "checked_scope": list(report.checked_scope),
+                "tool_length_info": report.tool_length_info,
+                "is_conditional": bool(report.is_conditional),
+                "punch_die_pair": tool_pair,
+                "retract": retract,
+                "first_blocker": (
+                    blocker if status in (
+                        PhysicalEvidence.COLLISION,
+                        PhysicalEvidence.UNVERIFIED,
+                    ) else None
+                ),
+            }
+            if include_benchmark_metrics:
+                # Optional compact output for stand-alone native A/B runs.
+                # The normal GUI response does NOT acquire a large copy of
+                # D6's per-sample records. The kernel counters are scoped
+                # exclusively to native D6 (not tool-pair/post-forensics).
+                stats_keys = (
+                    "total_states", "total_collision_queries",
+                    "total_solid_reconstructions", "total_common_queries",
+                    "total_distance_queries", "total_solid_cache_hits",
+                    "total_machine_pose_reuse_hits",
+                    "total_machine_pose_reuse_misses",
+                )
+                d6 = complete_d6 if isinstance(complete_d6, dict) else {}
+                record["benchmark_native_metrics"] = {
+                    "scope": "D6_ONLY_SAMPLED_NATIVE_KERNEL_NOT_CONTINUOUS",
+                    "d6": {key: d6.get(key) for key in stats_keys},
+                    "phases": [
+                        {
+                            key: phase.get(key)
+                            for key in ("phase", "elapsed_ms", "collision_queries",
+                                        "solid_reconstructions", "actual_common_queries",
+                                        "actual_distance_queries", "solid_cache_hits",
+                                        "solid_cache_misses")
+                        }
+                        for phase in d6.get("phases", ())
+                        if isinstance(phase, dict)
+                    ],
+                    "kernel": kernel_counts.to_dict(),
+                    "geometry_build": geometry_counts.to_dict(),
+                }
+            if (not coarse_occ and status is PhysicalEvidence.UNVERIFIED
+                    and report.status in (
+                        CLEAR, PhysicalEvidence.CONDITIONAL)):
+                record["status"] = status.value
+                record["reason"] = (
+                    "RETRACT_not_verified:" + str(retract["reason"])
+                )
+            if tool_pair is not None:
+                if tool_pair["status"] == "COLLISION":
+                    status = PhysicalEvidence.COLLISION
+                    record["status"] = status.value
+                    record["reason"] = "punch_die_tool_tool_collision:" + str(
+                        tool_pair.get("reason", ""),
+                    )
+                elif tool_pair["status"] != "SAMPLED_CLEAR":
+                    status = PhysicalEvidence.UNVERIFIED
+                    record["status"] = status.value
+                    record["reason"] = "punch_die_tool_tool_unverified:" + str(
+                        tool_pair.get("reason", ""),
+                    )
+        except Exception as exc:
+            # Errors, timeouts, OCC failures, or restoration problems are
+            # missing evidence, NEVER successful clearance.
+            status = PhysicalEvidence.UNVERIFIED
+            record = {
+                "step_number": i + 1,
+                "bend_id": bend_id,
+                "angle_deg": float(independent.bends[bend_id].angle_deg),
+                "completed_before_step": list(previous),
+                "reverse_axis": reverse_axis,
+                "status": "UNVERIFIED",
+                "punch_die_pair": None,
+                "retract": retract_evidence_from_trajectory(None),
+                "first_blocker": concise_3d_blocker(None),
+                "reason": "native_3d_exception:{}:{}".format(
+                    type(exc).__name__, exc,
+                ),
+                "native_status": "EVALUATION_FAILED",
+                "checked_scope": [],
+                "tool_length_info": None,
+                "is_conditional": False,
+            }
+        raw = getattr(report, "raw_report", None)
+        tool_setup_status = getattr(getattr(raw, "tool_setup_status", None), "value", None)
+        if tool_setup_status not in (None, "TOOL_SETUP_QUALIFIED"):
+            record["tool_setup_status"] = tool_setup_status
+            record["tool_setup_reason"] = next(iter(raw.diagnostics), "")
+        if coarse_occ and status is PhysicalEvidence.UNVERIFIED:
+            from .motion_trajectory_3d import TrajectoryEvidenceStatus
+            phases = getattr(raw, "phase_results", ())
+            expected = ("APPROACH", "CONTACT", "BENDING", "BOTTOM", "RETRACT")
+            if (tool_setup_status == "TOOL_SETUP_QUALIFIED"
+                    and tuple(p.phase_name for p in phases) == expected
+                    and all(p.evidence_status in (
+                        TrajectoryEvidenceStatus.DISCRETE_SAMPLES_SAFE,
+                        TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONDITIONAL_END_ZONE,
+                    ) for p in phases)):
+                conditional = any(
+                    p.evidence_status is TrajectoryEvidenceStatus.SAMPLED_INTERVAL_CONDITIONAL_END_ZONE
+                    for p in phases
+                )
+                record["status"] = (
+                    "COARSE_3D_CONDITIONAL_END_ZONE"
+                    if conditional else "COARSE_3D_NO_PROVEN_COLLISION"
+                )
+                record["reason"] = (
+                    "discrete_OCC_samples_only;gaps_and_tool_pair_unverified"
+                )
+                record["is_conditional"] = conditional
+                record["first_blocker"] = None
+        record["elapsed_s"] = round(perf_counter() - started, 4)
+        debug_event(
+            "MANUAL_NATIVE_BEND_RESULT",
+            bend=record, step=i + 1, tool_length_virtual=virtual,
+        )
+        return record
+
+    for i, bend_id in enumerate(order):
+        if progress_callback is not None:
+            progress_callback(i + 1, len(order), bend_id)
+        preferred_axis = bool(reverse_axis_by_bend.get(bend_id, False))
+        record = evaluate_pose(i, bend_id, preferred_axis)
+        rank = _ORIENTATION_RANK.get(record["status"], 1)
+        pair = record.get("punch_die_pair") or {}
+        # Contact between the punch and die at this ram height is independent
+        # of sheet orientation. The same stroke is used for either loading.
+        if (auto_orientation and bend_id not in locked_orientation_bends
+                and rank < 3 and pair.get("status") != "COLLISION"
+                and not record.get("tool_setup_status")):
+            if orientation_retry_callback is not None:
+                orientation_retry_callback(bend_id, not preferred_axis)
+            opposite = evaluate_pose(i, bend_id, not preferred_axis)
+            opposite_rank = _ORIENTATION_RANK.get(opposite["status"], 1)
+            opposite_pair = opposite.get("punch_die_pair") or {}
+            if opposite_rank > rank or opposite_pair.get("status") == "COLLISION":
+                selected = opposite
+                outcome = "OPPOSITE_ORIENTATION_SELECTED"
+            elif rank == opposite_rank == 0:
+                selected = record
+                outcome = "BOTH_ORIENTATIONS_COLLIDE"
+                alternative_orientation_blockers.append(opposite)
+            else:
+                selected = record
+                outcome = "PREFERRED_ORIENTATION_RETAINED"
+            attempt = {
+                "bend_id": bend_id,
+                "result": outcome,
+                "selected_reverse_axis": selected["reverse_axis"],
+                "trials": [
+                    {
+                        "reverse_axis": trial["reverse_axis"],
+                        "status": trial["status"],
+                        "phase": (trial.get("first_blocker") or {}).get("phase"),
+                        "tool": (trial.get("first_blocker") or {}).get("tool"),
+                    }
+                    for trial in (record, opposite)
+                ],
+            }
+            orientation_attempts.append(attempt)
+            debug_event("MANUAL_NATIVE_ORIENTATION_RESULT", **attempt)
+            record = selected
+            record["orientation_trials"] = attempt["trials"]
+        reverse_axis_by_bend[bend_id] = record["reverse_axis"]
+        steps.append(record)
+        status = record["status"]
+        if status == PhysicalEvidence.COLLISION.value:
+            return final_result("COLLISION", steps, "punch_or_die_collision_at:" + bend_id)
+        if status == PhysicalEvidence.CONDITIONAL.value:
+            any_conditional = True
+            if not allow_end_zone_collision:
+                return final_result("UNVERIFIED", steps, "conditional_end_zone_not_enabled_at:" + bend_id)
+        elif status not in (
+            CLEAR.value, "COARSE_3D_NO_PROVEN_COLLISION", "COARSE_3D_CONDITIONAL_END_ZONE",
+        ):
+            return final_result("UNVERIFIED", steps, "native_3d_not_verified_at:" + bend_id)
+        # Advance signed history only AFTER this step has been assessed;
+        # the active bend was flat at the start of its own trajectory.
+        previous.append(bend_id)
+    if len(order) != len(known):
+        return final_result(
+            "UNVERIFIED", steps,
+            "selected_manual_prefix_only_remaining_bends_not_checked",
+        )
+    if coarse_occ:
+        return final_result(
+            "UNVERIFIED", steps,
+            "coarse_OCC_samples_only_uninspected_intervals_and_tool_pair",
+        )
+    if any_conditional:
+        return final_result(
+            "CONDITIONAL", steps,
+            "punch_end_zone_interference_accepted_with_unverified_tool_relief",
+        )
+    return final_result(
+        CLEAR.value, steps,
+        "all_selected_bends_sampled_3d_clear_punch_die_only_no_continuous_certificate",
+    )

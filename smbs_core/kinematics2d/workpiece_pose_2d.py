@@ -1,0 +1,500 @@
+"""Headless machine-space placement of 2.5D folded sheet geometry.
+
+FoldState owns the actual bend angles and finite-radius shapes. Machine pose is
+a single rigid transform applied to every sheet component in a FULL_CYCLE
+kinematic preview, never to source FreeCAD geometry or the Bend Only view.
+
+Symmetric placement is an idealized free-flange V-bending visualization. The
+ram-to-sheet link assumes geometric contact at the active bend zone and is NOT
+a contact-mechanics, collision, force or springback solver.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
+from math import atan2, cos, degrees, hypot, isfinite, radians, sin
+from typing import Any, Mapping
+
+
+class WorkpiecePoseError(ValueError):
+    """Unusable active cross-section or unsupported machine placement."""
+
+
+@dataclass(frozen=True)
+class WorkpiecePose2D:
+    pivot: tuple[float, float] = (0.0, 0.0)
+    rotation_deg: float = 0.0
+    mirror_z: bool = False
+    # Intermediate projection of a 3D workpiece roll: z' = cos(roll)*z.
+    # The final pose uses mirror_z; never treat this projection as physical
+    # 2D thickness or collision-ready geometry.
+    roll_projection: float | None = None
+    shift: tuple[float, float] = (0.0, 0.0)
+    mode: str = "IDENTITY"
+
+    def apply(self, point):
+        s, z = float(point[0]) - self.pivot[0], float(point[1]) - self.pivot[1]
+        scale = (float(self.roll_projection) if self.roll_projection is not None
+                 else (-1.0 if self.mirror_z else 1.0))
+        if not isfinite(scale) or abs(scale) > 1.0 + 1e-8:
+            raise WorkpiecePoseError("Invalid workpiece roll projection")
+        z *= scale
+        a = radians(self.rotation_deg)
+        return (
+            self.pivot[0] + self.shift[0] + cos(a) * s - sin(a) * z,
+            self.pivot[1] + self.shift[1] + sin(a) * s + cos(a) * z,
+        )
+
+    def inverse(self, point):
+        s = float(point[0]) - self.pivot[0] - self.shift[0]
+        z = float(point[1]) - self.pivot[1] - self.shift[1]
+        a = radians(self.rotation_deg)
+        ls, lz = cos(a) * s + sin(a) * z, -sin(a) * s + cos(a) * z
+        scale = (float(self.roll_projection) if self.roll_projection is not None
+                 else (-1.0 if self.mirror_z else 1.0))
+        if not isfinite(scale) or abs(scale) <= 1e-10:
+            raise WorkpiecePoseError("Roll projection is not invertible at edge-on view")
+        return (self.pivot[0] + ls, self.pivot[1] + lz / scale)
+
+    def points(self, points):
+        return tuple(self.apply(point) for point in points)
+
+
+def symmetric_v_pose(section: Mapping[str, Any]) -> WorkpiecePose2D:
+    """Orient the actual neighboring flange directions with equal upward rise.
+
+    The relative angle, thickness, bend radius and all sheet topology remain
+    untouched. Negative bend signs are visualized with an *assumed* global
+    workpiece flip (a mirror in cross-section), not a machine re-gripping model.
+    """
+    try:
+        fixed = section["fixed_polygon"]
+        moving = section["moving_polygon"]
+        neutral = section["neutral_curve"]
+        target = float(section["target_angle_deg"])
+        fv = (
+            float(fixed[0][0]) - float(fixed[1][0]),
+            float(fixed[0][1]) - float(fixed[1][1]),
+        )
+        mv = (
+            float(moving[1][0]) - float(moving[0][0]),
+            float(moving[1][1]) - float(moving[0][1]),
+        )
+        if hypot(*fv) <= 1e-7 or hypot(*mv) <= 1e-7 or not neutral:
+            raise WorkpiecePoseError("Degenerate flange or missing bend center")
+        if not isfinite(target):
+            raise WorkpiecePoseError("Nonfinite target bend angle")
+        pivot = tuple(float(v) for v in neutral[len(neutral) // 2])
+        if len(pivot) != 2 or not all(isfinite(v) for v in pivot):
+            raise WorkpiecePoseError("Invalid bend pivot")
+    except (KeyError, IndexError, TypeError, ValueError, OverflowError) as exc:
+        raise WorkpiecePoseError("Invalid cross-section for symmetric preview") from exc
+
+    # Solve the actual 2D presentation, not a predefined bend sign or an
+    # assumption that both adjacent panels were initially horizontal.
+    # A 180-degree ROLL of the *physical sheet* about its longitudinal axis
+    # appears as mirror_z in this cross-sectional view. Unlike an arbitrary
+    # 2D geometric reflection, it represents a physical change of which face
+    # of the sheet points toward the upper punch; the source FoldState is
+    # never mirrored or modified.
+    from math import acos, pi
+
+    def wrap_rad(a):
+        return atan2(sin(a), cos(a))
+
+    def angle_between(a, b):
+        return abs(wrap_rad(a - b))
+
+    def ray_angle(vec, rolled):
+        return atan2(-vec[1] if rolled else vec[1], vec[0])
+
+    norm_f, norm_m = hypot(*fv), hypot(*mv)
+    fu = (fv[0] / norm_f, fv[1] / norm_f)
+    mu = (mv[0] / norm_m, mv[1] / norm_m)
+    opening = acos(max(-1.0, min(1.0, fu[0] * mu[0] + fu[1] * mu[1])))
+    rise = (pi - opening) / 2.0
+    if not all(isfinite(v) for v in (rise, opening)):
+        raise WorkpiecePoseError("Invalid active bend opening")
+
+    # Candidate rigid machine presentations:
+    # (a) fixed flange on left / moving on right
+    # (b) fixed on right / moving on left
+    # each with/without physical workpiece roll. The current bend must keep
+    # its actual included angle. A mirror is ONLY an assumed 180° roll,
+    # not an edit to the actual sheet material or its bend sign.
+    cases = []
+    for rolled in (False, True):
+        source_fixed = ray_angle(fu, rolled)
+        source_moving = ray_angle(mu, rolled)
+        for swap_sides in (False, True):
+            wanted_fixed = rise if swap_sides else pi - rise
+            wanted_moving = pi - rise if swap_sides else rise
+            rotate = wrap_rad(wanted_fixed - source_fixed)
+            mismatch = angle_between(
+                source_moving + rotate, wanted_moving
+            )
+            cases.append((mismatch, rolled, swap_sides, degrees(rotate)))
+
+    # Prefer a roll for a negative bend only when multiple solutions are
+    # geometrically equivalent; otherwise geometry decides, not the sign.
+    preferred_roll = target < -1e-9
+    cases.sort(key=lambda c: (
+        round(c[0], 10),
+        c[1] != preferred_roll,
+        abs(c[3]),
+    ))
+    mismatch, rolled, swapped, rotation = cases[0]
+    if mismatch > 0.035:
+        raise WorkpiecePoseError(
+            "BEND_PRESENTATION_UNSUPPORTED: current flange rays cannot "
+            "form the required upward V without geometric distortion "
+            "(residual {:.1f} deg)".format(degrees(mismatch))
+        )
+    return WorkpiecePose2D(
+        pivot=pivot,
+        rotation_deg=rotation,
+        mirror_z=rolled,
+        mode=(
+            "ASSUMED_180_DEG_SHEET_ROLL_UPWARD_V"
+            if rolled else "RIGID_UPWARD_V_PRESENTATION"
+        ) + ("_SWAPPED_FLANGES" if swapped else ""),
+    )
+
+
+def _lower_sheet_at_s(section, pose, s_coordinate):
+    """Lowest sheet-surface height at the selected shoulder coordinate.
+
+    This samples the actual finite-radius surface curves and all visible
+    rigid-panel outlines after the *same* global workpiece pose. If several
+    surfaces share s, choose the lowest exterior point. No bbox datums.
+    """
+    curves = []
+    for key in ("inner_surface", "outer_surface"):
+        if section.get(key):
+            curves.append(section[key])
+    for key in ("fixed_polygon", "moving_polygon", "zone_polygon"):
+        if section.get(key):
+            points = section[key]
+            curves.append(tuple(points) + (points[0],))
+    # The V shoulders support the two panels adjacent to the ACTIVE bend.
+    # Other already-folded Z flanges are not alternative 'support sheets':
+    # including them picked an unrelated lower surface and created floating.
+    heights = []
+    for curve in curves:
+        pts = pose.points(curve)
+        for a, b in zip(pts, pts[1:]):
+            left, right = a[0], b[0]
+            if abs(left - right) < 1e-10:
+                if abs(left - s_coordinate) < 1e-6:
+                    heights.extend((a[1], b[1]))
+                continue
+            t = (s_coordinate - left) / (right - left)
+            if -1e-8 <= t <= 1.0 + 1e-8:
+                heights.append(a[1] + t * (b[1] - a[1]))
+    return min(heights) if heights else None
+
+
+def upper_zone_at_machine_axis(section, pose, machine_s):
+    """Sample upper bend-zone boundary at punch s axis, not zone global max."""
+    zone = section.get("zone_polygon")
+    if not zone:
+        raise WorkpiecePoseError("Cannot track punch: missing bend zone")
+    pts = pose.points(tuple(zone) + (zone[0],))
+    heights = []
+    for a, b in zip(pts, pts[1:]):
+        dx = b[0] - a[0]
+        if abs(dx) < 1e-10:
+            if abs(a[0] - machine_s) <= 1e-6:
+                heights.extend((a[1], b[1]))
+        else:
+            frac = (machine_s - a[0]) / dx
+            if -1e-8 <= frac <= 1.0 + 1e-8:
+                heights.append(a[1] + frac * (b[1] - a[1]))
+    if not heights:
+        raise WorkpiecePoseError("Punch axis does not cross the current bend zone")
+    return max(heights)
+
+
+def _die_shoulders_machine(tooling):
+    """Return actual left/right V-shoulder points in machine coordinates."""
+    die = getattr(tooling, "die", None)
+    if die is None or getattr(die, "die_datums", None) is None:
+        return ()
+    datums = die.die_datums
+    to_local = die.source_to_local_transform()
+    machine_tf = tooling.die_machine_transform
+    return tuple(
+        machine_tf.apply(to_local.apply(point))
+        for point in (datums.left_shoulder, datums.right_shoulder)
+    )
+
+
+def _two_shoulder_support(section, pose, shoulders):
+    """Place the symmetric workpiece on its verified V-die shoulders.
+
+    A single vertical machine translation is allowed; it MUST NOT rotate the
+    sheet away from the symmetric bisector merely to make both shoulders fit.
+    If the material geometry cannot simultaneously sit on two shoulders,
+    show one real shoulder contact and disclose PARTIAL support instead of
+    falling back to a floating, unpositioned sheet.
+    """
+    if len(shoulders) != 2:
+        raise WorkpiecePoseError("DIE_SUPPORT_UNAVAILABLE: two V shoulders required")
+    (ls, lz), (rs, rz) = sorted(shoulders, key=lambda item: item[0])
+    if not all(isfinite(v) for v in (ls, lz, rs, rz)) or rs - ls <= 1e-6:
+        raise WorkpiecePoseError("DIE_SUPPORT_INVALID: coincident/nonfinite shoulders")
+
+    left = _lower_sheet_at_s(section, pose, ls)
+    right = _lower_sheet_at_s(section, pose, rs)
+    contacts = []
+    if left is not None and isfinite(left):
+        contacts.append((ls, lz - left))
+    if right is not None and isfinite(right):
+        contacts.append((rs, rz - right))
+    if not contacts:
+        raise WorkpiecePoseError(
+            "DIE_SUPPORT_MISSING: sheet does not reach either V shoulder"
+        )
+
+    # The maximal shift prevents penetration of the shoulder support points.
+    # It brings at least one of them into actual contact. It never invents
+    # a second contact when the two heights disagree.
+    translation_z = max(delta for _s, delta in contacts)
+    balanced = (
+        len(contacts) == 2
+        and abs(contacts[0][1] - contacts[1][1]) <= 0.05
+    )
+    mode = (
+        "_TWO_SHOULDER_SUPPORTED_PREVIEW" if balanced
+        else "_PARTIAL_SHOULDER_SUPPORTED_PREVIEW"
+    )
+    return replace(
+        pose,
+        shift=(pose.shift[0], translation_z),
+        mode=pose.mode + mode,
+    )
+
+
+def machine_pose_for_cycle(
+    section: Mapping[str, Any],
+    cycle: Any,
+    tooling: Any,
+) -> WorkpiecePose2D:
+    """Place folded sheet on both die shoulders in FULL_CYCLE preview.
+
+    The relative flange angle comes exclusively from FoldState. We try two
+    actual working shoulders, using one rigid placement shared by every sheet
+    surface. If that fit is impossible we expose a precise diagnostic instead
+    of silently claiming that the sheet is supported.
+
+    Kinematic support does NOT establish punch contact, force or collision
+    freedom and does NOT compute a physically feasible ram trajectory.
+    """
+    pose = symmetric_v_pose(section)
+    try:
+        phase = getattr(cycle.phase, "value", cycle.phase)
+        contact_z = float(cycle.contact_z_mm)
+        bottom_z = float(cycle.bottom_z_mm)
+        ram_z = float(cycle.ram_z_mm)
+        if not all(isfinite(v) for v in (contact_z, bottom_z, ram_z)):
+            raise WorkpiecePoseError("Nonfinite ram coordinate")
+    except (AttributeError, ValueError, TypeError) as exc:
+        raise WorkpiecePoseError("Press cycle has no valid ram state") from exc
+
+    zone = section.get("zone_polygon")
+    if not zone:
+        raise WorkpiecePoseError("Missing finite-radius bend zone")
+
+    machine_s = pose.pivot[0]
+    if getattr(tooling, "aligned", False):
+        center = tooling.die_v_center_machine()
+        if center is not None:
+            machine_s = float(center[0])
+        else:
+            machine_s = float(tooling.alignment_anchor_sz[0])
+    if not isfinite(machine_s):
+        raise WorkpiecePoseError("Invalid machine alignment datum")
+    pose = replace(pose, shift=(machine_s - pose.pivot[0], 0.0))
+
+    shoulders = _die_shoulders_machine(tooling) if getattr(tooling, "aligned", False) else ()
+    lift = (cycle.assisted_retract_lift_mm()
+            if callable(getattr(cycle, "assisted_retract_lift_mm", None)) else 0.0)
+    if shoulders:
+        supported = _two_shoulder_support(section, pose, shoulders)
+        return replace(supported,
+                       shift=(supported.shift[0], supported.shift[1] + lift),
+                       mode=supported.mode + ("_ASSUMED_PUNCH_LIFT_UNVERIFIED" if lift else ""))
+
+    # No verified shoulders: preserve prior ram-only preview but explicitly
+    # label missing real support. Never describe this as DIE_SUPPORTED.
+    if phase == "BENDING":
+        desired_top = min(contact_z, ram_z)
+    elif phase in ("BOTTOM", "RETRACT", "STEP_COMPLETE", "COMPLETED"):
+        desired_top = bottom_z
+    else:
+        desired_top = contact_z
+    zone_top = max(z for _s, z in pose.points(zone))
+    return replace(
+        pose, shift=(pose.shift[0], desired_top - zone_top + lift),
+        mode=pose.mode + "_DIE_SUPPORT_UNKNOWN_RAM_ONLY"
+             + ("_ASSUMED_PUNCH_LIFT_UNVERIFIED" if lift else ""),
+    )
+
+
+def remap_section_to_reference(section, from_zone, reference_zone):
+    """Convert an entire active cross-section to a persistent sheet axis.
+
+    The bend-axis directions must be parallel. A 2D cross-section of bends
+    about different axes is not an honest representation: reject it.
+    This is only a coordinate basis conversion; no sheet shape or angle moves.
+    """
+    if isinstance(from_zone, tuple):
+        src, src_side = from_zone
+    else:
+        src, src_side = from_zone, 1.0
+    if isinstance(reference_zone, tuple):
+        ref, ref_side = reference_zone
+    else:
+        ref, ref_side = reference_zone, 1.0
+
+    us = (src.left_xy[0] * src_side, src.left_xy[1] * src_side)
+    ur = (ref.left_xy[0] * ref_side, ref.left_xy[1] * ref_side)
+    n1, n2 = hypot(*us), hypot(*ur)
+    if min(n1, n2) < 1e-9:
+        raise WorkpiecePoseError("Invalid bend section axis")
+    us, ur = (us[0]/n1,us[1]/n1),(ur[0]/n2,ur[1]/n2)
+    sign = us[0]*ur[0]+us[1]*ur[1]
+    if abs(sign) < 0.999:
+        raise WorkpiecePoseError("NONPARALLEL_BEND_AXES: no shared 2.5D projection")
+    offset = ((src.origin_xy[0]-ref.origin_xy[0])*ur[0]
+              +(src.origin_xy[1]-ref.origin_xy[1])*ur[1])
+    def map_point(pt):
+        return (sign*float(pt[0])+offset, float(pt[1]))
+    result = dict(section)
+    for key in _SINGLE_POLYGONS:
+        if key in section:
+            result[key] = tuple(map_point(p) for p in section[key])
+    for key in _NAMED_POLYGONS:
+        if key in section:
+            result[key] = tuple(
+                (ident, tuple(map_point(p) for p in points))
+                for ident, points in section[key]
+            )
+    for key in _CURVE_GROUPS:
+        if key in section:
+            result[key] = tuple(
+                tuple(map_point(p) for p in points) for points in section[key]
+            )
+    for key in _LINE_GROUPS:
+        if key in section:
+            result[key] = tuple((map_point(a),map_point(b)) for a,b in section[key])
+    return result
+
+
+def _origin_translation(pose):
+    """True affine origin offset, including workpiece face reversal."""
+    a = radians(pose.rotation_deg)
+    px,pz = pose.pivot
+    scale = (float(pose.roll_projection) if pose.roll_projection is not None
+             else (-1.0 if pose.mirror_z else 1.0))
+    return (
+        px + pose.shift[0] - cos(a)*px + sin(a)*scale*pz,
+        pz + pose.shift[1] - sin(a)*px - cos(a)*scale*pz,
+    )
+
+def interpolate_rigid_placement(start, end, fraction, clearance_mm=0.0):
+    """Continuous view transition between two machine-space sheet poses.
+
+    Both endpoints are exact. If the face changes, the middle frames are a
+    projected 3D roll (not a true rigid transform in the 2D viewing plane).
+    Do not send these intermediate 2D shapes to a collision validator.
+    """
+    try:
+        raw_fraction = float(fraction)
+        clearance = float(clearance_mm)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise WorkpiecePoseError("Invalid transfer interpolation") from exc
+    if not isfinite(raw_fraction) or not isfinite(clearance) or clearance < 0.0:
+        raise WorkpiecePoseError("Invalid transfer interpolation")
+    t = max(0.0, min(1.0, raw_fraction))
+    if t <= 0.0:
+        return start
+    if t >= 1.0:
+        return end
+    ease=lambda x: x*x*(3.0-2.0*x)
+    f=ease(t)
+    a0 = float(start.rotation_deg)
+    diff = (float(end.rotation_deg)-a0+180.0)%360.0-180.0
+    # For exact opposite orientation explicitly retain the positive flip.
+    if abs(abs(diff)-180.0)<1e-7:
+        diff = 180.0
+    angle = a0 + diff*f
+    start_face = -1.0 if start.mirror_z else 1.0
+    end_face = -1.0 if end.mirror_z else 1.0
+    # The 2.5D projection of a real roll contracts in cross-section as the
+    # part turns edge-on. This prevents the discrete mirror flag from causing
+    # a frame jump at the end of the transfer. Geometry in this transitional
+    # state is NOT valid input to contact or collision computations.
+    if start_face != end_face:
+        roll_scale = start_face * cos(3.141592653589793*f)
+    else:
+        roll_scale = start_face
+    x0,z0=_origin_translation(start)
+    x1,z1=_origin_translation(end)
+    # Smooth vertical clearance rises/falls to zero at both endpoints.
+    lift = clearance_mm * sin(3.141592653589793*t)**2
+    return WorkpiecePose2D(
+        rotation_deg=angle,
+        roll_projection=roll_scale,
+        shift=(x0+(x1-x0)*f, z0+(z1-z0)*f+lift),
+        mode=(
+            "PROJECTED_3D_ROLL_NOT_CONTACT_VALIDATED"
+            if start_face != end_face else "RIGID_CONTINUOUS_WORKPIECE_TRANSFER"
+        ),
+    )
+
+
+def animated_machine_pose_for_cycle(section, cycle, tooling, next_section=None):
+    """Active machine pose or continuous sheet transfer to next bend placement.
+
+    The next_section MUST already be expressed in the same fixed sheet frame.
+    """
+    pose = machine_pose_for_cycle(section, cycle, tooling)
+    phase = getattr(getattr(cycle, "phase", None), "value", getattr(cycle, "phase", None))
+    if phase != "TRANSFER":
+        return pose
+    if next_section is None:
+        raise WorkpiecePoseError("TRANSFER_TARGET_MISSING: next bend pose not supplied")
+    end_pose = machine_pose_for_cycle(next_section, cycle, tooling)
+    return interpolate_rigid_placement(
+        pose, end_pose, cycle.transfer_progress, cycle.transfer_lift_mm
+    )
+
+
+# All geometric keys from FoldState.cross_section_2d() are projected through
+# the SAME transform. Nongeometric metadata stays in its source contract.
+_SINGLE_POLYGONS = (
+    "fixed_polygon", "moving_polygon", "zone_polygon",
+    "inner_surface", "outer_surface", "neutral_curve",
+    "tangent_points_top", "tangent_points_bottom",
+)
+_NAMED_POLYGONS = ("other_panel_polygons", "other_zone_polygons")
+_CURVE_GROUPS = ("other_inner_curves", "other_outer_curves", "other_neutral_curves")
+_LINE_GROUPS = ("other_tangent_lines",)
+
+
+def transform_sheet_section(section: Mapping[str, Any], pose: WorkpiecePose2D):
+    """Return a transformed copy; never mutate an original FoldState section."""
+    result = dict(section)
+    for key in _SINGLE_POLYGONS:
+        if key in section:
+            result[key] = pose.points(section[key])
+    for key in _NAMED_POLYGONS:
+        if key in section:
+            result[key] = tuple((ident, pose.points(points)) for ident, points in section[key])
+    for key in _CURVE_GROUPS:
+        if key in section:
+            result[key] = tuple(pose.points(points) for points in section[key])
+    for key in _LINE_GROUPS:
+        if key in section:
+            result[key] = tuple((pose.apply(a), pose.apply(b)) for a, b in section[key])
+    return result

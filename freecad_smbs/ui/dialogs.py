@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import sys
 
+from freecad_smbs.ui.localization import tr, tr_message
+
 
 def _print_fallback(prefix: str, title: str, msg: str) -> None:
     try:
@@ -22,6 +24,7 @@ def _print_fallback(prefix: str, title: str, msg: str) -> None:
 
 def show_info(title: str, msg: str) -> None:
     """Display an informative message dialog."""
+    title, msg = tr_message(title), tr_message(msg)
     try:
         from PySide6 import QtWidgets
         app = QtWidgets.QApplication.instance()
@@ -35,6 +38,7 @@ def show_info(title: str, msg: str) -> None:
 
 def show_error(title: str, msg: str) -> None:
     """Display an error message dialog."""
+    title, msg = tr_message(title), tr_message(msg)
     try:
         from PySide6 import QtWidgets
         app = QtWidgets.QApplication.instance()
@@ -48,6 +52,7 @@ def show_error(title: str, msg: str) -> None:
 
 def show_unverified_warning(title: str, msg: str) -> None:
     """Display a warning dialog regarding unverified or failed sequence."""
+    title, msg = tr_message(title), tr_message(msg)
     try:
         from PySide6 import QtWidgets
         app = QtWidgets.QApplication.instance()
@@ -80,59 +85,30 @@ def show_pipeline_result(result: Any) -> None:
             if isinstance(ang, dict):
                 ang = ang.get("value", "")
             ang_str = f" {ang}°" if ang != "" else ""
-            steps_lines.append(f"  Шаг {step_no}: {bid} ({direction}{ang_str})")
-        steps_text = "\n".join(steps_lines) if steps_lines else "  (нет шагов)"
+            steps_lines.append(tr("step", step=step_no, bend=bid, direction=direction, angle=ang_str))
+        steps_text = "\n".join(steps_lines) if steps_lines else tr("no_steps")
 
         if planning_status == "SUCCESS":
-            elig_str = "Готово к производству (production_eligible=true)" if prod_elig else "Не подтверждено для производства (production_eligible=false)"
-            msg = (
-                f"Последовательность успешно рассчитана!\n\n"
-                f"Порядок гибки ({len(seq)} шагов):\n"
-                f"{steps_text}\n\n"
-                f"Верификация: {verif_status}\n"
-                f"Статус: {elig_str}\n"
-                f"Директория запуска: {run_dir}\n\n"
-                f"Метки шагов нанесены на развёртку детали.\n"
-                f"Команды Симуляция и Верификация готовы к работе."
-            )
-            show_info("SMBS: Расчёт завершён", msg)
+            elig_str = "ready_for_production_production_eligible_true" if prod_elig else "not_approved_for_production_production_eligible_false"
+            msg = tr("sequence_calculated_successfully_bending_order_steps_verification_status_run", count=len(seq), steps=steps_text, verification=verif_status, eligibility=tr(elig_str), directory=run_dir)
+            show_info(tr("smbs_calculation_complete"), msg)
         else:  # PARTIAL (EXPLORATORY / without physical tooling)
-            msg = (
-                f"Геометрическая последовательность гибки найдена!\n\n"
-                f"Порядок гибки ({len(seq)} шагов):\n"
-                f"{steps_text}\n\n"
-                f"Верификация: {verif_status} (EXPLORATORY / без оснастки)\n"
-                f"Статус: Предварительный расчёт (production_eligible=false)\n"
-                f"Директория запуска: {run_dir}\n\n"
-                f"Метки шагов нанесены на развёртку детали.\n"
-                f"Команды Симуляция и Верификация готовы к работе.\n\n"
-                f"Примечание: Для полной производственной сертификации выберите инструмент в меню «Оснастка»."
-            )
-            show_info("SMBS: Геометрический расчёт (EXPLORATORY)", msg)
+            msg = tr("a_geometric_bending_sequence_was_found_bending_order_steps", count=len(seq), steps=steps_text, verification=verif_status, directory=run_dir)
+            show_info(tr("smbs_geometric_calculation_exploratory"), msg)
     elif planning_status == "NO_SOLUTION":
-        msg = (
-            f"Последовательность гибки не найдена (NO_SOLUTION).\n\n"
-            f"Причина:\n{err_msg or 'Все траектории гибки приводят к столкновению или недопустимы'}\n\n"
-            f"Директория запуска: {run_dir}\n"
-            f"Подробные логи доступны в 11_run_report.json."
-        )
-        show_unverified_warning("SMBS: Решение не найдено", msg)
+        msg = tr("no_bending_sequence_found_no_solution_reason_run_directory", reason=err_msg or tr("all_bending_paths_collide_or_are_invalid"), directory=run_dir)
+        show_unverified_warning(tr("smbs_no_solution_found"), msg)
     else:
-        msg = (
-            f"Расчёт завершился с ошибкой ({planning_status}).\n\n"
-            f"Детали:\n{err_msg or 'Неизвестная ошибка'}\n\n"
-            f"Проверьте корректность модели листового металла в верстаке SheetMetal "
-            f"и вывод в панели отчётов FreeCAD (Report view)."
-        )
-        show_error("SMBS: Ошибка расчёта", msg)
+        msg = tr("calculation_failed_details_check_the_sheet_metal_model_in", status=planning_status, details=err_msg or tr("unknown_error"))
+        show_error(tr("smbs_calculation_error"), msg)
 
 
 class ProgressContext:
     """Progress dialog context manager, headless-safe."""
 
-    def __init__(self, title: str = "SMBS", text: str = "Выполняется расчёт..."):
+    def __init__(self, title: str = "SMBS", text: str = "calculating"):
         self.title = title
-        self.text = text
+        self.text = tr(text)
         self._dlg = None
 
     def __enter__(self) -> ProgressContext:

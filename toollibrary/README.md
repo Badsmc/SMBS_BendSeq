@@ -1,36 +1,17 @@
-# SMBS Tool Library
+# Bundled tooling
 
-This is the equipment library in the historical `main` baseline. The active development branch is `develop`.
+The library contains FCStd solid models, metadata sidecars and original DXF profiles. Select the actual tooling before simulating or checking a part.
 
-## Inventory (2026-11-09)
+New profiles supplied on 2026-11-24:
 
-| Role | CAD model | Metadata |
-|---|---|---|
-| Punch | `punch/puancon.FCStd` | `punch/puancon.tooling.json` |
-| Die | `die/matrica.FCStd` | `die/matrica.tooling.json` |
-| Backgauge | `Backgauge/Backgauge.FCStd` | `Backgauge/Backgauge.tooling.json` |
-| Clamp | `Clamp/Clamp.FCStd` | `Clamp/Clamp.tooling.json` |
-| Machine frame | `machine_frame/machine_frame.FCStd` | `machine_frame/machine_frame.tooling.json` |
-| Press | `presses/cncbender.FCStd` | none (same Git blob as `machine_frame/machine_frame.FCStd`) |
+| Model | Kind | Working height | Total CAD height | Geometry |
+| --- | --- | --- | --- | --- |
+| PUNCH_AP_1029_88°_H99,40_R0,6 | Punch | 99.4 mm | 129.4 mm | 88°, R0.6 |
+| PUNCH_AP_1055_30°_H105_R0,5 | Punch | 105 mm | 135 mm | 30°, R0.5 |
+| T-Die_AT_3018_88°_V25_H80 | Die | 80 mm | 80 mm | 88°, V25, shoulder R3 |
 
-The `presses/cncbender.FCStd` file and the machine frame are byte-for-byte identical in Git. Do not independently treat them as two validated machine models.
+The FCStd models preserve the DXF lines and circular arcs. They use a **100 mm reference extrusion**, not an assertion of available stock. Set the real segment lengths and quantities in the library; no stock quantities have been invented. Punch total heights include the mounting shank.
 
-## Named sets
+AP 1029 and AT 3018 are the bundled defaults. Other existing production profiles remain available. The legacy generic `puancon` and `matrica` models were removed. Saved documents referring to those models require selecting replacement tooling.
 
-`sets/standard_90deg_v12.json` was restored from historical `AutoMod-V0.0.1` and is also present in `HandMod-V.0.0.1`.
-
-- Set ID: `standard_90deg_v12`
-- Punch: `puancon` (sidecar R1 mm, 88°)
-- Die: `matrica` (sidecar V12 mm, 88°)
-- Clamp positions: 75 mm and 275 mm
-- Recommended thickness in metadata: 2.0 mm — informational, **not a validated machine limit**
-
-The setup is a named configuration, not a guarantee of successful or collision-free bending.
-
-## Integration
-
-The FreeCAD UI uses `freecad_smbs.integration.smbs_bridge.get_tooling_library()` which resolves this folder relative to the repository. `ToolingLibrary` loads punch/die catalogs and named sets using `smbs_core.geometry_backend.io`. The canonical backgauge and clamp paths in `freecad_smbs/resources/tooling_paths.py` now match the actual case-sensitive filenames.
-
-Keep these FCStd files and JSON sidecars paired. Do not change datums, tool dimensions or file IDs without validating in real FreeCAD and updating tests. On `main` the files have been checked for existence, reference IDs and Git blob consistency; **geometry and machine collision verification in FreeCAD has not been performed**.
-
-Changes in `develop` do not automatically update `main`. Reconcile and validate tooling assets before promoting a development snapshot to the public release branch.
+Geometry validation does not certify a bending sequence, tool strength or collision clearance.

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<package format="1" xmlns="https://wiki.freecad.org/Package_Metadata">
+  <name>SMBS BendSeq</name>
+  <description>PressBrakeSim workbench for sheet-metal bend sequence planning, tooling setup, 3D simulation, and sampled collision checks. Initial public preview.</description>
+  <version>0.1.0</version>
+  <date>2026-11-25</date>
+  <maintainer email="109237230+Badsmc@users.noreply.github.com">Badsmc</maintainer>
+  <license>NOASSERTION</license>
+  <url type="repository" branch="main">https://github.com/Badsmc/SMBS_BendSeq</url>
+  <url type="readme">https://github.com/Badsmc/SMBS_BendSeq/blob/main/README.md</url>
+  <url type="bugtracker">https://github.com/Badsmc/SMBS_BendSeq/issues</url>
+  <icon>freecad_smbs/resources/icons/gui_workbench.svg</icon>
+  <freecadmin>1.1.0</freecadmin>
+  <pythonmin>3.11</pythonmin>
+  <tag>Sheet metal</tag>
+  <tag>Press brake</tag>
+  <tag>Simulation</tag>
+  <content>
+    <workbench>
+      <classname>SMBSWorkbench</classname>
+      <subdirectory>./</subdirectory>
+      <depend type="addon" optional="true">SheetMetal</depend>
+      <depend type="internal" optional="true">techdraw</depend>
+    </workbench>
+  </content>
+</package>

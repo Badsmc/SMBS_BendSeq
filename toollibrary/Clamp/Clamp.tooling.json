@@ -23,6 +23,10 @@
       "tolerance_mm": 0.05
     }
   },
+  "visual_mount": {
+    "punch_contact_feature": "Pocket",
+    "punch_contact_face": "Face1"
+  },
   "metadata": {
     "width_mm": 150.0,
     "length_mm": 150.0,

@@ -11,6 +11,14 @@
       "tolerance_mm": 0.05
     }
   },
+  "visual_mount": {
+    "assembly_object": "Assembly",
+    "bed_object": "Body002",
+    "bed_face": "Face1",
+    "ram_object": "Body003",
+    "ram_face": "Face1",
+    "operator_y_sign": -1
+  },
   "metadata": {
     "description": "User provided machine frame"
   }

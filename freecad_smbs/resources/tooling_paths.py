@@ -13,13 +13,13 @@ REPO_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 TOOL_LIBRARY_ROOT: Path = REPO_ROOT / "toollibrary"
 
 # Canonical paths for existing tooling assets
-PUNCH_PATH: Path = TOOL_LIBRARY_ROOT / "punch" / "puancon.FCStd"
-DIE_PATH: Path = TOOL_LIBRARY_ROOT / "die" / "matrica.FCStd"
+PUNCH_PATH: Path = TOOL_LIBRARY_ROOT / "punch" / "PUNCH_AP_1029_88°_H99,40_R0,6.FCStd"
+DIE_PATH: Path = TOOL_LIBRARY_ROOT / "die" / "T-Die_AT_3018_88°_V25_H80.FCStd"
 PRESS_PATH: Path = TOOL_LIBRARY_ROOT / "presses" / "cncbender.FCStd"
 
-# Paths to the tracked machine components (case-sensitive on Linux).
-BACKGAUGE_PATH: Path = TOOL_LIBRARY_ROOT / "Backgauge" / "Backgauge.FCStd"
-CLAMPS_PATH: Path = TOOL_LIBRARY_ROOT / "Clamp" / "Clamp.FCStd"
+# Missing tooling paths (per β1 — expected path conventions, missing until client provides)
+BACKGAUGE_PATH: Path = TOOL_LIBRARY_ROOT / "backgauge" / "backgauge.FCStd"
+CLAMPS_PATH: Path = TOOL_LIBRARY_ROOT / "clamps" / "clamps.FCStd"
 MACHINE_FRAME_PATH: Path = TOOL_LIBRARY_ROOT / "machine_frame" / "machine_frame.FCStd"
 
 # Canonical mapping of all tooling entities
@@ -32,15 +32,26 @@ ALL_TOOLING_PATHS: Dict[str, Path] = {
     "machine_frame": MACHINE_FRAME_PATH,
 }
 
-# Availability reflects actual tracked case-sensitive paths in toollibrary/.\nMISSING_TOOLS: List[str] = [
+# Registry of missing tools per β1.
+# NOTE: computed from canonical Path.exists() at import time. OS-dependent for
+# paths with case/naming variants (e.g. Backgauge/ vs backgauge/, Clamp/ vs
+# clamps/). For accurate presence checks use resolve_backgauge_fcstd(),
+# resolve_clamp_fcstd(), and resolve_machine_frame_fcstd().
+MISSING_TOOLS: List[str] = [
     name for name, path in ALL_TOOLING_PATHS.items() if not path.exists()
 ]
 
 
 def is_tool_available(name: str) -> bool:
-    """Return True if the specified tooling file exists in toollibrary/."""
+    """Check canonical assets and known case variants on case-sensitive platforms."""
+    if name == "backgauge":
+        return resolve_backgauge_fcstd(TOOL_LIBRARY_ROOT) is not None
+    if name == "clamps":
+        return resolve_clamp_fcstd(TOOL_LIBRARY_ROOT) is not None
+    if name == "machine_frame":
+        return resolve_machine_frame_fcstd(TOOL_LIBRARY_ROOT) is not None
     path = ALL_TOOLING_PATHS.get(name)
-    return path is not None and path.exists()
+    return path is not None and path.is_file()
 
 
 def get_tool_path_or_missing(name: str) -> Path:
@@ -152,3 +163,10 @@ def resolve_machine_frame_fcstd(library_root: Path) -> Optional[Path]:
             if found:
                 return found
     return None
+
+
+# Refresh the legacy read-only missing list after all variant-aware resolvers
+# have been defined; avoid false "missing" labels on Linux case-sensitive FS.
+MISSING_TOOLS = [
+    name for name in ALL_TOOLING_PATHS if not is_tool_available(name)
+]

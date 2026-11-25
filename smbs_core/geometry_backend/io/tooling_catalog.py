@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import logging
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -170,6 +169,9 @@ def _scan_kind_directory(kind_dir: Path, expected_kind: str) -> tuple[ToolDescri
                 )
             )
         else:
-            sys.stderr.write(f"ToolingCatalog: skipping non-FCStd file: {item}\n")
+            # .tooling.json sidecars and DXF reference profiles are expected
+            # neighbors of FCStd assets, not errors. Ignore them silently.
+            # Unknown files also remain excluded from the tooling catalog.
+            continue
 
     return tuple(descriptors)
