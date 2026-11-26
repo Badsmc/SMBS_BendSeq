@@ -57,3 +57,14 @@ SMBS_demo_FCStd_17_files.zip
 /demo/legacy-tooling/punch/
 /demo/legacy-tooling/die/
 /demo/legacy-tooling/sets/
+
+# User libraries live outside the checkout; never publish local migration data.
+/toollibrary/
+/config/
+/saved_sequences/
+/migration-conflicts/
+/migration-v1.json
+/freecad/bendseq/resources/default_toollibrary/punch/*
+!/freecad/bendseq/resources/default_toollibrary/punch/.gitkeep
+/freecad/bendseq/resources/default_toollibrary/die/*
+!/freecad/bendseq/resources/default_toollibrary/die/.gitkeep

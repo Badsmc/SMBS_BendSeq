@@ -1,0 +1,167 @@
+"""Catalog window: import SMBS diagnostic JSON and assign a replayed sequence."""
+from __future__ import annotations
+from pathlib import Path
+import json
+
+from freecad.bendseq.core.kinematics2d.sequence_catalog import load_catalog_file, parse_diagnostic
+
+from freecad.bendseq.ui.native_preferences import NativePreferences
+from freecad.bendseq.ui.localization import tr, tr_message
+
+
+def show_sequence_catalog(workspace):
+    """Open a standalone modal UI, sharing the existing viewer and controller."""
+    from .pressbrake_2d import _qt, activate_task_dialog, embed_task_dialog
+    if activate_task_dialog(workspace, "catalog"):
+        return
+    QtCore, _, QtWidgets = _qt()
+    dlg = QtWidgets.QDialog(workspace)
+    dlg.setObjectName("SMBS_SequenceCatalog")
+    dlg.setWindowTitle(tr("smbs_sequences"))
+    dlg.resize(1050, 630)
+    root = QtWidgets.QVBoxLayout(dlg)
+    intro = QtWidgets.QLabel(
+        tr("load_automatic_or_manual_search_results_from_json_penalties"))
+    intro.setWordWrap(True)
+    root.addWidget(intro)
+    buttons = QtWidgets.QHBoxLayout()
+    load_btn = QtWidgets.QPushButton(tr("load_json"))
+    folder_btn = QtWidgets.QPushButton(tr("load_folder"))
+    refresh_btn = QtWidgets.QPushButton(tr("refresh"))
+    buttons.addWidget(load_btn)
+    buttons.addWidget(folder_btn)
+    buttons.addWidget(refresh_btn)
+    buttons.addStretch()
+    root.addLayout(buttons)
+    table = QtWidgets.QTableWidget(0, 6)
+    table.setObjectName("SMBS_SequenceCatalogTable")
+    table.setHorizontalHeaderLabels((
+        tr("type"), tr("sequence_83d6602a"), tr("penalty"), tr("warnings"), tr("2d_status"), tr("file")))
+    table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+    table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
+    table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+    table.setColumnWidth(0, 65)
+    table.setColumnWidth(1, 365)
+    table.setColumnWidth(2, 80)
+    table.setColumnWidth(3, 135)
+    table.setColumnWidth(4, 220)
+    table.horizontalHeader().setStretchLastSection(True)
+    root.addWidget(table, 1)
+    details = QtWidgets.QPlainTextEdit()
+    details.setObjectName("SMBS_SequenceCatalogDetails")
+    details.setReadOnly(True)
+    details.setMaximumHeight(175)
+    root.addWidget(details)
+    footer = QtWidgets.QHBoxLayout()
+    summary = QtWidgets.QLabel()
+    assign_btn = QtWidgets.QPushButton(tr("apply_to_simulation"))
+    close_btn = QtWidgets.QPushButton(tr("close"))
+    footer.addWidget(summary, 1)
+    footer.addWidget(assign_btn)
+    footer.addWidget(close_btn)
+    root.addLayout(footer)
+
+    settings = NativePreferences(QtCore)
+    saved = settings.value("sequence_catalog/json_paths", [], type=list)
+    paths = [str(p) for p in saved if p]
+    entries = []
+
+    def record_path(file_path):
+        path = str(Path(file_path).expanduser().resolve())
+        if path not in paths:
+            paths.append(path)
+            settings.setValue("sequence_catalog/json_paths", paths)
+
+    def selected():
+        row = table.currentRow()
+        return entries[row] if 0 <= row < len(entries) else None
+
+    def display_details():
+        entry = selected()
+        if entry is None:
+            return
+        details.setPlainText("\n".join((
+            tr("order") + " → ".join(entry.sequence),
+            tr("source") + entry.source,
+            tr("status_6daa099e", status=entry.evidence),
+            tr("penalty_5e32c861", cost=(str(entry.cost) if entry.cost is not None else tr("unknown")),
+               quality=(tr("complete") if entry.cost_complete else tr("unverified"))),
+            tr("weights") + json.dumps(entry.weights or {}, ensure_ascii=False),
+            tr("warnings_b4d36ab6") + ("; ".join(entry.warnings) or tr("not_in_report")),
+            tr("step_penalties") + json.dumps(
+                entry.cost_breakdown, ensure_ascii=False)[:12000],
+        )))
+    table.itemSelectionChanged.connect(display_details)
+
+    def reload():
+        entries.clear()
+        failures = []
+        for path in paths:
+            try:
+                entries.extend(load_catalog_file(path, translate=tr_message))
+            except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+                failures.append(Path(path).name + ": " + str(exc))
+        manual_report = getattr(workspace, "_last_manual_sequence_report", None)
+        if manual_report is not None:
+            entries.extend(parse_diagnostic(
+                manual_report, tr("current_manual_sequence"), translate=tr_message))
+        entries[:] = list(dict((e.key, e) for e in entries).values())
+        table.setRowCount(0)
+        for entry in entries:
+            row = table.rowCount()
+            table.insertRow(row)
+            values = (
+                entry.origin,
+                " → ".join(entry.sequence),
+                "{:.2f}".format(entry.cost) if entry.cost_complete
+                else tr("n_a"),
+                ", ".join(entry.warning_bends) or tr("none"),
+                entry.evidence,
+                entry.source,
+            )
+            for col, value in enumerate(values):
+                table.setItem(row, col, QtWidgets.QTableWidgetItem(value))
+        summary.setText(tr("candidates_sources_errors",
+                           variants=len(entries), sources=len(paths), errors=len(failures)))
+        if failures:
+            details.setPlainText(tr("could_not_read_f64bf0ee") + "\n".join(failures[:12]))
+        elif entries:
+            table.selectRow(0)
+        else:
+            details.setPlainText(tr("add_json_search_or_manual_check_reports"))
+
+    def import_files():
+        files, _ = QtWidgets.QFileDialog.getOpenFileNames(
+            dlg, tr("select_smbs_reports"), str(Path.home()), "JSON (*.json)")
+        for path in files:
+            record_path(path)
+        reload()
+
+    def import_folder():
+        folder = QtWidgets.QFileDialog.getExistingDirectory(
+            dlg, tr("json_diagnostics_folder"), str(Path.home()))
+        if folder:
+            for path in sorted(Path(folder).glob("*.json")):
+                record_path(path)
+            reload()
+
+    def assign_selected():
+        entry = selected()
+        if entry is None:
+            return
+        try:
+            workspace.assign_catalog_sequence(entry)
+        except Exception as exc:
+            QtWidgets.QMessageBox.warning(
+                dlg, tr("no_sequence_assigned"), str(exc))
+            return
+        dlg.accept()
+
+    load_btn.clicked.connect(import_files)
+    folder_btn.clicked.connect(import_folder)
+    refresh_btn.clicked.connect(reload)
+    assign_btn.clicked.connect(assign_selected)
+    table.itemDoubleClicked.connect(lambda _item: assign_selected())
+    close_btn.clicked.connect(dlg.reject)
+    reload()
+    embed_task_dialog(workspace, dlg, tr("sequences"), "catalog")

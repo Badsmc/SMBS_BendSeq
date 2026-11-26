@@ -5,7 +5,7 @@ from types import SimpleNamespace as NS
 import unittest
 
 ROOT=Path(__file__).resolve().parents[1]
-SOURCE=(ROOT/"freecad_smbs/commands/pressbrake_2d.py").read_text(encoding="utf-8")
+SOURCE=(ROOT/"freecad/bendseq/commands/pressbrake_2d.py").read_text(encoding="utf-8")
 
 
 class Signal:

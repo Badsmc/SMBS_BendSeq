@@ -136,8 +136,8 @@ Manually verify in FreeCAD 1.1.x:
 6. Loading an ordinary part without staged bends: unchanged manual behavior.
 
 Key files:
-- `smbs_core/kinematics2d/staged_bends.py`
-- `smbs_core/kinematics2d/press_cycle.py`
-- `freecad_smbs/commands/pressbrake_2d.py`
-- `freecad_smbs/integration/fcstd_session_store.py`
+- `freecad/bendseq/core/kinematics2d/staged_bends.py`
+- `freecad/bendseq/core/kinematics2d/press_cycle.py`
+- `freecad/bendseq/commands/pressbrake_2d.py`
+- `freecad/bendseq/integration/fcstd_session_store.py`
 - Historical tests: `tests/test_staged_bends.py` and `tests/test_fcstd_staged_operations.py`.

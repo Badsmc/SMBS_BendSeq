@@ -2,7 +2,7 @@
 import unittest
 from types import SimpleNamespace
 
-from freecad_smbs.ui.native_preferences import NativePreferences, ROOT
+from freecad.bendseq.ui.native_preferences import NativePreferences, ROOT
 
 
 class Group:

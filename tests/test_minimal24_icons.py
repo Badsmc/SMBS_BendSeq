@@ -5,7 +5,7 @@ from xml.etree import ElementTree as ET
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-MOD = ROOT / "freecad_smbs" / "icon_theme.py"
+MOD = ROOT / "freecad/bendseq" / "icon_theme.py"
 spec = importlib.util.spec_from_file_location("icon_theme_minimal24", MOD)
 theme = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(theme)

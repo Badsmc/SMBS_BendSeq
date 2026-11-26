@@ -1,7 +1,7 @@
 """Status icons must follow the FreeCAD language without implying safety."""
 import unittest
 
-from freecad_smbs.ui.pressbrake_theme import classify_status
+from freecad.bendseq.ui.pressbrake_theme import classify_status
 
 
 class StatusClassificationTest(unittest.TestCase):

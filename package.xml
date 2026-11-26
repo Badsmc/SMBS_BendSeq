@@ -10,8 +10,8 @@
   <url type="repository" branch="develop">https://github.com/Badsmc/SMBS_BendSeq</url>
   <url type="readme">https://github.com/Badsmc/SMBS_BendSeq/raw/develop/README.md</url>
   <url type="bugtracker">https://github.com/Badsmc/SMBS_BendSeq/issues</url>
-  <icon>freecad_smbs/resources/icons/gui_workbench.svg</icon>
-  <freecadmin>1.1.0</freecadmin>
+  <icon>freecad/bendseq/resources/icons/gui_workbench.svg</icon>
+  <freecadmin>1.1.3</freecadmin>
   <pythonmin>3.11</pythonmin>
   <tag>Sheet metal</tag>
   <tag>Press brake</tag>
@@ -19,7 +19,7 @@
   <content>
     <workbench>
       <name>PressBrakeSim</name>
-      <icon>freecad_smbs/resources/icons/gui_workbench.svg</icon>
+      <icon>freecad/bendseq/resources/icons/gui_workbench.svg</icon>
       <classname>SMBSWorkbench</classname>
       <subdirectory>./</subdirectory>
       <depend type="addon" optional="true">SheetMetal Workbench</depend>
