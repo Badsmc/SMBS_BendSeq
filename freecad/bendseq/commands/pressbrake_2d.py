@@ -91,11 +91,16 @@ class _SMBSFCStdSaveObserver:
         panel = self._panel_ref()
         if panel is None or panel.session is None:
             return
-        if not getattr(panel, "_smbs_allow_auto_embed", False):
-            return
         if str(getattr(document, "Name", "")) != str(
             getattr(panel, "_smbs_document_name", "")
         ):
+            return
+        if not getattr(panel, "_smbs_allow_auto_embed", False):
+            reason = getattr(panel, "_smbs_auto_embed_error", "")
+            if reason:
+                message = tr("smbs_json_was_not_embedded_in_the_fcstd", error=reason)
+                _warn(message)
+                panel.status.setText(message)
             return
         try:
             panel._write_embedded_smbs_json(document)
@@ -2753,38 +2758,6 @@ class _PreviewPanel:
                 self.trace_status = QtWidgets.QLabel(self)
                 self.trace_status.hide()
 
-                fcstd_card, fcstd_body = card(tr("smbs_data_in_the_fcstd_document"))
-                self.fcstd_save_btn = style_action(
-                    QtWidgets.QPushButton(tr("save_to_fcstd")), compact=True
-                )
-                self.fcstd_save_btn.setToolTip(
-                    tr("embed_bend_order_settings_and_check_history_as_json")
-                )
-                self.fcstd_save_btn.clicked.connect(
-                    self._save_embedded_smbs_json_clicked
-                )
-                self.fcstd_load_btn = style_action(
-                    QtWidgets.QPushButton(tr("restore_from_fcstd")), compact=True
-                )
-                self.fcstd_load_btn.setToolTip(
-                    tr("restore_saved_order_and_settings_historical_results_require_a")
-                )
-                self.fcstd_load_btn.clicked.connect(
-                    self._restore_embedded_smbs_json_clicked
-                )
-                fcstd_buttons = QtWidgets.QHBoxLayout()
-                fcstd_buttons.addWidget(self.fcstd_save_btn)
-                fcstd_buttons.addWidget(self.fcstd_load_btn)
-                fcstd_buttons.addStretch(1)
-                fcstd_body.addLayout(fcstd_buttons)
-                self.fcstd_note = QtWidgets.QLabel(
-                    tr("ctrl_s_embeds_the_json_after_a_part_is")
-                )
-                self.fcstd_note.setWordWrap(True)
-                # Detailed save/restore feedback is already shown in the
-                # persistent task footer status; avoid a second paragraph.
-                self.fcstd_note.hide()
-                settings_layout.addWidget(fcstd_card)
                 advanced_toggle = style_action(
                     QtWidgets.QPushButton(tr("advanced")), compact=True
                 )
@@ -2985,8 +2958,6 @@ class _PreviewPanel:
                     (self.manual_show_collision_btn, "btn_show_collision_3d.svg"),
                     (self.manual_exact_occ_btn, "btn_occ_overlap.svg"),
                     (self.fast_save_template_btn, "btn_save_bend_template.svg"),
-                    (self.fcstd_save_btn, "btn_save_fcstd.svg"),
-                    (self.fcstd_load_btn, "btn_restore_fcstd.svg"),
                     (self.mesh_show_collision_btn, "btn_mesh_collisions.svg"),
                     (self.import_tooling_btn, "btn_tooling_import.svg"),
                     (self.restore_order_btn, "btn_restore_order.svg"),
@@ -6221,6 +6192,7 @@ class _PreviewPanel:
                         Gui.Control.activeTaskDialog(), self._smbs_document_name
                     )
                 self._smbs_allow_auto_embed = False
+                self._smbs_auto_embed_error = ""
                 self._saved_full_sequences = []
                 self._last_manual_sequence_report = None
                 self._manual_3d_verdicts.clear()
@@ -6259,9 +6231,10 @@ class _PreviewPanel:
                     # Changed geometry, wrong schema or damaged JSON must
                     # never overwrite the successfully loaded live session.
                     _warn("Embedded SMBS state not restored: " + str(exc))
-                    restore_message = tr("smbs_json_could_not_be_restored_automatic_json_writing", error=exc)
+                    self._smbs_auto_embed_error = str(exc)
+                    restore_message = (tr("could_not_read_json", error=exc)
+                                       + tr("automatic_json_saving_is_unavailable", error=exc))
                     self._smbs_allow_auto_embed = False
-                    self.fcstd_note.setText(restore_message)
                 self._sync_manual_order_input()
                 try:
                     self._register_embedded_smbs_observer()
@@ -6933,8 +6906,10 @@ class _PreviewPanel:
                 File → Save to choose the first FCStd filename.
                 """
                 document = self._bound_smbs_document()
+                if not self._smbs_allow_auto_embed:
+                    raise RuntimeError(tr("smbs_json_was_not_embedded_in_the_fcstd",
+                                          error=self._smbs_auto_embed_error))
                 snapshot = self._write_embedded_smbs_json(document)
-                self._smbs_allow_auto_embed = True
                 self._embedded_diagnostics_history = snapshot["diagnostics"]
                 _desktop_debug_event(
                     "FCSTD_MANUAL_DIAGNOSTICS_STAGED",
@@ -7023,49 +6998,6 @@ class _PreviewPanel:
                 write_included_json(document, snapshot)
                 return snapshot
 
-            def _save_embedded_smbs_json_clicked(self):
-                try:
-                    document = self._bound_smbs_document()
-                    self._write_embedded_smbs_json(document)
-                    self._smbs_allow_auto_embed = True
-                    # An unsaved document has no target archive yet. Avoid
-                    # silently writing to a made-up default filename.
-                    if str(getattr(document, "FileName", "")):
-                        document.save()
-                    else:
-                        proposed = str(
-                            Path.home() /
-                            (str(document.Name) + ".FCStd")
-                        )
-                        target, _ = QtWidgets.QFileDialog.getSaveFileName(
-                            self, tr("save_part_with_smbs_json"),
-                            proposed, "FreeCAD (*.FCStd)",
-                        )
-                        if not target:
-                            self.status.setText(
-                                tr("json_is_staged_in_the_document_saving_the_fcstd")
-                            )
-                            return
-                        document.saveAs(str(target))
-                    self.fcstd_note.setText(
-                        tr("json_embedded_smbs_data_sessionjson_saved_in", file=document.FileName)
-                    )
-                    self.status.setText(
-                        tr("smbs_json_saved_inside_fcstd_check_results_are_historical")
-                    )
-                except Exception as exc:
-                    _error("FCStd SMBS save failed: " + traceback.format_exc())
-                    self.status.setText(tr("could_not_embed_json", error=exc))
-
-            def _restore_embedded_smbs_json_clicked(self):
-                try:
-                    document = self._bound_smbs_document()
-                    message = self._restore_embedded_smbs_json(document)
-                    self.status.setText(message)
-                except Exception as exc:
-                    _error("FCStd SMBS load failed: " + traceback.format_exc())
-                    self.status.setText(tr("could_not_read_json", error=exc))
-
             def _restore_embedded_smbs_json(self, document):
                 """Only apply validated geometry/order; saved passes are history."""
                 from freecad.bendseq.integration.fcstd_session_store import (
@@ -7077,9 +7009,6 @@ class _PreviewPanel:
                 if payload is None:
                     self._smbs_allow_auto_embed = True
                     self._embedded_diagnostics_history = None
-                    self.fcstd_note.setText(
-                        tr("this_document_has_no_embedded_smbs_json_yet")
-                    )
                     return tr("no_saved_smbs_session_in_the_fcstd_file")
                 order, prefix = validate_restore(
                     payload, self.session, document
@@ -7340,7 +7269,6 @@ class _PreviewPanel:
                 )
                 if warnings:
                     note += tr("limitations") + "; ".join(warnings)
-                self.fcstd_note.setText(note)
                 return note
 
             def _mesh_preview_identity(self):
