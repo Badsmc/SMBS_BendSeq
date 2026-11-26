@@ -38,6 +38,10 @@ class NativePreferencesTest(unittest.TestCase):
         self.legacy["debug_log/enabled"] = True
         self.assertFalse(self.prefs.value("debug_log/enabled", True, type=bool))
         self.assertEqual(self.reads, [])
+        # Native reset must never resurrect the old true value.
+        del group.values[("Bool", "Enabled")]
+        self.assertFalse(self.prefs.value("debug_log/enabled", False, type=bool))
+        self.assertEqual(self.reads, [])
 
     def test_migrate_once_and_do_not_resurrect_removed_key(self):
         self.legacy["backgauge/enabled"] = True
@@ -62,3 +66,12 @@ class NativePreferencesTest(unittest.TestCase):
         self.assertEqual(self.prefs.value("operation_weights/flip", 1.0, type=float), 3.5)
         self.prefs.setValue("pdf/options_v2", '{"large_first": true}')
         self.assertEqual(self.prefs.value("pdf/options_v2", "", type=str), '{"large_first": true}')
+
+    def test_mesh_keys_match_native_designer_preference_page(self):
+        self.legacy["mesh/budget_seconds"] = 95
+        self.legacy["mesh/min_overlap_mm3"] = 0.002
+        self.assertEqual(self.prefs.value("mesh/budget_seconds", 60, type=int), 95)
+        self.assertEqual(self.prefs.value("mesh/min_overlap_mm3", 0.0001, type=float), 0.002)
+        group = self.groups[ROOT + "/Mesh"]
+        self.assertEqual(group.GetInt("BudgetSeconds", 0), 95)
+        self.assertEqual(group.GetFloat("MinimumOverlapMM3", 0.0), 0.002)
