@@ -21,21 +21,11 @@ TASK_QSS = ""
 
 
 def section_card(QtCore, QtWidgets, title: str):
-    """A borderless semantic section that uses only the current native style."""
-    frame = QtWidgets.QFrame()
+    """A standard Qt group with native FreeCAD styling."""
+    frame = QtWidgets.QGroupBox(title) if title else QtWidgets.QWidget()
     frame.setObjectName("SMBS_SectionCard")
-    frame.setFrameShape(QtWidgets.QFrame.NoFrame)
     layout = QtWidgets.QVBoxLayout(frame)
-    layout.setContentsMargins(SECTION_PADDING, 3, SECTION_PADDING, 3)
-    layout.setSpacing(SECTION_GAP)
-    if title:
-        heading = QtWidgets.QLabel(title)
-        heading.setObjectName("SMBS_SectionTitle")
-        heading.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
-        heading_font = heading.font()
-        heading_font.setBold(True)
-        heading.setFont(heading_font)
-        layout.addWidget(heading)
+    # QGroupBox title, border, spacing and margins follow FreeCAD QStyle.
     return frame, layout
 
 
@@ -49,12 +39,7 @@ def style_action(button, primary=False, compact=False):
         "SMBS_PrimaryAction" if primary else
         "SMBS_CompactButton" if compact else "SMBS_ActionButton"
     )
-    button.setMinimumHeight(22)
-    button.setMaximumHeight(29)
-    button.setMaximumWidth(280)
-    size_policy = button.sizePolicy()
-    size_policy.setHorizontalPolicy(type(size_policy).Maximum)
-    button.setSizePolicy(size_policy)
+    # Use standard size hints: no fixed height/width across DPI or themes.
     if not button.toolTip():
         button.setToolTip(button.text())
     return button

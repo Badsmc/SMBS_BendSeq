@@ -632,13 +632,16 @@ class _SMBSNativeTaskPanel:
     def __init__(self, workspace, form):
         self.workspace = workspace
         self.form = form
+        self._form_ref = form
         self._attached = True
         QtCore, _QtGui, _QtWidgets = _qt()
         panel = self
 
         class LifetimeGuard(QtCore.QObject):
             def eventFilter(self, watched, event):
-                if event.type() in (QtCore.QEvent.DeferredDelete, QtCore.QEvent.Hide):
+                # Hide/HideToParent is normal on minimise, tab changes,
+                # overlay collapse and document activation. It is NOT close.
+                if event.type() == QtCore.QEvent.DeferredDelete:
                     panel._detach()
                 return False
 
@@ -646,21 +649,43 @@ class _SMBSNativeTaskPanel:
         # Rescue reusable controls before their disposable parent is deleted.
         self._lifetime_guard = LifetimeGuard(workspace)
         form.installEventFilter(self._lifetime_guard)
+        # TaskDialogPython can synchronously delete its TaskBox (rather than
+        # post DeferredDelete). QWidget emits destroyed before deleting its
+        # children. Rescue the reusable widgets without touching the dying
+        # parent's layout in that callback.
+        form.destroyed.connect(self._form_destroyed)
+
+    def _form_destroyed(self, *_args):
+        self._detach(destroying=True)
+
+    def owns_active_dialog(self, control):
+        """Use FreeCAD 1.1's native TaskDialog content, not mere activeDialog."""
+        if not self._attached or self.workspace is None:
+            return False
+        form = self._form_ref
+        if not self.workspace._qt_is_valid(form):
+            return False
+        try:
+            active = control.activeTaskDialog()
+            return active is not None and any(
+                self.workspace._qt_is_valid(box) and
+                (box is form or box.isAncestorOf(form))
+                for box in active.getDialogContent()
+            )
+        except (AttributeError, RuntimeError, ReferenceError):
+            return False
+
+    def autoClosedOnTransactionChange(self):
+        self._detach()
+
+    def autoClosedOnDeletedDocument(self):
+        self._detach()
 
     def getStandardButtons(self):
-        # A task's standard Cancel closes only the controls, NOT the
-        # simulation workspace or the user's FCStd document.
+        # Native Close button: FreeCAD supplies the label, icon and layout.
         _QtCore, _QtGui, QtWidgets = _qt()
-        # PySide6 exposes a scoped enum which is not directly int()-castable
-        # on some FreeCAD/macOS Qt builds. FreeCAD's Tasks API expects a mask.
-        cancel = QtWidgets.QDialogButtonBox.StandardButton.Cancel
-        return int(getattr(cancel, "value", cancel))
-
-    def modifyStandardButtons(self, button_box):
-        _QtCore, _QtGui, QtWidgets = _qt()
-        button = button_box.button(QtWidgets.QDialogButtonBox.Cancel)
-        if button is not None:
-            button.setText(tr("close"))
+        close = QtWidgets.QDialogButtonBox.StandardButton.Close
+        return int(getattr(close, "value", close))
 
     def isAllowedAlterDocument(self):
         return True
@@ -672,14 +697,14 @@ class _SMBSNativeTaskPanel:
     def isAllowedAlterView(self):
         return True
 
-    def _detach(self):
+    def _detach(self, *, destroying=False):
         if not self._attached:
             return
         _desktop_debug_event("TASKS_CLOSE_DETACH", panel="SMBS_NativeTasksRoot")
         self._attached = False
         workspace = self.workspace
         self.workspace = None
-        if workspace is None:
+        if workspace is None or not workspace._qt_is_valid(workspace):
             return
         # Native FreeCAD owns self.form. Detach all *reusable* children
         # before the TaskDialogPython releases that Qt form.
@@ -692,16 +717,18 @@ class _SMBSNativeTaskPanel:
         ):
             if not workspace._qt_is_valid(child):
                 continue
-            old_parent = child.parentWidget()
-            old_layout = old_parent.layout() if old_parent is not None else None
-            if old_layout is not None:
-                old_layout.removeWidget(child)
+            if not destroying:
+                old_parent = child.parentWidget()
+                old_layout = old_parent.layout() if old_parent is not None and workspace._qt_is_valid(old_parent) else None
+                if old_layout is not None:
+                    old_layout.removeWidget(child)
             child.setParent(workspace)
             child.hide()
         if getattr(workspace, "_native_task_panel", None) is self:
             workspace._native_task_panel = None
             workspace._task_section_label = None
-            workspace.show_task_panel_btn.show()
+            if workspace._qt_is_valid(workspace.show_task_panel_btn) and not getattr(workspace,"_closing",False):
+                workspace.show_task_panel_btn.show()
 
     def closed(self):
         # FreeCAD can close Tasks externally when another edit begins.
@@ -711,9 +738,9 @@ class _SMBSNativeTaskPanel:
         return self.reject()
 
     def reject(self):
-        import FreeCADGui as Gui
+        # FreeCAD TaskView removes the dialog after a successful reject.
+        # Avoid a second, re-entrant closeDialog during native teardown.
         self._detach()
-        Gui.Control.closeDialog()
         return True
 
 
@@ -814,18 +841,24 @@ def show_workspace_controls(workspace, tab=None):
     caption = workspace._task_page_titles.get(section, tr("tasks"))
     header = getattr(workspace, "_task_section_label", None)
     if header is not None:
-        header.setText(caption)
+        header.setTitle(caption)
 
     active = bool(Gui.Control.activeDialog())
     panel = getattr(workspace, "_native_task_panel", None)
-    if panel is not None and panel._attached and active:
+    if panel is not None and active and panel.owns_active_dialog(Gui.Control):
         _desktop_debug_event(
             "TASKS_SWITCH_SECTION", section=str(caption), index=tab,
         )
         # FreeCAD Tasks already owns this form. Never call showDialog
         # twice or create an extra Qt window simply to switch SMBS pages.
         workspace.show_task_panel_btn.hide()
+        Gui.Control.showTaskView()
         return panel
+    if panel is not None and active:
+        # Another native task owns the surface. Do not detach or close a
+        # potentially suspended SMBS task while another document is active.
+        workspace.status.setText(tr("finish_the_current_freecad_task_then_reopen_smbs"))
+        return None
     if panel is not None:
         # The old native task disappeared (ESC, other command, Cancel).
         # Drop only its disposable form; preserve the live controls.
@@ -848,30 +881,25 @@ def show_workspace_controls(workspace, tab=None):
 
     form = QtWidgets.QWidget()
     form.setObjectName("SMBS_NativeTasksRoot")
-    form.setWindowTitle("SMBS — " + caption)
+    form.setWindowTitle("SMBS")
     layout = QtWidgets.QVBoxLayout(form)
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(0)
 
-    header = QtWidgets.QLabel(form)
-    header.setObjectName("SMBS_TaskSectionTitle")
-    header.setText(caption)
-    header.setContentsMargins(OUTER_MARGIN, 5, OUTER_MARGIN, 5)
-    font = header.font()
-    font.setBold(True)
-    header.setFont(font)
-    layout.addWidget(header, 0)
-    workspace._task_section_label = header
-
-    # Reuse the SAME stacked pages and their original handlers (Manual,
-    # Simulation, Tooling, Part, Candidates, Settings, specialist dialogs).
-    layout.addWidget(workspace._task_stack, 1)
+    # FreeCAD creates its native collapsible TaskBox from form.windowTitle.
+    # Use a normal Qt group box for the changing operator page title.
+    section_box = QtWidgets.QGroupBox(caption, form)
+    section_box.setObjectName("SMBS_TaskSection")
+    section_layout = QtWidgets.QVBoxLayout(section_box)
+    section_layout.addWidget(workspace._task_stack)
+    layout.addWidget(section_box)
+    workspace._task_section_label = section_box
 
     footer = QtWidgets.QFrame(form)
     footer.setObjectName("SMBS_TaskFooter")
     footer_layout = QtWidgets.QVBoxLayout(footer)
-    footer_layout.setContentsMargins(OUTER_MARGIN, 5, OUTER_MARGIN, 5)
-    footer_layout.setSpacing(max(1, SECTION_GAP // 2))
+    footer_layout.setContentsMargins(OUTER_MARGIN, 0, OUTER_MARGIN, 0)
+    footer_layout.setSpacing(SECTION_GAP)
     row = QtWidgets.QHBoxLayout()
     row.addWidget(workspace._task_status_chip)
     row.addStretch(1)
@@ -881,7 +909,7 @@ def show_workspace_controls(workspace, tab=None):
     footer_layout.addWidget(workspace.task_progress)
     workspace.status.setObjectName("SMBS_StatusLabel")
     workspace.status.setWordWrap(True)
-    workspace.status.setMaximumHeight(38)
+    workspace.status.setMaximumHeight(16777215)
     footer_layout.addWidget(workspace.status)
     layout.addWidget(footer)
 
@@ -911,6 +939,7 @@ def show_workspace_controls(workspace, tab=None):
     try:
         # This opens the actual native FreeCAD Tasks tab, not a new dock.
         Gui.Control.showDialog(panel)
+        Gui.Control.showTaskView()
     except Exception:
         panel.closed()
         raise
@@ -973,13 +1002,9 @@ def embed_task_dialog(workspace, widget, title, key):
     page_layout = QtWidgets.QVBoxLayout(page)
     page_layout.setContentsMargins(0, 0, 0, 0)
     page_layout.setSpacing(0)
-    scroll = QtWidgets.QScrollArea(page)
-    scroll.setWidgetResizable(True)
-    scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
-    scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
-    scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-    scroll.setWidget(widget)
-    page_layout.addWidget(scroll, 1)
+    # TaskView provides the scroll surface. Keep specialist forms in that
+    # native layout rather than creating a second, nested scrollbar.
+    page_layout.addWidget(widget)
 
     bottom = QtWidgets.QWidget(page)
     bottom_layout = QtWidgets.QHBoxLayout(bottom)
@@ -1046,8 +1071,9 @@ def close_workspace_controls(workspace):
         return
     # FreeCAD may destroy a TaskPanel form when closing it. Reparent the
     # persistent controls first. The closed() callback is idempotent.
+    owns = panel.owns_active_dialog(Gui.Control)
     panel.closed()
-    if bool(Gui.Control.activeDialog()):
+    if owns:
         Gui.Control.closeDialog()
     _desktop_debug_event("TASKS_CLOSE_REQUESTED")
 
@@ -2113,7 +2139,7 @@ class _PreviewPanel:
                 self.task_progress = QtWidgets.QProgressBar(self)
                 self.task_progress.setObjectName("SMBS_TaskProgress")
                 self.task_progress.setTextVisible(False)
-                self.task_progress.setFixedHeight(7)
+                # Let the native QStyle determine the progress-bar height.
                 self.task_progress.setRange(0, 100)
                 self.task_progress.setValue(0)
                 self._task_status_chip = QtWidgets.QLabel(tr("ready"), self)
@@ -2172,10 +2198,21 @@ class _PreviewPanel:
                 )), tr("flat_pattern_sequence"))
                 views.currentChanged.connect(self._on_view_changed)
 
-                controls = QtWidgets.QStackedWidget()
+                class CurrentTaskStack(QtWidgets.QStackedWidget):
+                    """Native scroll height is determined by the visible page."""
+                    def sizeHint(self):
+                        page = self.currentWidget()
+                        return page.sizeHint() if page is not None else super().sizeHint()
+
+                    def minimumSizeHint(self):
+                        page = self.currentWidget()
+                        return page.minimumSizeHint() if page is not None else super().minimumSizeHint()
+
+                controls = CurrentTaskStack()
                 controls.setObjectName("SMBS_TaskStack")
-                controls.setSizePolicy(QtWidgets.QSizePolicy.Ignored,
-                                       QtWidgets.QSizePolicy.Expanding)
+                controls.setSizePolicy(QtWidgets.QSizePolicy.Preferred,
+                                       QtWidgets.QSizePolicy.Preferred)
+                controls.currentChanged.connect(lambda *_: controls.updateGeometry())
 
                 from freecad_smbs.ui.pressbrake_theme import (
                     OUTER_MARGIN, SECTION_GAP, section_card, style_action,
@@ -2196,7 +2233,7 @@ class _PreviewPanel:
                     content.layout().setSpacing(SECTION_GAP)
                     # The page must be able to shrink with the FreeCAD dock.
                     content.layout().setSizeConstraint(
-                        QtWidgets.QLayout.SetNoConstraint
+                        QtWidgets.QLayout.SetDefaultConstraint
                     )
                     # FreeCAD's native Tasks dock already provides its own
                     # scrolling. A nested QScrollArea creates the unwanted
@@ -2223,12 +2260,8 @@ class _PreviewPanel:
                 body = QtWidgets.QWidget()
                 sim_body = QtWidgets.QVBoxLayout(body)
                 sim_body.setContentsMargins(0, 0, 0, 0)
-                scroll = QtWidgets.QScrollArea(simulation)
-                scroll.setObjectName("SMBS_SimulationContentScroll")
-                scroll.setWidgetResizable(True)
-                scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
-                scroll.setWidget(body)
-                sim_layout.addWidget(scroll, 1)
+                # Same native TaskView scrolling as SheetMetal and CAM.
+                sim_layout.addWidget(body)
                 for btn in (
                     self.reset_btn, self.prev_step_btn, self.next_step_btn,
                     self.fit_btn,
