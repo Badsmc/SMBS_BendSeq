@@ -100,6 +100,11 @@ class SMBSWorkbench(Workbench):
 
     def Initialize(self) -> None:
         FreeCADGui.addIconPath(str(_ICON_ROOT))
+        from freecad_smbs.ui.mesh_preferences import migrate_mesh_preferences
+        migrate_mesh_preferences()
+        FreeCADGui.addPreferencePage(
+            str(_ICON_ROOT.parent / "panels" / "MeshPreferences.ui"), "BendSeq"
+        )
         register_commands()
         toolbar = [
             CMD_DXF_MANUAL, CMD_TOOLING_TAB, CMD_PRESSBRAKE_2D,
