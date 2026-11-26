@@ -643,7 +643,7 @@ class _SMBSNativeTaskPanel:
                 # Hide/HideToParent is normal on minimise, tab changes,
                 # overlay collapse and document activation. It is NOT close.
                 if event.type() == QtCore.QEvent.DeferredDelete:
-                    panel._detach()
+                    panel._detach(reason="deferred_delete")
                 return False
 
         # FreeCAD may replace Tasks without calling reject()/closed().
@@ -669,7 +669,7 @@ class _SMBSNativeTaskPanel:
             pass
 
     def _form_destroyed(self, *_args):
-        self._detach(destroying=True)
+        self._detach(destroying=True, reason="form_destroyed")
 
     def owns_active_dialog(self, control):
         """Use FreeCAD 1.1's native TaskDialog content, not mere activeDialog."""
@@ -689,10 +689,10 @@ class _SMBSNativeTaskPanel:
             return False
 
     def autoClosedOnTransactionChange(self):
-        self._detach()
+        self._detach(reason="transaction_changed")
 
     def autoClosedOnDeletedDocument(self):
-        self._detach()
+        self._detach(reason="source_document_deleted")
 
     @staticmethod
     def bind_native_document(native_dialog, document_name):
@@ -720,10 +720,11 @@ class _SMBSNativeTaskPanel:
     def isAllowedAlterView(self):
         return True
 
-    def _detach(self, *, destroying=False):
+    def _detach(self, *, destroying=False, reason="external_close"):
         if not self._attached:
             return
-        _desktop_debug_event("TASKS_CLOSE_DETACH", panel="SMBS_NativeTasksRoot")
+        _desktop_debug_event("TASKS_CLOSE_DETACH", panel="SMBS_NativeTasksRoot",
+                             reason=reason, document=getattr(self.workspace, "_smbs_document_name", None))
         self._attached = False
         workspace = self.workspace
         self.workspace = None
@@ -769,12 +770,13 @@ class _SMBSNativeTaskPanel:
         self._detach()
 
     def accept(self):
-        return self.reject()
+        self._detach(reason="accepted")
+        return True
 
     def reject(self):
         # FreeCAD TaskView removes the dialog after a successful reject.
         # Avoid a second, re-entrant closeDialog during native teardown.
-        self._detach()
+        self._detach(reason="rejected")
         return True
 
 
@@ -8770,7 +8772,7 @@ class _PreviewPanel:
 
                 def apply_dialog_order():
                     if not is_current_plan():
-                        hint.setText(tr("fast_part_or_operations_changed_run_the_search_again"))
+                        hint.setText(tr("part_sequence_or_tooling_has_changed") + " " + tr("close_section"))
                         return
                     ids = tuple(
                         preview.item(i).data(QtCore.Qt.UserRole)
@@ -8817,7 +8819,7 @@ class _PreviewPanel:
                     )
                     def remove_from_dialog():
                         if not is_current_plan():
-                            hint.setText(tr("fast_part_or_operations_changed_run_the_search_again"))
+                            hint.setText(tr("part_sequence_or_tooling_has_changed") + " " + tr("close_section"))
                             return
                         if self._remove_prebend(bend_id, parent=dialog):
                             dialog.reject()
