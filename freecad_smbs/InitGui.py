@@ -99,6 +99,7 @@ class SMBSWorkbench(Workbench):
     Icon = str(_ICON_ROOT / "gui_workbench.svg")
 
     def Initialize(self) -> None:
+        FreeCADGui.addIconPath(str(_ICON_ROOT))
         register_commands()
         toolbar = [
             CMD_DXF_MANUAL, CMD_TOOLING_TAB, CMD_PRESSBRAKE_2D,
@@ -114,29 +115,9 @@ class SMBSWorkbench(Workbench):
         self.appendToolbar(tr(TOOLING_TOOLBAR), _TOOLING_ACTIONS)
 
     def Activated(self) -> None:
-        # FreeCAD's own QToolBar remains the command host. Only this addon's
-        # toolbar gets compact labels beside small neutral icons, so the
-        # actions are recognizable without memorizing their pictograms.
-        # No application-level QStyle or QPalette changes are made.
+        # FreeCAD owns toolbar icon size, text style, visibility and placement.
         if FreeCADGui is None:
             return
-        from freecad_smbs.commands.pressbrake_2d import _qt
-        QtCore, _QtGui, QtWidgets = _qt()
-
-        def configure_native_toolbar():
-            main = FreeCADGui.getMainWindow()
-            if main is None:
-                return
-            for toolbar in main.findChildren(QtWidgets.QToolBar):
-                if (
-                    toolbar.objectName() in (self.MenuText, TOOLING_TOOLBAR, tr(TOOLING_TOOLBAR))
-                    or toolbar.windowTitle() in (self.MenuText, TOOLING_TOOLBAR, tr(TOOLING_TOOLBAR))
-                ):
-                    toolbar.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
-                    toolbar.setIconSize(QtCore.QSize(24, 24))
-
-        # FreeCAD can finalize its workbench toolbars after Activated().
-        QtCore.QTimer.singleShot(0, configure_native_toolbar)
         # On switching to SMBS, restore the active saved document even when
         # it was originally opened using a different FreeCAD workbench.
         import FreeCAD as App
@@ -163,7 +144,11 @@ class SMBSWorkbench(Workbench):
         from freecad_smbs.commands.pressbrake_2d import (
             get_workspace_widget, saved_session_unfold_selection,
         )
-        document = App.getDocument(name)
+        try:
+            document = App.getDocument(name)
+        except (NameError, RuntimeError, ReferenceError):
+            # A document may be closed before the queued resume runs.
+            return
         active = getattr(App, "ActiveDocument", None)
         if (document is None or active is None
                 or getattr(active, "Name", None) != name):
