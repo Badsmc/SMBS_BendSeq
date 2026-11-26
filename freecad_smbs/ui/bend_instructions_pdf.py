@@ -683,4 +683,8 @@ def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positio
         del writer
         if not output.is_file() or output.stat().st_size == 0:
             raise OSError(tr("could_not_save_the_pdf"))
+        # Validate the temporary file before replacing an existing PDF.
+        with output.open("rb") as stream:
+            if stream.read(5) != b"%PDF-":
+                raise OSError(tr("could_not_save_the_pdf"))
         output.replace(destination)
