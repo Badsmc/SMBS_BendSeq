@@ -23,7 +23,7 @@ No external Python package is needed for the supported native runtime. Do not ad
 
 ## Preflight
 
-The repository is public and was created on 2026-10-12. The release target is main, version 0.1.0; develop is for active development. The manifest declares FreeCAD 1.1.0+ and Python 3.11+. The existing legacy layout is retained to avoid a large untested migration; startup uses host-managed paths. Namespace migration is recommended for future work.
+The repository is public and was created on 2026-10-12. The public release target is main (currently 0.1.0); develop is now the 0.2.0 development preview. The manifest declares FreeCAD 1.1.0+ and Python 3.11+. The 0.2.0 branch adds namespace discovery alongside the legacy metadata entrypoints; startup uses host-managed paths and preserves serialized module names.
 
 Run Addon preflight and review results. Syntax, import inventory, manifest and headless tests do not prove CAD/GUI compatibility. Test a clean custom-repository installation with and without SheetMetal (DXF), TechDraw export, simulation, tooling, FAST, Mesh and document reopen. Verify other workbenches' UI is unaffected.
 

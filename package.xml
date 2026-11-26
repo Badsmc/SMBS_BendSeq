@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <package format="1" xmlns="https://wiki.freecad.org/Package_Metadata">
   <name>SMBS BendSeq</name>
-  <description>PressBrakeSim workbench for sheet-metal bend sequence planning, tooling setup, 3D simulation, and sampled collision checks. Initial public preview. See LICENSE.md for CAD asset provenance.</description>
-  <version>0.1.0</version>
-  <date>2026-11-25</date>
+  <description>PressBrakeSim workbench for sheet-metal bend sequence planning, tooling setup, 3D simulation, and sampled collision checks. Development preview. See LICENSE.md for CAD asset provenance.</description>
+  <version>0.2.0</version>
+  <date>2026-11-26</date>
   <maintainer email="109237230+Badsmc@users.noreply.github.com">Badsmc</maintainer>
   <license file="LICENSE-Code">LGPL-2.1-or-later</license>
   <license file="LICENSE-Assets">CC-BY-SA-4.0</license>

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.0 — 2026-11-26
+
+Development preview integrated into develop.
+
+- Native FreeCAD Tasks integration, document lifetime management and task restoration after minimizing.
+- FreeCAD ParamGet preferences, Qt translation catalogs and native toolbar sizing.
+- FAST shortlist, pre-bend editing, Mesh controls and configurable PDF instructions in the shared Tasks surface.
+- Nonblocking DXF and parametric tooling editors; DXF version and code-page-aware decoding.
+- Modern namespace discovery with legacy entrypoint compatibility and duplicate-installation guards.
+- Runtime startup and installed interface fingerprints, PDF export and lifecycle diagnostics.
+- Regression tests and Windows FreeCAD 1.1.3 smoke checks.
+
+The public main branch remains at 0.1.0. macOS acceptance, clean Addon Manager installation, CAD redistribution review and manufacturing validation remain pending. Sampled collision checks are not continuous safety certification.
+
 ## 0.1.0 — 2026-11-25
 
 Initial public preview of the current PressBrakeSim implementation.

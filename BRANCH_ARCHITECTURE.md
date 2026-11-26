@@ -5,7 +5,7 @@
 | `main` | Public addon preview and reviewed releases |
 | `develop` | Active integration and development |
 
-Version 0.1.0 starts both branches from the current PressBrakeSim implementation.
+Version 0.1.0 remains the public main preview. Version 0.2.0 integrates native FreeCAD improvements into develop.
 Historical code remains reachable through the original main ancestry and
 `archive/2026-11-25/` tags. New changes start from develop using
 `feature/*`, `fix/*`, or `experiment/*`. Integrate reviewed changes into develop
@@ -22,4 +22,4 @@ before promoting to main.
   separately from continuous physical validation.
 - Never mark unverified sequences as production-ready.
 
-The 0.1.0 preview has not yet passed all acceptance gates.
+The 0.2.0 development preview has not yet passed all acceptance gates for promotion to main.

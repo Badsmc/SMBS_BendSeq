@@ -1,8 +1,8 @@
-# SMBS BendSeq · PressBrakeSim 0.1.0
+# SMBS BendSeq · PressBrakeSim 0.2.0
 
 **SMBS BendSeq** is a FreeCAD workbench for planning press-brake operations. Start from a SheetMetal unfold or an ASCII DXF flat pattern, set the bend order manually or search for candidates with **FAST**, and preview the part and tooling in 3D. Use **Mesh 3D** to check the selected sequence for sampled tool collisions.
 
-**Version 0.1.0 — initial public preview.** This version has not completed full FreeCAD acceptance or manufacturing validation.
+**Version 0.2.0 — development preview.** Native FreeCAD integration and Windows runtime checks have been improved. Full cross-platform acceptance and manufacturing validation remain pending.
 
 [Requirements](#requirements) · [Installation](#installation) · [Quick start](#quick-start) · [Collision checks](#collision-checks) · [Tooling](#tooling)
 
@@ -33,7 +33,7 @@ Open **Tools → Addon Manager**. If SMBS BendSeq is available in your configure
 
 ### Manual installation
 
-1. Download the [ZIP for the `main` branch (0.1.0)](https://github.com/Badsmc/SMBS_BendSeq/archive/refs/heads/main.zip). For ongoing development, use the [`develop` branch](https://github.com/Badsmc/SMBS_BendSeq/tree/develop).
+1. Download the [ZIP for the `main` branch (0.1.0)](https://github.com/Badsmc/SMBS_BendSeq/archive/refs/heads/main.zip). For the 0.2.0 development preview, use the [`develop` ZIP](https://github.com/Badsmc/SMBS_BendSeq/archive/refs/heads/develop.zip).
 2. Find your user `Mod` directory by running this in FreeCAD's Python console:
 
    ```python
@@ -43,7 +43,7 @@ Open **Tools → Addon Manager**. If SMBS BendSeq is available in your configure
    print(Path(App.getUserAppDataDir()) / "Mod")
    ```
 
-3. Extract the archive into `Mod/SMBS_BendSeq/`. Keep `InitGui.py`, `freecad_smbs/`, `smbs_core/`, and `toollibrary/` directly inside that folder.
+3. Extract the archive into `Mod/SMBS_BendSeq/`. Keep `InitGui.py`, `freecad/`, `freecad_smbs/`, `smbs_core/`, and `toollibrary/` directly inside that folder when installing 0.2.0.
 4. Restart FreeCAD and select **PressBrakeSim**. SMBS displays English or Russian according to the FreeCAD language setting.
 
 ## Quick start
@@ -79,7 +79,7 @@ See the [tooling library notes](toollibrary/README.md) for local tooling setup.
 
 ## Development and licensing
 
-`main` is the public release branch and `develop` is the active development branch. Both start from version 0.1.0. See [branch architecture](BRANCH_ARCHITECTURE.md) and [changelog](CHANGELOG.md). Historical experiment code is preserved in rewritten Git archive tags. Bundled punch/die assets and historical diagnostic data were removed from published branch and tag histories; demo sheet-metal parts remain under `demo/`. Existing Git clones must be replaced with fresh clones to avoid reintroducing old history.
+`main` is the public release branch and `develop` is the active development branch. The public preview on `main` remains 0.1.0; `develop` is now 0.2.0. See [branch architecture](BRANCH_ARCHITECTURE.md) and [changelog](CHANGELOG.md). Historical experiment code is preserved in rewritten Git archive tags. Bundled punch/die assets and historical diagnostic data were removed from published branch and tag histories; demo sheet-metal parts remain under `demo/`. Existing Git clones must be replaced with fresh clones to avoid reintroducing old history.
 
 Original source code is licensed under [LGPL-2.1-or-later](LICENSE-Code) and original non-code resources under [CC-BY-SA-4.0](LICENSE-Assets). See [licensing and attribution](LICENSE.md). Third-party CAD redistribution rights still require confirmation; official Addon Manager listing and full runtime acceptance remain pending.
 
