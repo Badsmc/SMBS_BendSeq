@@ -48,6 +48,28 @@ def install(QtCore, QtWidgets):
         def eventFilter(self, obj, event):
             try:
                 kind = event.type()
+                if kind == QtCore.QEvent.WindowStateChange and obj is freecad_main_window:
+                    def state_value(value):
+                        return int(getattr(value, "value", value))
+                    debug_event(
+                        "FREECAD_MAIN_WINDOW_STATE_CHANGED",
+                        previous=state_value(event.oldState()),
+                        current=state_value(obj.windowState()),
+                        minimized=bool(obj.isMinimized()),
+                        maximized=bool(obj.isMaximized()),
+                    )
+                if kind in (QtCore.QEvent.Hide, QtCore.QEvent.Show,
+                            QtCore.QEvent.HideToParent, QtCore.QEvent.ShowToParent):
+                    if isinstance(obj, QtWidgets.QWidget) and obj.objectName() in (
+                        "SMBS_NativeTasksRoot", "SMBS_TaskStack"
+                    ):
+                        debug_event(
+                            "TASKS_VISIBILITY_CHANGED", event_type=str(kind),
+                            object_name=obj.objectName(),
+                            main_minimized=bool(freecad_main_window.isMinimized())
+                            if freecad_main_window is not None else None,
+                            visible=bool(obj.isVisible()),
+                        )
                 if kind == QtCore.QEvent.Close and obj is freecad_main_window:
                     # This is the main-window CLOSE REQUEST, before FreeCAD
                     # destroys its documents. Do not ignore it or alter Qt's
