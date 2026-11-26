@@ -11,9 +11,14 @@ CODE = SOURCE.read_text(encoding="utf-8")
 TREE = ast.parse(CODE)
 
 
+class Panel:
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+
+
 class NativeSaveTest(unittest.TestCase):
     def observer(self, allowed=True, reason=""):
-        panel = NS(session=object(), _smbs_allow_auto_embed=allowed,
+        panel = Panel(session=object(), _smbs_allow_auto_embed=allowed,
                    _smbs_auto_embed_error=reason, _smbs_document_name="Part",
                    _write_embedded_smbs_json=Mock(), status=Mock())
         warn, error = Mock(), Mock()
