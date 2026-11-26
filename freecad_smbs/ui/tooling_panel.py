@@ -723,17 +723,17 @@ class ToolingPanel:
                         return
                     from freecad_smbs.ui.parametric_tool_dialog import show_generator
                     kind = ("punch", "die")[self.tabs.currentIndex()]
-                    path = show_generator(self, self.library.library_root, kind)
-                    if path is None:
-                        return
-                    self._refresh_lists()
-                    widget = self.punch_list if kind == "punch" else self.die_list
-                    for index in range(widget.count()):
-                        if widget.item(index).data(QtCore.Qt.UserRole).tool_id == path.stem:
-                            widget.setCurrentRow(index)
-                            break
-                    if self._workspace is not None:
-                        self._workspace._refresh_tooling_combos()
+                    def on_created(path):
+                        self._refresh_lists()
+                        widget = self.punch_list if kind == "punch" else self.die_list
+                        for index in range(widget.count()):
+                            if widget.item(index).data(QtCore.Qt.UserRole).tool_id == path.stem:
+                                widget.setCurrentRow(index)
+                                break
+                        if self._workspace is not None:
+                            self._workspace._refresh_tooling_combos()
+
+                    show_generator(self, self.library.library_root, kind, on_created=on_created)
 
                 def _on_add_tool(self) -> None:
                     if not self.library:
