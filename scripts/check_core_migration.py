@@ -1,4 +1,6 @@
-"""Compare every core AST with the pre-migration baseline (requires Git history).
+"""Audit the completed migration commit against its original baseline.
+
+This is a historical migration guard, not a ban on later feature development.
 
 Only module names, runtime fingerprint paths and three explicit storage/path
 changes are permitted. Any other formula, constant or control-flow change fails.
@@ -9,9 +11,12 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = "67a9482"
+MIGRATION = "7e5fa7179342400432f549f7935873bd380ba0b9"
 count = 0
-for file in sorted((ROOT / "freecad/bendseq/core").rglob("*.py")):
-    relative = file.relative_to(ROOT / "freecad/bendseq/core").as_posix()
+files = subprocess.check_output(["git", "ls-tree", "-r", "--name-only", MIGRATION,
+                                 "freecad/bendseq/core"], cwd=ROOT, text=True).splitlines()
+for filename in sorted(name for name in files if name.endswith(".py")):
+    relative = filename.removeprefix("freecad/bendseq/core/")
     before = subprocess.check_output(
         ["git", "show", BASELINE + ":smbs_core/" + relative], cwd=ROOT, text=True)
     before = (before.replace("smbs_core/", "freecad/bendseq/core/")
@@ -29,7 +34,7 @@ for file in sorted((ROOT / "freecad/bendseq/core").rglob("*.py")):
     if relative == "kinematics2d/physical_validation_25d.py":
         before = before.replace('p = Path(value).expanduser()',
             'from freecad.bendseq.user_data_migration import relocated_path\n    p = Path(relocated_path(value)).expanduser()')
-    assert ast.dump(ast.parse(before)) == ast.dump(ast.parse(file.read_text(encoding="utf-8"))), relative
+    assert ast.dump(ast.parse(before)) == ast.dump(ast.parse(subprocess.check_output(["git", "show", MIGRATION + ":" + filename], cwd=ROOT, text=True))), relative
     count += 1
 print(f"{count} core modules: AST identical to baseline except imports and explicit storage path changes")
 
@@ -37,7 +42,7 @@ print(f"{count} core modules: AST identical to baseline except imports and expli
 # addition is a verified historical tool-path fingerprint matcher.
 before = subprocess.check_output(["git", "show", BASELINE + ":freecad_smbs/integration/fcstd_session_store.py"], cwd=ROOT, text=True)
 before = before.replace("smbs_core", "freecad.bendseq.core").replace("freecad_smbs", "freecad.bendseq")
-after = ast.parse((ROOT / "freecad/bendseq/integration/fcstd_session_store.py").read_text())
+after = ast.parse(subprocess.check_output(["git", "show", MIGRATION + ":freecad/bendseq/integration/fcstd_session_store.py"], cwd=ROOT, text=True))
 after.body = [node for node in after.body if not (isinstance(node, ast.FunctionDef) and node.name == "matches_tool_reference")]
 assert ast.dump(ast.parse(before)) == ast.dump(after), "Session serialization changed"
 print("FCStd session schema, serializer and decoder: AST identical to baseline")

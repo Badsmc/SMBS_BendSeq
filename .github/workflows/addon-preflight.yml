@@ -2,9 +2,9 @@ name: Addon preflight
 
 on:
   push:
-    branches: [main, develop, 'feature/**', 'refactor/**']
+    branches: [main, develop, 'feature/**', 'refactor/**', 'fix/**']
   pull_request:
-    branches: [main, develop, 'feature/**', 'refactor/**']
+    branches: [main, develop, 'feature/**', 'refactor/**', 'fix/**']
   workflow_dispatch:
 
 permissions:

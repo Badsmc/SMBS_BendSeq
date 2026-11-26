@@ -1080,5 +1080,14 @@
   "mesh_group_summary": "{operation}: confirmed {confirmed}, conditional {conditional}",
   "mesh_group_reference": "Combined map; reference {phase}, {angle}°; not simultaneous",
   "mesh_component_only": "Some zones marked by entire affected component",
-  "pdf_group_collisions": "One collision map per operation"
+  "pdf_group_collisions": "One collision map per operation",
+  "gauge_z_min": "Backgauge minimum Z (mm)",
+  "gauge_z_max": "Backgauge maximum Z (mm)",
+  "gauge_no_safe_z": "Backgauge hidden: no height within Z travel clears the die.",
+  "gauge_z_contact_unreachable": "Backgauge Z limited: the working face cannot reach the sheet edge.",
+  "gauge_limit_geometry_unavailable": "Backgauge hidden: limit geometry unavailable ({error}).",
+  "flange_below_die_opening": "{bend}: flange {flange:.2f} mm is shorter than die opening V={opening:.2f} mm. This die is unsuitable under the minimum-flange rule.",
+  "die_flange_warning_title": "Die is unsuitable for the flange",
+  "die_opening_unknown_flange_check": "Die V opening is unspecified: minimum-flange compatibility cannot be checked.",
+  "flange_dimensions_unknown": "Flange dimension unavailable for: {bends}. Compatibility is unverified."
 }
