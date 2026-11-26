@@ -11,13 +11,19 @@ from smbs_core.kinematics2d.parametric_tool_drawing import drawing_model
 from freecad_smbs.integration.parametric_tool_native import create_tool
 
 
-def show_generator(parent, library_root, kind):
+def show_generator(parent, library_root, kind, *, on_created):
     from freecad_smbs.commands.pressbrake_2d import _qt
     core, gui, qt = _qt()
+    existing = getattr(parent, "_smbs_generator_dialog", None)
+    if existing is not None:
+        existing.raise_()
+        existing.activateWindow()
+        return
     dialog = qt.QDialog(parent)
+    dialog.setObjectName("SMBS_ParametricToolEditor")
     dialog.setWindowTitle(tr("parametric_create_punch" if kind=="punch" else "parametric_create_die"))
     dialog.setWindowFlags(dialog.windowFlags() | core.Qt.WindowMaximizeButtonHint)
-    screen = qt.QApplication.primaryScreen()
+    screen = parent.screen()
     bounds = screen.availableGeometry() if screen else None
     dialog.resize(min(1000,bounds.width()-60) if bounds else 1000,
                   min(720,bounds.height()-80) if bounds else 720)
@@ -218,7 +224,15 @@ def show_generator(parent, library_root, kind):
 
     export.clicked.connect(export_dxf)
     buttons.accepted.connect(generate)
-    run = getattr(dialog,"exec",None) or dialog.exec_
-    run()
-    dialog.deleteLater()
-    return created[0] if created else None
+    def on_finished(result):
+        if getattr(parent, "_smbs_generator_dialog", None) is dialog:
+            parent._smbs_generator_dialog = None
+        try:
+            if result == qt.QDialog.Accepted and created:
+                on_created(created[0])
+        finally:
+            dialog.deleteLater()
+
+    parent._smbs_generator_dialog = dialog
+    dialog.finished.connect(on_finished)
+    dialog.open()
