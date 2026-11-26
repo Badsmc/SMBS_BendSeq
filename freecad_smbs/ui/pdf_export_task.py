@@ -2,6 +2,10 @@
 from dataclasses import asdict
 from pathlib import Path
 import json
+from time import perf_counter
+from traceback import format_exc
+
+from smbs_core.kinematics2d.developer_debug_log import debug_event
 
 from freecad_smbs.ui.native_preferences import NativePreferences
 from freecad_smbs.ui.localization import tr, tr_message
@@ -144,19 +148,35 @@ def show_pdf_export_task(workspace, embed):
             if getattr(dialog,"_confirmed_path",None) != str(destination):
                 dialog._confirmed_path = str(destination)
                 feedback.setText(tr("pdf_confirm_overwrite"))
+                debug_event("PDF_EXPORT_OVERWRITE_CONFIRMATION", path=str(destination))
                 return
         dialog._confirmed_path = None
         if workspace.tooling_setup.punch is None or workspace.tooling_setup.die is None:
             feedback.setText(tr("select_a_punch_and_die_first"))
             return
         export.setEnabled(False)
-        prefs.setValue("pdf/options_v2",json.dumps(asdict(options)))
+        started = perf_counter()
+        debug_event("PDF_EXPORT_STARTED", path=str(destination),
+                    document=getattr(workspace, "_smbs_document_name", None),
+                    options=asdict(options))
         try:
+            prefs.setValue("pdf/options_v2",json.dumps(asdict(options)))
             export_bend_instructions_pdf(workspace,str(destination),core,gui,bend_rows(workspace),options=options)
+            size = destination.stat().st_size
+            if not size:
+                raise OSError("PDF output is empty")
+            with destination.open("rb") as stream:
+                if stream.read(5) != b"%PDF-":
+                    raise OSError("Output does not contain a PDF header")
         except Exception as exc:
+            debug_event("PDF_EXPORT_FAILED", path=str(destination),
+                        elapsed_seconds=perf_counter()-started,
+                        error=str(exc), traceback=format_exc())
             feedback.setText(tr_message(exc))
             workspace.status.setText(tr_message(exc))
         else:
+            debug_event("PDF_EXPORT_COMPLETED", path=str(destination),
+                        elapsed_seconds=perf_counter()-started, size_bytes=size)
             feedback.setText(tr("bend_instructions_saved_as_pdf")+" · "+str(destination))
             workspace.status.setText(tr("bend_instructions_saved_as_pdf"))
         finally:
