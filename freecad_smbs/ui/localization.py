@@ -74,9 +74,21 @@ def interface_language():
 
 
 def tr(source, *, language=None, **values):
-    language = interface_language() if language is None else language
+    native = language is None
+    language = interface_language() if native else language
     key = _translation_key(source)
-    source = _catalog(language).get(key, _catalog("en").get(key, source))
+    english = _catalog("en").get(key, source)
+    source = _catalog(language).get(key, english)
+    # Keep headless and explicit-language calls deterministic. Prefer the
+    # native Qt translator when FreeCAD has loaded the matching QM resource.
+    if native and language == "ru":
+        try:
+            from PySide import QtCore
+            translated = QtCore.QCoreApplication.translate("BendSeq", english, key)
+            if translated != english:
+                source = translated
+        except (ImportError, AttributeError):
+            pass
     if values:
         diagnostic_fields = {"error", "reason", "details", "warning", "message", "text"}
         values = {
