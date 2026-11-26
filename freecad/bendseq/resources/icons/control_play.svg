@@ -1,6 +1,1 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" role="img">
-<title>control play</title>
-
-<path d="M12 8L25 16L12 24Z" fill="#888888" stroke="#888888" stroke-width="1.8" stroke-linejoin="round"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><title>play</title><path d="M8 4L20 12L8 20Z" fill="none" stroke="#808b99" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>

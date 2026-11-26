@@ -1,6 +1,1 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" role="img">
-<title>control validate</title>
-
-<path d="M7 8H18M7 14H18M7 20H13" stroke="#888888" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="M15 23L20 27L27 17" stroke="#888888" stroke-width="2.15" stroke-linejoin="round" stroke-linecap="round" fill="none"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><title>check</title><path d="M4 12L9 17L20 6" fill="none" stroke="#177a59" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>

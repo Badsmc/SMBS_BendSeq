@@ -1,6 +1,1 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" role="img">
-<title>tooling</title>
-
-<rect x="5" y="7" width="22" height="19" rx="2.5" stroke="#888888" stroke-width="1.65" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="M5 15H27" stroke="#888888" stroke-width="1.65" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="M9 11H23M10 19H22L16 24Z" stroke="#888888" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="M15 9L17 12L19 9" stroke="#888888" stroke-width="2.05" stroke-linejoin="round" stroke-linecap="round" fill="none"/><circle cx="25" cy="7" r="2.8" fill="#888888" stroke="#888888" stroke-width="1"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><title>library</title><path d="M3 5H21V20H3Z M3 12H21 M7 5V12 M12 5V12 M17 5V12 M8 16H16" fill="none" stroke="#808b99" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>

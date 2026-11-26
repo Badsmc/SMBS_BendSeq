@@ -1,6 +1,1 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" role="img">
-<title>gui sequence catalog</title>
-
-<rect x="6" y="5" width="20" height="23" rx="3" stroke="#888888" stroke-width="1.65" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="M10 11H12M15 11H22M10 17H12M15 17H22M10 23H12M15 23H19" stroke="#888888" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round" fill="none"/><circle cx="11" cy="11" r="1.8" fill="#888888"/><circle cx="11" cy="17" r="1.8" fill="#888888"/><circle cx="11" cy="23" r="1.8" fill="#888888"/><path d="M21 23L23 25L26 21" stroke="#888888" stroke-width="2.15" stroke-linejoin="round" stroke-linecap="round" fill="none"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><title>list</title><path d="M8 5H21 M8 12H21 M8 19H21 M3 5H4 M3 12H4 M3 19H4" fill="none" stroke="#808b99" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
