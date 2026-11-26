@@ -126,3 +126,15 @@ class TaskLifecycleTest(unittest.TestCase):
             self.panel=panel_class(self.ws,self.form)
             self.ws._native_task_panel=self.panel
         self.assertIsNotNone(self.ws.destroyed.fn)
+
+    def test_native_task_document_is_source_not_preview(self):
+        events=[]
+        native=NS(setDocumentName=lambda name:events.append(("document",name)),
+                  setAutoCloseOnTransactionChange=lambda value:events.append(("undo",value)),
+                  setAutoCloseOnDeletedDocument=lambda value:events.append(("delete",value)))
+        self.panel.bind_native_document(native, "SourcePart")
+        self.assertEqual(events,[("document","SourcePart"),("undo",False),("delete",True)])
+        events.clear()
+        self.panel.bind_native_document(native, None)
+        self.assertEqual(events,[("document",""),("undo",False),("delete",False)])
+        self.panel.bind_native_document(None, "SourcePart")
