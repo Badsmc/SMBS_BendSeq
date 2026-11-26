@@ -50,6 +50,10 @@ def show_pdf_export_task(workspace, embed):
     form.addRow(tr("operations_per_page"),count)
     for widget in (large,landscape,fit):
         form.addRow(widget)
+    right_view = qt.QComboBox()
+    right_view.addItem("3D", "3d")
+    right_view.addItem("2D — " + tr("cross_section"), "section")
+    form.addRow(tr("pdf_content_part_inset"), right_view)
     layout.addWidget(page_box)
     layers_box = qt.QGroupBox(tr("pdf_scene_layers"))
     layers = qt.QGridLayout(layers_box)
@@ -98,9 +102,11 @@ def show_pdf_export_task(workspace, embed):
             content={k:w.isChecked() for k,w in content.items()},
             positions_per_page=count.value(),large_first=large.isChecked(),
             punch_segments=punch_segments.isChecked(),die_segments=die_segments.isChecked(),
-            fit_machine=fit.isChecked(),landscape=landscape.isChecked(),group_collisions=grouped.isChecked())
+            fit_machine=fit.isChecked(),landscape=landscape.isChecked(),group_collisions=grouped.isChecked(),
+            right_view=right_view.currentData())
 
     def load(options):
+        right_view.setCurrentIndex(right_view.findData(options.right_view))
         count.setValue(options.positions_per_page)
         large.setChecked(options.large_first)
         landscape.setChecked(options.landscape)
@@ -124,7 +130,7 @@ def show_pdf_export_task(workspace, embed):
         for k in ("flat_pattern","schedule"):
             content[k].setEnabled(content["overview"].isChecked())
         content["segment_text"].setEnabled(content["tool_details"].isChecked())
-        content["part_inset"].setEnabled(checks["part"].isChecked())
+        content["part_inset"].setEnabled(checks["part"].isChecked() or right_view.currentData()=="section")
 
     def save(*_):
         if workspace.session is None or workspace._task_progress_busy or workspace.timer.isActive():
@@ -188,6 +194,15 @@ def show_pdf_export_task(workspace, embed):
     reset.clicked.connect(lambda: (load(PdfOptions()),update_notice()))
     for w in (*checks.values(),content["overview"],content["tool_details"]):
         w.toggled.connect(update_notice)
+    def right_view_selected(*_):
+        if right_view.currentData() == "section":
+            content["part_inset"].setChecked(True)
+            checks["collision"].setChecked(True)
+            if alpha["collision"].value() == 100:
+                alpha["collision"].setValue(30)
+        update_notice()
+    # activated is user-driven: loading stored options must not override them.
+    right_view.activated.connect(right_view_selected)
     export.clicked.connect(save)
     load(saved)
     update_notice()

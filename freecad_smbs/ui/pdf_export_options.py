@@ -23,6 +23,7 @@ class PdfOptions:
     fit_machine: bool = False
     landscape: bool = False
     group_collisions: bool = True
+    right_view: str = "3d"
 
     def __post_init__(self):
         for mapping, keys, predicate in (
@@ -34,6 +35,8 @@ class PdfOptions:
                 raise ValueError("Invalid PDF display settings")
         if type(self.positions_per_page) is not int or not 1 <= self.positions_per_page <= 10:
             raise ValueError("Invalid operations per page")
+        if self.right_view not in ("3d", "section"):
+            raise ValueError("Invalid PDF right image mode")
         for key in ("large_first", "punch_segments", "die_segments", "fit_machine", "landscape", "group_collisions"):
             if type(getattr(self, key)) is not bool:
                 raise ValueError("Invalid PDF layout flag")

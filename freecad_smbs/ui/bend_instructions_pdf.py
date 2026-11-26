@@ -8,6 +8,7 @@ from tempfile import TemporaryDirectory
 from freecad_smbs.ui.pdf_export_options import (
     PdfOptions, face_layer, visible_faces, current_collision_hits, collision_box_faces,
 )
+from freecad_smbs.ui.pdf_cross_section import draw_section, section_x
 from freecad_smbs.ui.tool_segment_display import native_display_sections, segment_color, suggested_sections
 from freecad_smbs.ui.coin3d_machine import CLAMP_HEIGHT_MM, load_frame_meshes, load_gauge_mesh
 from freecad_smbs.ui.localization import tr as _translate, tr_message
@@ -88,7 +89,7 @@ def _extent(faces, axis):
     return min(xs), min(ys), max(xs), max(ys)
 
 
-def _diagram(core, gui, faces, extent, part_extent, axis, *, sheet_faces, active_bend, options):
+def _diagram(core, gui, faces, extent, part_extent, axis, *, sheet_faces, active_bend, options, section=None):
     image = gui.QImage(600, 270, gui.QImage.Format_RGB32)
     image.fill(gui.QColor("#f3f6fa"))
     painter = gui.QPainter(image)
@@ -97,9 +98,10 @@ def _diagram(core, gui, faces, extent, part_extent, axis, *, sheet_faces, active
     ) / len(f.vertices))
     try:
         painter.setRenderHint(gui.QPainter.Antialiasing)
+        section_inset = options.includes("part_inset") and options.right_view == "section"
         inset = options.includes("part_inset") and options.shows("part") and bool(sheet_faces)
-        views = [(0, 420 if inset else 600, extent, ordered)]
-        if inset:
+        views = [(0, 350 if section_inset else 420 if inset else 600, extent, ordered)]
+        if inset and not section_inset:
             views.append((428, 172, part_extent, sorted(visible_faces(sheet_faces, options), key=lambda f: sum(
                 -s + 0.55 * x + 0.623 * z for s, x, z in f.vertices
             ) / len(f.vertices))))
@@ -147,6 +149,10 @@ def _diagram(core, gui, faces, extent, part_extent, axis, *, sheet_faces, active
             elif offset > 0:
                 painter.setPen(gui.QColor("#914418"))
                 painter.drawText(core.QRectF(offset, 2, width, 20), core.Qt.AlignCenter, active_bend)
+        if section_inset:
+            painter.setClipping(False)
+            draw_section(painter, core, gui, *(section or (faces, 0.0, "Nominal pose", "")),
+                         options=options, left=354, width=246)
     finally:
         painter.end()
     return image
@@ -360,10 +366,20 @@ def _scene_extent(scenes, sheets, axis, options):
     return _extent(faces,axis)
 
 
-def _collision_page(workspace, hit, tooling, options, core, gui, diagrams, index,
-                    *, bed_faces, beam, bed_z, rest_z, punch_outline, punch_top,
-                    clamp_spans, clamp_height, clamp_depth, native_by_length, group=()):
-    from smbs_core.kinematics2d.collision_groups import projected_zones, component_colors, BOX_FACES
+def _sample_caption(hit):
+    status = "Conditional" if hit.get("conditional") else "Collision"
+    return f"{status}: {hit.get('phase', '')} {float(hit.get('angle_deg', 0)):.1f}°"
+
+
+def _sample_evidence_label(box):
+    if not box:
+        return "Overlap geometry unavailable"
+    return "Intersection mesh" if box[0].identifier == "overlap_solid" else "Recorded overlap bounds"
+
+
+def _collision_sample_scene(workspace, hit, tooling, options,
+                            *, bed_faces, beam, bed_z, rest_z, punch_outline, punch_top,
+                            clamp_spans, clamp_height, clamp_depth, native_by_length):
     from smbs_core.kinematics2d.workpiece_placement_3d import PlacementTransform3D
     session = workspace.session
     pose = hit["sampled_machine_pose"]
@@ -403,6 +419,24 @@ def _collision_page(workspace, hit, tooling, options, core, gui, diagrams, index
         overlap_label = "Overlap geometry unavailable; recorded collision metadata only."
     if hit.get("conditional"):
         box = tuple(replace(face,kind="collision_conditional") for face in box)
+    return sheet, axis, (*bed_faces, *mounts, *clamps, *tools), box, overlap_label
+
+
+def _collision_page(workspace, hit, tooling, options, core, gui, diagrams, index,
+                    *, bed_faces, beam, bed_z, rest_z, punch_outline, punch_top,
+                    clamp_spans, clamp_height, clamp_depth, native_by_length, group=()):
+    from smbs_core.kinematics2d.collision_groups import projected_zones, component_colors, BOX_FACES
+    session = workspace.session
+    bid = hit["bend"]
+    sheet, axis, machine, box, overlap_label = _collision_sample_scene(
+        workspace, hit, tooling, options, bed_faces=bed_faces, beam=beam,
+        bed_z=bed_z, rest_z=rest_z, punch_outline=punch_outline, punch_top=punch_top,
+        clamp_spans=clamp_spans, clamp_height=clamp_height, clamp_depth=clamp_depth,
+        native_by_length=native_by_length)
+    # The right section always depicts an actual recorded sample, not a
+    # material-attached map of non-simultaneous intersections.
+    section = ((*machine, *sheet, *box), section_x(hit),
+               _sample_caption(hit), _sample_evidence_label(box))
     if options.group_collisions and group:
         zones = projected_zones(session.graph,session.fixed_panel,group,hit)
         box = []
@@ -421,10 +455,10 @@ def _collision_page(workspace, hit, tooling, options, core, gui, diagrams, index
                          "Boxes are recorded overlap bounds mapped to a reference pose; "
                          "whole-component marks are used where the bend zone deforms. "
                          "Findings did not necessarily occur simultaneously.")
-    faces = (*bed_faces,*mounts,*clamps,*sheet,*tools,*box)
+    faces = (*machine,*sheet,*box)
     name = f"smbs-collision-{index}.png"
     diagrams.append((name,_diagram(core,gui,faces,_scene_extent((faces,),(sheet,),axis,options),
-                                   _extent(sheet,axis),axis,sheet_faces=sheet,active_bend=bid,options=options)))
+                                   _extent(sheet,axis),axis,sheet_faces=sheet,active_bend=bid,options=options,section=section)))
     status = "Conditional finding" if hit.get("conditional") else "Confirmed sampled collision"
     if options.group_collisions and group:
         confirmed = sum(not h.get("conditional") for h in group)
@@ -508,6 +542,11 @@ def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positio
     native_by_length = {}
     pages = []
     diagrams = []
+    from smbs_core.kinematics2d.collision_groups import representative_hit
+    hits_by_operation = {}
+    if options.shows("collision"):
+        for hit in current_collision_hits(workspace):
+            hits_by_operation.setdefault(hit.get("operation"), []).append(hit)
     overview = (_overview_html(session, operations, rows[:len(operations)], tooling,
                               qt_core, gui, diagrams, options) if options.includes("overview") else "")
     for index, (operation, row) in enumerate(zip(operations, rows[:len(operations)], strict=True)):
@@ -571,12 +610,38 @@ def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positio
             scenes.append((*bed_faces, *mounts, *clamps, *tools, *gauge_faces, *sheet))
         extent = _scene_extent(scenes,(before,after),axis,options)
         part_extent = _extent((*before, *after), axis)
+        operation_hits = hits_by_operation.get(operation.operation_id, ())
+        section_note = ""
+        sample_section = None
+        if options.right_view == "section" and options.includes("part_inset") and operation_hits:
+            hit = representative_hit(operation_hits)
+            try:
+                sample_sheet, _, sample_machine, box, _ = _collision_sample_scene(
+                    workspace, hit, tooling, options, bed_faces=bed_faces, beam=beam,
+                    bed_z=bed_z, rest_z=rest_z, punch_outline=punch_outline, punch_top=punch_top,
+                    clamp_spans=clamp_spans, clamp_height=clamp_height, clamp_depth=clamp_depth,
+                    native_by_length=native_by_length)
+                sample_section = ((*sample_machine, *sample_sheet, *box), section_x(hit),
+                                  _sample_caption(hit), _sample_evidence_label(box))
+                section_note = (f"Right collision section: recorded Mesh sample, "
+                                f"{hit.get('phase', '')}, {float(hit.get('angle_deg', 0)):.1f}°; "
+                                f"{len(operation_hits)} finding(s) for this operation. "
+                                "See collision evidence pages for details. "
+                                "The left image remains the nominal operation pose.")
+            except _CAD_ERRORS as exc:
+                section_note = f"Recorded collision section unavailable: {exc}. See collision evidence."
         for label, faces, sheet in zip(("before", "after"), scenes, (before, after)):
             if not options.includes(label):
                 continue
             name = f"smbs-{index}-{label}.png"
+            section = (faces, 0.0, "Setup" if label == "before" else "Bottom",
+                       "Nominal pose — not a clearance verdict")
+            # Prefer the after panel, or before if after has been disabled.
+            if sample_section is not None and (label == "after" or not options.includes("after")):
+                section = sample_section
             diagrams.append((name, _diagram(qt_core, gui, faces, extent, part_extent, axis,
-                                             sheet_faces=sheet, active_bend=bid, options=options)))
+                                             sheet_faces=sheet, active_bend=bid, options=options,
+                                             section=section)))
 
         gauge_text = "—" if stop is None else (
             f"S = {stop.s_mm:.2f} mm · Z = {stop.z_mm:+.2f} mm"
@@ -595,6 +660,8 @@ def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positio
         for label,title in (("before","setup_before_bending"),("after","shape_after_bending")):
             if options.includes(label):
                 html += f'<h2>{escape(tr(title))}</h2><p><img width="600" height="270" src="smbs-{index}-{label}.png"></p>'
+        if section_note:
+            html += f'<p class="muted">{escape(section_note)}</p>'
         if warnings:
             html += f'<p class="muted">{escape(" ".join(warnings))}</p>'
         html += f'<p class="muted">{escape(tr("the_diagrams_show_part_orientation_and_shape_verify_collisions"))}</p>'
