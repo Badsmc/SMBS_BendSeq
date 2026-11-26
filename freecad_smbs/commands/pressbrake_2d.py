@@ -2488,17 +2488,23 @@ class _PreviewPanel:
                 playback_buttons = (self.reset_btn, self.prev_step_btn,
                                     self.play_btn, self.next_step_btn)
 
-                def finish_sequence(*, cancel):
-                    if self.session is not None and cancel:
-                        self._apply_manual_order(self._sequence_before_edit)
-                        self._manual_sequence_prefix = list(self._prefix_before_edit)
-                        self._sync_manual_order_input()
-                    self._toggle_manual_order(False)
+                def close_sequence_edit_controls():
+                    # Only lightweight widget state, safe during FAST commit.
+                    self._manual_selection_enabled = False
                     edit_controls.hide()
                     select_lines.setText("☷")
                     select_lines.setToolTip(tr("select_bend_lines_edit_order"))
                     for button in playback_buttons:
                         button.show()
+
+                self._close_sequence_edit_controls = close_sequence_edit_controls
+
+                def finish_sequence(*, cancel):
+                    if self.session is not None and cancel:
+                        self._apply_manual_order(self._sequence_before_edit)
+                        self._manual_sequence_prefix = list(self._prefix_before_edit)
+                        self._sync_manual_order_input()
+                    close_sequence_edit_controls()
                     if self.session is not None:
                         self._configure_for_active_bend()
                         self._draw_flat_pattern(reset_camera=False)
@@ -5123,6 +5129,9 @@ class _PreviewPanel:
                 is_partial = len(sequence) < len(current)
                 self._partial_preview_limit = len(sequence) if is_partial else None
                 self._preview_only_planar_order = sequence
+                self._manual_sequence_prefix = list(sequence)
+                self._close_sequence_edit_controls()
+                self._sync_manual_order_input()
                 self._selected_planar_gauge_order = ()
                 self._selected_planar_gauge_positions = {}
                 self._selected_planar_gauge_model_id = None
@@ -5132,6 +5141,7 @@ class _PreviewPanel:
                 self._configure_for_active_bend()
                 self._sync_tooling_to_active_bend()
                 self.draw()
+                self._draw_flat_pattern(reset_camera=False)
                 self.status.setText(
                     tr("catalog_simulation")
                     .format(len(sequence), len(current), entry.origin, reason)
@@ -8368,6 +8378,7 @@ class _PreviewPanel:
                     self._trace_event("FLAT_PATTERN_SCENE_RECREATED", qt_state=self._qt_debug_state())
                 self._flat_scene = scene
                 scene.clear()
+                self._flat_drawn_operation_ids = ()
                 if self.session is None:
                     scene.addSimpleText(tr("flat_pattern_not_loaded"))
                     return
@@ -8393,22 +8404,20 @@ class _PreviewPanel:
                         for x, y in vertices
                     ])
                     scene.addPolygon(poly, polygon_pen, fill).setZValue(0)
+                from freecad_smbs.ui.flat_sequence_order import displayed_operations, operation_numbers
                 controller = self.session.controller
                 staged = controller.has_stages
-                operation_labels = {}
-                if staged:
-                    names = {"PREBEND": tr("prebend_a2eedeaa"), "FINISH": tr("finish_bend_34eca2bf"), "SINGLE": tr("bend_c27b8b99")}
-                    for index, step in enumerate(controller.operation_steps, 1):
-                        operation_labels.setdefault(step.bend_id, []).append(
-                            f"{index}. {step.operation_id} · {names[step.kind]} "
-                            f"{step.target_angle_deg:+.2f}°"
-                        )
-                else:
-                    order = (self._manual_sequence_prefix if self._manual_selection_enabled
-                             else self.session.bend_order)
-                    operation_labels = {
-                        bend_id: [str(index)] for index, bend_id in enumerate(order, 1)
-                    }
+                steps = displayed_operations(controller,
+                    manual_prefix=self._manual_sequence_prefix,
+                    editing=self._manual_selection_enabled,
+                    catalog_prefix=self._preview_only_planar_order or ())
+                self._flat_drawn_operation_ids = tuple(step.operation_id for step in steps)
+                names = {"PREBEND": tr("prebend_a2eedeaa"), "FINISH": tr("finish_bend_34eca2bf"), "SINGLE": tr("bend_c27b8b99")}
+                operation_labels = {
+                    bid: [f"{index}. {step.operation_id} · {names[step.kind]} {step.target_angle_deg:+.2f}°"
+                          if staged else str(index) for index,step in entries]
+                    for bid,entries in operation_numbers(steps).items()
+                }
                 active_step = controller.operation_at(self.session.active_bend_index)
                 for conn in self.session.panel_build.connections:
                     bend_id = conn.bend_id
@@ -8417,7 +8426,7 @@ class _PreviewPanel:
                     active = chosen and (
                         active_step.bend_id == bend_id
                         if staged or not self._manual_selection_enabled
-                        else self._manual_sequence_prefix[-1] == bend_id
+                        else bool(steps) and steps[-1].bend_id == bend_id
                     )
                     color = "#e67e22" if active else ("#219653" if chosen else "#2864ac")
                     pen = QtGui.QPen(QtGui.QColor(color))
@@ -8429,7 +8438,9 @@ class _PreviewPanel:
                     item.setZValue(10)
                     tooltip = (
                         "\n".join(operation_labels.get(bend_id, ())) if staged
-                        else "{} {:+.1f}°".format(bend_id, conn.angle_deg)
+                        else "{}{} {:+.1f}°".format(
+                            (" / ".join(operation_labels[bend_id]) + ". ") if chosen else "",
+                            bend_id, conn.angle_deg)
                     )
                     item.setToolTip(tooltip)
                     hit_pen = QtGui.QPen(QtGui.QColor(0, 0, 0, 0))
@@ -8804,6 +8815,15 @@ class _PreviewPanel:
                 self._stop_timer()
                 self._machine_pose_fault = None
                 self._manual_sequence_prefix = []
+                self._partial_preview_limit = None
+                self._preview_only_planar_order = None
+                if fast_apply:
+                    self._close_sequence_edit_controls()
+                    self._selected_planar_gauge_order = ()
+                    self._selected_planar_gauge_positions = {}
+                    self._selected_planar_gauge_model_id = None
+                    self._machine_gauge_envelope_cache = None
+                    self._ergonomic_loading_cache_key = None
                 self._manual_orientation_order = ()
                 self._manual_orientation_by_bend = {}
                 valid_ops = {
@@ -8841,12 +8861,20 @@ class _PreviewPanel:
                     # result-dialog completion callback. On macOS this can
                     # destroy the task host while the operation table updates.
                     self._populate_operations_fast()
+                    if not self._playback_alive() or not self._qt_is_valid(self._flat_view):
+                        return
+                    # QGraphicsScene is independent of native OCC/Coin3D.
+                    # Do not skip this redraw even if the flat tab is already
+                    # selected: currentChanged will not fire in that case.
+                    self._draw_flat_pattern(reset_camera=False)
                     if self._playback_alive() and self._qt_is_valid(self.status):
                         self.status.setText(message + " | 3D preview requires refresh")
                     _desktop_debug_event(
                         "FAST_APPLY_LIGHTWEIGHT_REFRESH",
                         workspace_alive=self._playback_alive(),
                         operation_count=len(self.session.controller.operation_steps),
+                        operation_ids=tuple(op.operation_id for op in self.session.controller.operation_steps),
+                        flat_operation_ids=getattr(self,"_flat_drawn_operation_ids",()),
                     )
                     return
                 self._populate_operations()
@@ -8891,6 +8919,8 @@ class _PreviewPanel:
                 # Move Up/Down and Restore replace the manually numbered prefix.
                 self._manual_sequence_prefix = []
                 self._partial_preview_limit = None
+                self._preview_only_planar_order = None
+                self._close_sequence_edit_controls()
                 self._sync_manual_order_input()
                 self._manual_3d_verdicts.clear()
                 self._manual_retract_verdicts.clear()
@@ -9114,6 +9144,8 @@ class _PreviewPanel:
                 else:
                     self._update_operations_visual_state()
                     self._sync_playback_buttons()
+                    if self._viewer_tabs.currentWidget() is self._flat_view:
+                        self._draw_flat_pattern(reset_camera=False)
 
             def _on_operation_selected(self, current, _previous):
                 if (self.session is None or current is None
