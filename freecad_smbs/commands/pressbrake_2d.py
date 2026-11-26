@@ -7331,19 +7331,21 @@ class _PreviewPanel:
                     return
                 if activate_task_dialog(self, "mesh"):
                     return
+                from freecad_smbs.ui.mesh_preferences import mesh_defaults, save_mesh_defaults
                 preferences = QtCore.QSettings("SMBS", "BendSeq")
+                default_budget, default_overlap = mesh_defaults()
                 dialog = QtWidgets.QDialog(self)
                 dialog.setWindowTitle("Mesh 3D")
                 form = QtWidgets.QFormLayout(dialog)
                 budget = QtWidgets.QSpinBox()
                 budget.setRange(1, 3600)
-                budget.setValue(preferences.value("mesh/budget_seconds", 60, type=int))
+                budget.setValue(default_budget)
                 form.addRow(tr("time_limit_s"), budget)
                 overlap = QtWidgets.QDoubleSpinBox()
                 overlap.setDecimals(6)
                 overlap.setRange(0.000001, 1000.0)
                 overlap.setSingleStep(0.0001)
-                overlap.setValue(preferences.value("mesh/min_overlap_mm3", 0.0001, type=float))
+                overlap.setValue(default_overlap)
                 form.addRow(tr("minimum_penetration_volume_mm"), overlap)
                 mode = QtWidgets.QComboBox()
                 mode.addItem(tr("mesh_grouped_mode"),True)
@@ -7396,8 +7398,7 @@ class _PreviewPanel:
                     )
 
                 def start_check():
-                    preferences.setValue("mesh/budget_seconds", budget.value())
-                    preferences.setValue("mesh/min_overlap_mm3", overlap.value())
+                    save_mesh_defaults(budget.value(), overlap.value())
                     self._run_mesh_sequence_check()
                     if self._qt_is_valid(export):
                         refresh_export()
@@ -7463,7 +7464,8 @@ class _PreviewPanel:
                         self.status.setText(f"Mesh: {index + 1}/{count} · {operation}")
                         QtWidgets.QApplication.processEvents(QtCore.QEventLoop.ExcludeUserInputEvents)
 
-                    preferences = QtCore.QSettings("SMBS", "BendSeq")
+                    from freecad_smbs.ui.mesh_preferences import mesh_defaults
+                    default_budget, default_overlap = mesh_defaults()
                     latest_collision = None
 
                     def capture_collision(hit, component, tool, common):
@@ -7473,8 +7475,8 @@ class _PreviewPanel:
                     report = screen_mesh_sequence(
                         self.session, cycle,
                         tuple(step.operation_id for step in operations),
-                        budget_seconds=preferences.value("mesh/budget_seconds", 60, type=int),
-                        min_overlap_mm3=preferences.value("mesh/min_overlap_mm3", 0.0001, type=float),
+                        budget_seconds=default_budget,
+                        min_overlap_mm3=default_overlap,
                         progress=progress, on_collision=capture_collision,
                     )
                     self._latest_mesh_collision = latest_collision
