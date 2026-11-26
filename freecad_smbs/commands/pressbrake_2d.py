@@ -694,6 +694,16 @@ class _SMBSNativeTaskPanel:
     def autoClosedOnDeletedDocument(self):
         self._detach()
 
+    @staticmethod
+    def bind_native_document(native_dialog, document_name):
+        """Associate Tasks with the source FCStd, never the animation view."""
+        if native_dialog is None:
+            return
+        name = str(document_name or "")
+        native_dialog.setDocumentName(name)
+        native_dialog.setAutoCloseOnTransactionChange(False)
+        native_dialog.setAutoCloseOnDeletedDocument(bool(name))
+
     def getStandardButtons(self):
         # Native Close button: FreeCAD supplies the label, icon and layout.
         _QtCore, _QtGui, QtWidgets = _qt()
@@ -954,9 +964,9 @@ def show_workspace_controls(workspace, tab=None):
         # FreeCAD 1.1 returns its native TaskDialog wrapper. A simulation is
         # not an edit transaction: visibility/undo changes must not close it.
         # Deleting its associated document does require teardown.
-        if native_dialog is not None:
-            native_dialog.setAutoCloseOnTransactionChange(False)
-            native_dialog.setAutoCloseOnDeletedDocument(True)
+        panel.bind_native_document(
+            native_dialog, getattr(workspace, "_smbs_document_name", None)
+        )
         Gui.Control.showTaskView()
     except Exception:
         panel.closed()
@@ -6174,6 +6184,11 @@ class _PreviewPanel:
                     ],
                 )
                 self._smbs_document_name = str(doc.Name)
+                panel = getattr(self, "_native_task_panel", None)
+                if panel is not None and panel.owns_active_dialog(Gui.Control):
+                    panel.bind_native_document(
+                        Gui.Control.activeTaskDialog(), self._smbs_document_name
+                    )
                 self._smbs_allow_auto_embed = False
                 self._saved_full_sequences = []
                 self._last_manual_sequence_report = None
