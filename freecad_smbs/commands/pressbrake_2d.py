@@ -985,7 +985,7 @@ def activate_task_dialog(workspace, key):
     return True
 
 
-def embed_task_dialog(workspace, widget, title, key):
+def embed_task_dialog(workspace, widget, title, key, *, add_close_button=True):
     """Rehost a real QDialog inside the *single* contextual Tasks surface.
 
     No extra tabs or second simulation panel are created. QDialog signals,
@@ -1024,15 +1024,17 @@ def embed_task_dialog(workspace, widget, title, key):
     # native layout rather than creating a second, nested scrollbar.
     page_layout.addWidget(widget)
 
-    bottom = QtWidgets.QWidget(page)
-    bottom_layout = QtWidgets.QHBoxLayout(bottom)
-    bottom_layout.setContentsMargins(
-        OUTER_MARGIN, SECTION_GAP // 2, OUTER_MARGIN, SECTION_GAP // 2
-    )
-    bottom_layout.addStretch(1)
-    close_btn = style_action(QtWidgets.QPushButton(tr("close_section")))
-    bottom_layout.addWidget(close_btn)
-    page_layout.addWidget(bottom, 0)
+    close_btn = None
+    if add_close_button:
+        bottom = QtWidgets.QWidget(page)
+        bottom_layout = QtWidgets.QHBoxLayout(bottom)
+        bottom_layout.setContentsMargins(
+            OUTER_MARGIN, SECTION_GAP // 2, OUTER_MARGIN, SECTION_GAP // 2
+        )
+        bottom_layout.addStretch(1)
+        close_btn = style_action(QtWidgets.QPushButton(tr("close_section")))
+        bottom_layout.addWidget(close_btn)
+        page_layout.addWidget(bottom, 0)
 
     widget._smbs_task_page = page
     index = stack.addWidget(page)
@@ -1048,19 +1050,20 @@ def embed_task_dialog(workspace, widget, title, key):
         workspace._task_page_titles.pop(page, None)
         if dialogs.get(key) is widget:
             del dialogs[key]
-        if was_current:
+        if was_current and not getattr(workspace, "_closing", False):
             fallback = return_page if stack.indexOf(return_page) >= 0 else stack.widget(0)
             if fallback is not None:
                 show_workspace_controls(workspace, tab=stack.indexOf(fallback))
         page.deleteLater()
 
     def on_close():
-        widget.close()  # honour QDialog.closeEvent (tool previews cleanup)
-        if stack.indexOf(page) >= 0:
+        # A form may veto closing. Do not delete it in that case.
+        if widget.close() and stack.indexOf(page) >= 0:
             on_finished(0)
 
     widget.finished.connect(on_finished)
-    close_btn.clicked.connect(on_close)
+    if close_btn is not None:
+        close_btn.clicked.connect(on_close)
     workspace._install_automatic_debug_ui_signals(QtWidgets, root=widget)
     _desktop_debug_event(
         "SPECIALIST_TASK_OPENED", key=str(key), title=str(title),
@@ -4118,10 +4121,7 @@ class _PreviewPanel:
                         tr("fast_stop_and_reset_the_simulation_before_changing_or")
                     )
                     return
-                existing = getattr(self, "_fast_result_dialog", None)
-                if existing is not None and self._qt_is_valid(existing):
-                    existing.raise_()
-                    existing.activateWindow()
+                if activate_task_dialog(self, "fast_results"):
                     return
                 self._set_task_result("FAST", "running", tr("searching_for_a_sequence"))
                 from smbs_core.kinematics2d.fast_bfm_beam_search import (
@@ -4231,15 +4231,11 @@ class _PreviewPanel:
                     )
                     return
 
-                # Parent the transient chooser to FreeCAD's main window,
-                # not to a Tasks widget managed by OverlayManager on macOS.
-                # open() avoids a nested QDialog.exec() event loop.
-                dialog = QtWidgets.QDialog(Gui.getMainWindow())
+                # The native Tasks host owns this contextual results page.
+                # Keep the MDI view available for inspecting candidate poses.
+                dialog = QtWidgets.QDialog(self)
                 dialog.setObjectName("SMBS_FAST_ResultsDialog")
-                dialog.setAttribute(QtCore.Qt.WA_DeleteOnClose, True)
                 dialog.setWindowTitle(tr("fast_candidate_sequences_unverified"))
-                dialog.setMinimumWidth(610)
-                dialog.setMinimumHeight(300)
                 layout = QtWidgets.QVBoxLayout(dialog)
                 hint = QtWidgets.QLabel(tr(
                     "fast_s_states_transitions_2d_axis_checks_penalized_inconclusive",
@@ -4587,8 +4583,8 @@ class _PreviewPanel:
                         )
 
                 def check_fast_shortlist_2d():
-                    # Start after QDialog.open(): users see FAST candidates
-                    # first, while the optional Stage B ranking is separate.
+                    # Start after the native Tasks page is shown; Stage B
+                    # ranking remains separate from the initial FAST search.
                     if (not self._qt_is_valid(dialog)
                             or not self._playback_alive()
                             or self._fast_result_dialog is not dialog):
@@ -5001,10 +4997,11 @@ class _PreviewPanel:
                 dialog.finished.connect(on_finished)
                 self._fast_result_dialog = dialog
                 _desktop_debug_event("FAST_RESULT_DIALOG_OPENED")
-                dialog.open()
-                # Preserve the 30-second maximum FAST search budget. Perform the
-                # separate bounded 2D screening after the result window is
-                # visible, not in the combinatorial search loop.
+                embed_task_dialog(
+                    self, dialog, tr("fast_candidate_sequences_unverified"),
+                    "fast_results", add_close_button=False,
+                )
+                # Separate bounded Stage B from the combinatorial search.
                 QtCore.QTimer.singleShot(0, check_fast_shortlist_2d)
 
             def _apply_fast_sequence_candidate(
@@ -6129,6 +6126,11 @@ class _PreviewPanel:
                     self.check_result.setText(msg)
                     return
 
+                # The old FAST page is tied to the previous controller.
+                # Never keep a stale candidate chooser across a part load.
+                fast_page = getattr(self, "_task_dialogs", {}).get("fast_results")
+                if fast_page is not None and self._qt_is_valid(fast_page):
+                    fast_page.reject()
                 self._set_task_result("FAST", "idle", tr("search_has_not_run_for_this_part"))
                 self._set_task_result("Mesh", "idle", tr("this_part_has_not_been_checked_yet"))
                 self._finish_motion_trace("NEW_PART_LOADED")
