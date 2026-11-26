@@ -101,6 +101,8 @@ class SMBSWorkbench(Workbench):
 
     def Initialize(self) -> None:
         FreeCADGui.addIconPath(str(_ICON_ROOT))
+        FreeCADGui.addLanguagePath(str(_ICON_ROOT.parent.parent / "translations"))
+        FreeCADGui.updateLocale()
         from freecad_smbs.ui.mesh_preferences import migrate_mesh_preferences
         migrate_mesh_preferences()
         FreeCADGui.addPreferencePage(
