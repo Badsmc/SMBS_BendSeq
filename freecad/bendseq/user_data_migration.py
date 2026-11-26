@@ -39,6 +39,8 @@ def _atomic_json(path, value):
 
 
 def _verified_copy(source, target, expected):
+    if target.is_file() and digest(target) == expected:
+        return
     target.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=".copy-", dir=target.parent)
     try:
@@ -63,8 +65,11 @@ def _verified_copy(source, target, expected):
 
 def legacy_roots():
     """Only this checkout and known predecessor user storage; no broad scanning."""
-    return (paths.REPOSITORY, paths.freecad_user_directory() / "SMBS",
-            paths.freecad_user_directory() / "SMBS_BendSeq")
+    user = paths.freecad_user_directory()
+    names = ("SMBS", "SMBS_BendSeq", "SMBS_BendSeq-2D", "bendseq", "BendSeq")
+    return tuple(dict.fromkeys((paths.REPOSITORY,
+                 *(user / name for name in names if name != "BendSeq"),
+                 *(user / "Mod" / name for name in names))))
 
 
 def migrate_user_data(sources=None, destination=None, defaults=None):
@@ -100,19 +105,30 @@ def migrate_user_data(sources=None, destination=None, defaults=None):
                          for source in sorted(defaults.rglob("*"))
                          if source.is_file() and source.name not in (".gitkeep", "README.md"))
     try:
+        # Archive complete source groups on conflict so CAD models and their
+        # companion metadata/segment files remain in the same relative layout.
+        groups = {}
         for source, relative, origin in inventory:
-            expected = digest(source)
-            target = destination / relative
-            conflict = target.exists() and digest(target) != expected
-            if conflict:
-                identity = sha256(str(origin).encode("utf-8")).hexdigest()[:16]
-                target = destination / "migration-conflicts" / identity / expected / relative
-            _verified_copy(source, target, expected)
-            record = {"source": str(source), "destination": str(target),
-                      "sha256": expected, "conflict": conflict}
-            if record not in journal["files"]:
-                journal["files"].append(record)
-            _atomic_json(journal_path, journal)
+            groups.setdefault(origin, []).append((source, relative, digest(source)))
+        for origin, files in groups.items():
+            conflict = any((destination / relative).exists()
+                           and digest(destination / relative) != expected
+                           for source, relative, expected in files)
+            identity = sha256(str(origin).encode("utf-8")).hexdigest()[:16]
+            snapshot = sha256("\n".join(str(relative) + "=" + expected
+                                      for source, relative, expected in files).encode("utf-8")).hexdigest()
+            for source, relative, expected in files:
+                primary = destination / relative
+                if not primary.exists() or digest(primary) == expected:
+                    _verified_copy(source, primary, expected)
+                target = (destination / "migration-conflicts" / identity / snapshot / relative
+                          if conflict else primary)
+                _verified_copy(source, target, expected)
+                record = {"source": str(source), "destination": str(target),
+                          "sha256": expected, "conflict": conflict}
+                if record not in journal["files"]:
+                    journal["files"].append(record)
+                _atomic_json(journal_path, journal)
         for directory in DIRECTORIES:
             (destination / directory).mkdir(parents=True, exist_ok=True)
         for directory in ("punch", "die", "Backgauge", "Clamp", "machine_frame", "presses"):
@@ -135,7 +151,7 @@ def relocated_path(value):
     original = Path(value)
     try:
         journal = json.loads((paths.user_data() / "migration-v1.json").read_text(encoding="utf-8"))
-        for record in journal["files"]:
+        for record in reversed(journal["files"]):
             if Path(record["source"]) == original:
                 candidate = Path(record["destination"])
                 if candidate.is_file() and digest(candidate) == record["sha256"]:
@@ -150,7 +166,7 @@ def previous_paths(value):
     result = []
     try:
         journal = json.loads((paths.user_data() / "migration-v1.json").read_text(encoding="utf-8"))
-        for record in journal["files"]:
+        for record in reversed(journal["files"]):
             candidate = Path(record["destination"])
             if (candidate == Path(value) and candidate.is_file()
                     and digest(candidate) == record["sha256"]):

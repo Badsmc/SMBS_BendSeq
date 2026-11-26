@@ -43,7 +43,7 @@ Open **Tools → Addon Manager**. If SMBS BendSeq is available in your configure
    print(Path(App.getUserAppDataDir()) / "Mod")
    ```
 
-3. Extract the archive into `Mod/SMBS_BendSeq/`. Keep `InitGui.py`, `freecad/`, `freecad/bendseq/`, `freecad/bendseq/core/`, and `toollibrary/` directly inside that folder when installing 0.2.0.
+3. Extract the archive into `Mod/SMBS_BendSeq/`. Keep `package.xml`, the temporary `Init.py` / `InitGui.py` entrypoints and the complete `freecad/` directory inside that folder. The implementation is in `freecad/bendseq`, including its headless `core` and resources. Do not create `freecad/__init__.py`.
 4. Restart FreeCAD and select **PressBrakeSim**. SMBS displays English or Russian according to the FreeCAD language setting.
 
 ## Quick start
@@ -77,7 +77,7 @@ For a session linked to a SheetMetal unfold, saving the document in FreeCAD with
 
 To investigate an error, enable **Log SMBS activity and FreeCAD crashes** in SMBS settings and reproduce the problem. The desktop log is named `SMBS_debug_log.json`. Include the FreeCAD version, the SMBS version and commit, and the steps to reproduce the issue when reporting it. [Report an issue](https://github.com/Badsmc/SMBS_BendSeq/issues).
 
-See the [tooling library notes](toollibrary/README.md) for local tooling setup.
+See the [tooling library notes](freecad/bendseq/resources/default_toollibrary/README.md) for local tooling setup.
 
 ## Development and licensing
 
@@ -92,3 +92,22 @@ Use FreeCAD's own Python environment. Part, the FreeCAD-provided Qt wrapper and 
 To test through Addon Manager before official indexing, add `https://github.com/Badsmc/SMBS_BendSeq` with branch `main` as a custom repository in Addon Manager preferences. Remove other SMBS installations first. Restart FreeCAD after installation.
 
 Development tooling editor: [guide](docs/PARAMETRIC_TOOL_GENERATOR.md). Create original demonstration punches and dies with a live dimensioned preview. The updated machine frame keeps the fixed bodies stationary and moves the z layer with the clamps.
+
+
+## Native package migration preview
+
+The `refactor/native-package-layout` branch targets FreeCAD 1.1.3+ and Python 3.11+.
+Install its [branch ZIP](https://github.com/Badsmc/SMBS_BendSeq/archive/refs/heads/refactor/native-package-layout.zip)
+into a single `Mod/BendSeq` folder with FreeCAD closed. Remove duplicate enabled
+installations. Keep a copy of your previous installation and FCStd documents.
+The release version stays 0.2.0 until the 0.3.0 acceptance checks succeed.
+
+Writable tooling, segment inventories, configs, templates and saved sequences
+are stored under `FreeCAD.getUserAppDataDir()/BendSeq/`, outside the addon.
+On first library access, existing installation data is copied and SHA-256 verified.
+Sources and existing destination files are preserved. Conflicts are retained as
+complete source snapshots under `migration-conflicts/`; see `migration-v1.json`.
+Previously referenced external files and the existing `~/.smbs` recipe catalog
+remain accessible. ParamGet keys and the FCStd session schema are unchanged.
+
+See [migration status, manual acceptance and rollback](docs/NATIVE_PACKAGE_MIGRATION.md).
