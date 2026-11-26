@@ -20,6 +20,8 @@ _GROUPS = {
 _KEYS = {
     "enabled": "Enabled",
     "grouped_view": "GroupedView",
+    "budget_seconds": "BudgetSeconds",
+    "min_overlap_mm3": "MinimumOverlapMM3",
     "config_json": "ConfigJSON",
     "json_paths": "JSONPaths",
     "options_v2": "OptionsV2",
@@ -65,16 +67,18 @@ class NativePreferences:
         kind = type if type is not None else default.__class__
         method = _METHODS[kind]
         group, name = self._location(key)
-        if not self._has(group, name):
-            marker = "Migrated_" + name
-            if not group.GetBool(marker, False):
+        marker = "Migrated_" + name
+        if not group.GetBool(marker, False):
+            if not self._has(group, name):
                 old = self._legacy(key, default, kind)
                 if old is not None:
                     try:
                         self.setValue(key, kind(old))
                     except (TypeError, ValueError, OverflowError):
                         self.setValue(key, default)
-                group.SetBool(marker, True)
+            # Even a pre-existing native setting is migrated. Removing it
+            # later must restore the native default, not an obsolete Qt value.
+            group.SetBool(marker, True)
         fallback = json.dumps(default, ensure_ascii=False) if kind is list else default
         result = getattr(group, "Get" + method)(name, fallback)
         if kind is list:
