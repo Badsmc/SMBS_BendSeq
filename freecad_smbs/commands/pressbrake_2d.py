@@ -998,7 +998,7 @@ def activate_task_dialog(workspace, key):
 # These pages contain data or callbacks tied to a particular source part.
 _PART_TASK_KEYS = (
     "fast_results", "bend_information", "pdf_export", "mesh",
-    "tool_assembly", "backgauge", "cycle_config", "catalog",
+    "tool_assembly", "backgauge", "cycle_config", "catalog", "prebend",
 )
 
 
@@ -8677,7 +8677,10 @@ class _PreviewPanel:
                 if not self.session.can_reorder():
                     self.status.setText(tr("reset_the_simulation_before_adding_or_editing_the_prebend"))
                     return
+                if activate_task_dialog(self, "prebend"):
+                    return
                 controller = self.session.controller
+                source_steps = tuple(controller.operation_steps)
                 final = controller.target_for(bend_id)
                 current = next((
                     step for step in controller.operation_steps
@@ -8685,7 +8688,6 @@ class _PreviewPanel:
                 ), None)
                 dialog = QtWidgets.QDialog(self)
                 dialog.setWindowTitle(tr("pre_bend_finish_bend", bend=bend_id))
-                dialog.setMinimumWidth(400)
                 layout = QtWidgets.QVBoxLayout(dialog)
                 explanation = QtWidgets.QLabel(
                     tr("physical_bend_nfinal_angle_unchanged_nset_an_intermediate_absolute",
@@ -8707,7 +8709,7 @@ class _PreviewPanel:
                 row.addRow(tr("intermediate_angle"), spin)
                 layout.addLayout(row)
 
-                # Modal placement preview. All existing operations are locked;
+                # Contextual placement preview. All existing operations are locked;
                 # the newly selected PREBEND is the sole draggable item.
                 preview = QtWidgets.QListWidget(dialog)
                 preview.setObjectName("SMBS_PreBendPlacement")
@@ -8756,7 +8758,20 @@ class _PreviewPanel:
                     QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel,
                     dialog,
                 )
+                def is_current_plan():
+                    return (
+                        self._playback_alive()
+                        and not self._task_progress_busy
+                        and self.session is not None
+                        and self.session.controller is controller
+                        and self.session.can_reorder()
+                        and tuple(controller.operation_steps) == source_steps
+                    )
+
                 def apply_dialog_order():
+                    if not is_current_plan():
+                        hint.setText(tr("fast_part_or_operations_changed_run_the_search_again"))
+                        return
                     ids = tuple(
                         preview.item(i).data(QtCore.Qt.UserRole)
                         for i in range(preview.count())
@@ -8767,7 +8782,24 @@ class _PreviewPanel:
                             tr("the_prebend_must_precede_its_finish_bend")
                         )
                         return
+                    original = controller.operation_snapshot()
+                    try:
+                        controller.add_prebend(bend_id, spin.value())
+                        controller.reorder_operations(ids)
+                    except SequenceError as exc:
+                        controller.restore_operation_snapshot(original)
+                        hint.setText(tr_message(exc))
+                        return
+                    operation = tr("prebend_finish_at").format(
+                        bend_id, spin.value(), final
+                    )
+                    _desktop_debug_event(
+                        "STAGED_BEND_PLAN_CHANGED",
+                        bend_id=bend_id,
+                        steps=controller.operation_snapshot(),
+                    )
                     dialog.accept()
+                    self._on_staged_plan_changed(operation)
                 buttons.accepted.connect(apply_dialog_order)
                 buttons.rejected.connect(dialog.reject)
                 if current is not None:
@@ -8784,40 +8816,18 @@ class _PreviewPanel:
                         )
                     )
                     def remove_from_dialog():
+                        if not is_current_plan():
+                            hint.setText(tr("fast_part_or_operations_changed_run_the_search_again"))
+                            return
                         if self._remove_prebend(bend_id, parent=dialog):
                             dialog.reject()
                     delete_button.clicked.connect(remove_from_dialog)
                     layout.addWidget(delete_button)
                 layout.addWidget(buttons)
-                result = dialog.exec() if hasattr(dialog, "exec") else dialog.exec_()
-                try:
-                    if result == 1:
-                        order = tuple(
-                            preview.item(i).data(QtCore.Qt.UserRole)
-                            for i in range(preview.count())
-                        )
-                        original = controller.operation_snapshot()
-                        try:
-                            controller.add_prebend(bend_id, spin.value())
-                            controller.reorder_operations(order)
-                        except SequenceError:
-                            controller.restore_operation_snapshot(original)
-                            raise
-                        operation = tr("prebend_finish_at").format(
-                            bend_id, spin.value(), final
-                        )
-                    else:
-                        # Deletion is handled by _remove_prebend, including its
-                        # confirmation, status update and preview invalidation.
-                        return
-                    _desktop_debug_event(
-                        "STAGED_BEND_PLAN_CHANGED",
-                        bend_id=bend_id,
-                        steps=controller.operation_snapshot(),
-                    )
-                    self._on_staged_plan_changed(operation)
-                except SequenceError as exc:
-                    self.status.setText(str(exc))
+                embed_task_dialog(
+                    self, dialog, tr("pre_bend_finish_bend", bend=bend_id),
+                    "prebend", add_close_button=False,
+                )
 
             def _on_staged_operations_dropped(self, *_args):
                 """Commit the Qt row move only after the native event settles."""
