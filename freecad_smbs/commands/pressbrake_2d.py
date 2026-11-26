@@ -654,6 +654,18 @@ class _SMBSNativeTaskPanel:
         # children. Rescue the reusable widgets without touching the dying
         # parent's layout in that callback.
         form.destroyed.connect(self._form_destroyed)
+        workspace.destroyed.connect(self._owner_destroyed)
+
+    def _owner_destroyed(self, *_args):
+        # The native task may outlive its MDI owner. Do not call back into
+        # the dying workspace or retain a live callback to its controls.
+        self._attached = False
+        self.workspace = None
+        try:
+            self._form_ref.setEnabled(False)
+            self._form_ref.hide()
+        except (RuntimeError, ReferenceError):
+            pass
 
     def _form_destroyed(self, *_args):
         self._detach(destroying=True)
@@ -706,6 +718,17 @@ class _SMBSNativeTaskPanel:
         self.workspace = None
         if workspace is None or not workspace._qt_is_valid(workspace):
             return
+        # Disconnect the old owner callback and retire its event filter.
+        # The workspace can survive many native task open/close cycles.
+        try:
+            workspace.destroyed.disconnect(self._owner_destroyed)
+        except (RuntimeError, ReferenceError, TypeError):
+            pass
+        guard = self._lifetime_guard
+        if workspace._qt_is_valid(guard):
+            if not destroying and workspace._qt_is_valid(self._form_ref):
+                self._form_ref.removeEventFilter(guard)
+            guard.deleteLater()
         # Native FreeCAD owns self.form. Detach all *reusable* children
         # before the TaskDialogPython releases that Qt form.
         # Hidden widgets do not auto-show when reparented on Tasks reopen.
@@ -923,18 +946,6 @@ def show_workspace_controls(workspace, tab=None):
         child.show()
 
     panel = _SMBSNativeTaskPanel(workspace, form)
-    valid = workspace._qt_is_valid
-
-    def owner_destroyed(*_args):
-        # Native Tasks can outlive the MDI owner. Never leave callable
-        # controls pointing at its deleted timer, scenes and hidden buttons.
-        panel._attached = False
-        panel.workspace = None
-        if valid(form):
-            form.setEnabled(False)
-            form.hide()
-
-    workspace.destroyed.connect(owner_destroyed)
     workspace._native_task_panel = panel
     try:
         # This opens the actual native FreeCAD Tasks tab, not a new dock.
