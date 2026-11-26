@@ -78,6 +78,17 @@ def show_backgauge_settings(workspace, *, modal_parent=None):
     clearance.setSuffix(tr("mm_bd8bf092"))
     clearance.setValue(model.edge_clearance_mm if model else 0.0)
     dims.addRow(tr("gap_to_part_edge"), clearance)
+    z_min = W.QDoubleSpinBox()
+    z_max = W.QDoubleSpinBox()
+    for control in (z_min, z_max):
+        control.setRange(-10000.0, 10000.0)
+        control.setDecimals(2)
+        control.setSuffix(tr("mm_bd8bf092"))
+    z_min.setValue(model.z_min_mm if model else -20.0)
+    z_max.setValue(model.z_max_mm if model else 20.0)
+    dims.addRow(tr("gauge_z_min"), z_min)
+    dims.addRow(tr("gauge_z_max"), z_max)
+
     feed = W.QDoubleSpinBox()
     feed.setRange(0.0, 1000.0)
     feed.setDecimals(1)
@@ -203,6 +214,8 @@ def show_backgauge_settings(workspace, *, modal_parent=None):
                     float(val_z.replace(",", ".")),
                 )
             new_model = BackgaugeModel2D(
+                z_min_mm=float(z_min.value()),
+                z_max_mm=float(z_max.value()),
                 width_s_mm=float(width.value()),
                 height_z_mm=float(height.value()),
                 positions=targets,

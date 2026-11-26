@@ -1647,6 +1647,11 @@ Drag the rows after adding a pre-bend. The pre-bend must come before the finish 
       <translation>{operation}  —  {angle:+.1f}° (закреплён)</translation>
     </message>
     <message>
+      <source>{bend}: flange {flange:.2f} mm is shorter than die opening V={opening:.2f} mm. This die is unsuitable under the minimum-flange rule.</source>
+      <comment>flange_below_die_opening</comment>
+      <translation>{bend}: полка {flange:.2f} мм короче раскрытия V={opening:.2f} мм. По правилу минимальной полки эта матрица не подходит.</translation>
+    </message>
+    <message>
       <source>Flat flange, mm</source>
       <comment>flat_flange_mm</comment>
       <translation>Полка по развёртке, мм</translation>
@@ -1732,9 +1737,34 @@ Drag the rows after adding a pre-bend. The pre-bend must come before the finish 
       <translation>упор {} вне контура детали по X</translation>
     </message>
     <message>
+      <source>Backgauge hidden: limit geometry unavailable ({error}).</source>
+      <comment>gauge_limit_geometry_unavailable</comment>
+      <translation>Упор скрыт: геометрия для ограничения хода недоступна ({error}).</translation>
+    </message>
+    <message>
+      <source>Backgauge hidden: no height within Z travel clears the die.</source>
+      <comment>gauge_no_safe_z</comment>
+      <translation>Упор скрыт: в пределах хода Z нет высоты без пересечения с матрицей.</translation>
+    </message>
+    <message>
       <source>Gauge S, mm</source>
       <comment>gauge_s_mm</comment>
       <translation>Упор S, мм</translation>
+    </message>
+    <message>
+      <source>Backgauge Z limited: the working face cannot reach the sheet edge.</source>
+      <comment>gauge_z_contact_unreachable</comment>
+      <translation>Ход Z упора ограничен: рабочая грань не достаёт до кромки детали.</translation>
+    </message>
+    <message>
+      <source>Backgauge maximum Z (mm)</source>
+      <comment>gauge_z_max</comment>
+      <translation>Максимум Z заднего упора (мм)</translation>
+    </message>
+    <message>
+      <source>Backgauge minimum Z (mm)</source>
+      <comment>gauge_z_min</comment>
+      <translation>Минимум Z заднего упора (мм)</translation>
     </message>
     <message>
       <source>Height</source>

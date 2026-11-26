@@ -3476,7 +3476,7 @@ class _PreviewPanel:
                         transparency=self._mesh_tool_transparency/100 if mesh_hit else 0.0,
                     )
                     viewer.set_collision_boxes(bounds)
-                    status = " · ".join(filter(None, (message, *messages, gauge_note)))
+                    status = " · ".join(filter(None, (message, *messages, gauge_note, self._flange_die_warning(bend_id))))
                     if self._coin_frame_status.text() != status:
                         self._coin_frame_status.setText(status)
                     previous = self._last_3d_frame_at
@@ -8562,6 +8562,7 @@ class _PreviewPanel:
                     "NOT_EVALUATED": tr("not_run"),
                     "UNVERIFIED": tr("not_checked"),
                 }.get(retract_status, "—")
+                flange_warning = self._flange_die_warning(b.bend_id)
                 flat_mm = self.session.local_bend_dimensions_mm.get(b.bend_id)
                 gauge = (
                     None if (
@@ -8578,6 +8579,8 @@ class _PreviewPanel:
                     status_str = (
                         tr("stage_complete") if done else (tr("active_stage") if is_active else tr("waiting"))
                     ) + " [UNVERIFIED]"
+                if flange_warning:
+                    status_str += " · " + flange_warning
                 step_name = {
                     "PREBEND": tr("prebend_a2eedeaa"), "FINISH": tr("finish_bend_34eca2bf"), "SINGLE": tr("normal"),
                 }[op.kind]
@@ -9819,6 +9822,45 @@ class _PreviewPanel:
                           .format(bend_id, reason))
                 return values
 
+            def _flange_die_warning(self, bend_id):
+                from freecad.bendseq.core.kinematics2d.gauge_motion_limits import flange_below_opening
+                flange = self.session.local_bend_dimensions_mm.get(bend_id)
+                opening = getattr(self.tooling_setup.die, "v_opening_mm", None)
+                if flange_below_opening(flange, opening):
+                    return tr("flange_below_die_opening", bend=bend_id, flange=flange, opening=opening)
+                return ""
+
+            def _gauge_limit_geometry(self, index):
+                from freecad.bendseq.ui.coin3d_machine import load_gauge_envelope
+                bounds, face_span = load_gauge_envelope(self.tool_library.library_root)
+                tooling = self.tooling_setup
+                polygons = tooling.die_polygons_machine()
+                outline = polygons[0] if polygons else ()
+                bid = self.session.bend_order[index]
+                length = math.dist(*self.session.fold_state.bends[bid].axis_xyz)
+                effective = tooling.effective_die_length_mm(length)
+                spans = tooling.die_section_spans_xm
+                if not spans and effective is not None:
+                    spans = ((-effective / 2.0, effective / 2.0),)
+                return bounds, face_span, outline, spans
+
+            def _limit_gauge_height(self, index, position, preferred_z, *, stations=None):
+                from freecad.bendseq.core.kinematics2d.gauge_motion_limits import bounded_gauge_height
+                bounds, face_span, outline, spans = self._gauge_limit_geometry(index)
+                model = self.backgauge_model
+                result = bounded_gauge_height(
+                    position.z_mm, preferred_z, model.z_min_mm, model.z_max_mm,
+                    s_mm=position.s_mm,
+                    stations=self._gauge_stations_for_index(index) if stations is None else stations,
+                    gauge_bounds=bounds, face_z_span=face_span,
+                    die_polygon=outline, die_spans=spans,
+                )
+                if result.z_mm is None:
+                    return None, tr("gauge_no_safe_z")
+                note = tr("gauge_z_contact_unreachable") if not result.contact_possible else ""
+                from freecad.bendseq.core.kinematics2d.backgauge_2d import BackgaugePosition2D
+                return BackgaugePosition2D(position.s_mm, result.z_mm), note
+
             def _backgauge_preview_position(self, index):
                 """Shared setup position of the CAD stop face for the table and viewer."""
                 model, session = self.backgauge_model, self.session
@@ -9836,6 +9878,12 @@ class _PreviewPanel:
                     tuple(sorted(orientations.items())),
                     frozenset(self._fast_advisory_orientation_keys),
                 )
+                try:
+                    bounds = self._gauge_limit_geometry(index)
+                except (OSError, ValueError, RuntimeError, AttributeError, TypeError) as exc:
+                    return None, tr("gauge_limit_geometry_unavailable", error=str(exc))
+                key += (id(self.tooling_setup.die), self.tooling_setup.die_machine_transform.to_matrix_tuple(),
+                        bounds)
                 if key in self._backgauge_preview_cache:
                     return self._backgauge_preview_cache[key]
                 bend_id = order[index]
@@ -9847,7 +9895,21 @@ class _PreviewPanel:
                         self._sequenced_gauge_envelopes(orientations).get(bend_id, ((), ()))[1]
                         if model.automatic else ()
                     )
-                    result = visual_gauge_target(model, bend_id, envelopes, translate=tr)
+                    position, note = visual_gauge_target(model, bend_id, envelopes, translate=tr)
+                    if position is not None:
+                        requested_z = position.z_mm
+                        previous = self._backgauge_preview_position(index - 1) if index > 0 else None
+                        preferred = previous[0].z_mm if model.automatic and previous and previous[0] else position.z_mm
+                        position, limited_note = self._limit_gauge_height(index, position, preferred)
+                        note = " · ".join(filter(None, (note, limited_note)))
+                        _desktop_debug_event(
+                            "BACKGAUGE_SETUP_LIMITS", bend=bend_id,
+                            requested_z_mm=requested_z,
+                            actual_z_mm=position.z_mm if position else None,
+                            z_min_mm=model.z_min_mm, z_max_mm=model.z_max_mm,
+                            note=note,
+                        )
+                    result = position, note
                 except (ValueError, TypeError, KeyError) as exc:
                     _warn("Visual gauge target unavailable for {}: {}".format(
                         bend_id, exc,
@@ -9877,15 +9939,23 @@ class _PreviewPanel:
                         and index + 1 < len(session.bend_order)):
                     target = self._backgauge_preview_position(index + 1)
                     if target is not None and target[0] is not None:
-                        t = max(0.0, min(1.0, float(controller.transfer_progress)))
-                        s += (target[0].s_mm - s) * t
-                        z += (target[0].z_mm - z) * t
+                        from freecad.bendseq.core.kinematics2d.gauge_motion_limits import gauge_transfer
+                        bounds, face_span, outline, spans = self._gauge_limit_geometry(index)
                         next_stations = self._gauge_stations_for_index(index + 1)
-                        if len(stations) == len(next_stations):
-                            stations = tuple(x + (next_x - x) * t
-                                             for x, next_x in zip(stations, next_stations))
-                        note = ""
-                return stations, (s, z), note
+                        transfer = gauge_transfer(
+                            (s, z), (target[0].s_mm, target[0].z_mm), stations, next_stations,
+                            controller.transfer_progress, model.z_min_mm, model.z_max_mm,
+                            gauge_bounds=bounds, face_z_span=face_span,
+                            die_polygon=outline, die_spans=spans)
+                        if transfer is None:
+                            return (), None, tr("gauge_no_safe_z")
+                        s, z, stations = transfer
+                        note = " · ".join(filter(None, (note, target[1])))
+                from freecad.bendseq.core.kinematics2d.backgauge_2d import BackgaugePosition2D
+                position, limit_note = self._limit_gauge_height(
+                    index, BackgaugePosition2D(s, z), z, stations=stations)
+                note = " · ".join(filter(None, (note, limit_note)))
+                return (stations, (position.s_mm, position.z_mm), note) if position else ((), None, note)
 
             def _gauge_stations_for_index(self, index):
                 if not self.backgauge_model.automatic:

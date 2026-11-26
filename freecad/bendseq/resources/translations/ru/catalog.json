@@ -1080,5 +1080,11 @@
   "mesh_group_summary": "{operation}: подтверждённых {confirmed}, условных {conditional}",
   "mesh_group_reference": "Общая карта; кадр {phase}, {angle}°; не одновременно",
   "mesh_component_only": "Некоторые зоны выделены целиком по затронутому элементу",
-  "pdf_group_collisions": "Одна карта коллизий на операцию"
+  "pdf_group_collisions": "Одна карта коллизий на операцию",
+  "gauge_z_min": "Минимум Z заднего упора (мм)",
+  "gauge_z_max": "Максимум Z заднего упора (мм)",
+  "gauge_no_safe_z": "Упор скрыт: в пределах хода Z нет высоты без пересечения с матрицей.",
+  "gauge_z_contact_unreachable": "Ход Z упора ограничен: рабочая грань не достаёт до кромки детали.",
+  "gauge_limit_geometry_unavailable": "Упор скрыт: геометрия для ограничения хода недоступна ({error}).",
+  "flange_below_die_opening": "{bend}: полка {flange:.2f} мм короче раскрытия V={opening:.2f} мм. По правилу минимальной полки эта матрица не подходит."
 }

@@ -172,18 +172,44 @@ def load_frame_meshes(library_root):
 
 
 def load_gauge_mesh(library_root):
-    from freecad.bendseq.core.kinematics2d.backgauge_cad_3d import BackgaugeCAD3D
+    return _gauge_geometry(library_root)[0]
 
+
+def load_gauge_envelope(library_root):
+    """Exact CAD AABB and working-face height in the viewer contact frame."""
+    _, bounds, face_span = _gauge_geometry(library_root)
+    return bounds, face_span
+
+
+from functools import lru_cache
+
+
+def gauge_geometry_key(library_root):
     path = resolve_backgauge_fcstd(library_root)
     if path is None:
         raise FileNotFoundError("Backgauge.FCStd")
-    adapter = BackgaugeCAD3D(library_dir=path.parent)
+    sidecar = path.with_suffix(".tooling.json")
+    return (str(path.resolve()), path.stat().st_mtime_ns,
+            sidecar.stat().st_mtime_ns if sidecar.exists() else None)
+
+
+def _gauge_geometry(library_root):
+    return _cached_gauge_geometry(*gauge_geometry_key(library_root))
+
+
+@lru_cache(maxsize=8)
+def _cached_gauge_geometry(filename, model_stamp, metadata_stamp):
+    from freecad.bendseq.core.kinematics2d.backgauge_cad_3d import BackgaugeCAD3D
+    adapter = BackgaugeCAD3D(library_dir=Path(filename).parent)
     shape, = adapter.preview_positioned_shapes(1.0, 0.0)
-    # The picked point identifies the contact face. The X/Z station in Coin
-    # refers to the centre of that face, regardless of where it was picked.
-    centre = shape.Faces[adapter.stop_face_index - 1].CenterOfMass
-    return _cad_mesh((shape,),
+    face = shape.Faces[adapter.stop_face_index - 1]
+    centre, box = face.CenterOfMass, shape.BoundBox
+    mesh = _cad_mesh((shape,),
                      lambda p: (centre.y - p.y, p.x - centre.x, p.z - centre.z))
+    bounds = (centre.y - box.YMax, centre.y - box.YMin,
+              box.XMin - centre.x, box.XMax - centre.x,
+              box.ZMin - centre.z, box.ZMax - centre.z)
+    return mesh, bounds, (face.BoundBox.ZMin - centre.z, face.BoundBox.ZMax - centre.z)
 
 
 CLAMP_HEIGHT_MM = 25.0
@@ -343,10 +369,15 @@ class CoinMachineScene:
         if not stations or contact is None:
             self.gauges.whichChild.setValue(self.coin.SO_SWITCH_NONE)
             return ""
-        if self.gauge_key != library_root:
+        try:
+            source_key = gauge_geometry_key(library_root)
+        except OSError as exc:
+            self.gauges.whichChild.setValue(self.coin.SO_SWITCH_NONE)
+            return tr("backgauges_9460a8d0", error=exc)
+        if self.gauge_key != source_key:
             self.gauges.removeAllChildren()
             self.stations = ()
-            self.gauge_key = library_root
+            self.gauge_key = source_key
             try:
                 self.gauge_mesh = _mesh_node(self.coin, load_gauge_mesh(library_root), (0.83, 0.49, 0.19))
             except (OSError, ValueError, RuntimeError, TypeError, AttributeError, KeyError) as exc:
