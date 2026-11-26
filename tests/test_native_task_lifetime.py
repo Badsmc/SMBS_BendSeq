@@ -120,6 +120,9 @@ class TaskLifecycleTest(unittest.TestCase):
             self.assertIsNone(self.ws.destroyed.fn)
             self.assertTrue(old._lifetime_guard.deleted)
             self.form=Widget()
+            # Reopening native Tasks reparents the persistent controls.
+            for child in self.children:
+                child.setParent(self.form)
             self.panel=panel_class(self.ws,self.form)
             self.ws._native_task_panel=self.panel
         self.assertIsNotNone(self.ws.destroyed.fn)
