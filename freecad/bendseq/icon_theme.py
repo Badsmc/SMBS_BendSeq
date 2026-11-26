@@ -31,3 +31,19 @@ def icon_path(name: str) -> Path:
         if selected.is_file():
             return selected
     return _ORIGINAL / name
+
+
+def set_action_icon(action, filename, *, compact=False):
+    """Bind an editable SVG to an existing Qt action or button.
+
+    Do not change signal connections, enablement or widget ownership.
+    Qt's native style determines icon dimensions.
+    """
+    from PySide import QtCore, QtGui
+    asset = icon_path(filename)
+    if not asset.is_file():
+        raise FileNotFoundError("BendSeq icon missing: " + str(asset))
+    action.setIcon(QtGui.QIcon(str(asset)))
+    if compact and hasattr(action, "setToolButtonStyle"):
+        action.setToolButtonStyle(QtCore.Qt.ToolButtonIconOnly)
+    return action

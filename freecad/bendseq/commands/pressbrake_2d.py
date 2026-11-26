@@ -22,6 +22,7 @@ from pathlib import Path
 from freecad.bendseq.ui.native_preferences import NativePreferences
 from freecad.bendseq.ui.localization import interface_language, tr, tr_message
 from freecad.bendseq.icon_theme import icon_path as _smbs_icon_path
+from freecad.bendseq.icon_theme import set_action_icon
 
 from freecad.bendseq.core.kinematics2d.developer_debug_log import (
     debug_event as _desktop_debug_event,
@@ -1047,6 +1048,7 @@ def embed_task_dialog(workspace, widget, title, key, *, add_close_button=True):
         )
         bottom_layout.addStretch(1)
         close_btn = style_action(QtWidgets.QPushButton(tr("close_section")))
+        set_action_icon(close_btn, "btn_close_section.svg")
         bottom_layout.addWidget(close_btn)
         page_layout.addWidget(bottom, 0)
 
@@ -1135,7 +1137,7 @@ def _has_loaded_part():
 class PressBrake2DCommand:
     def GetResources(self):
         return {
-            "Pixmap": str(_smbs_icon_path("gui_simulation.svg")),
+            "Pixmap": str(_smbs_icon_path("btn_simulation.svg")),
             "MenuText": tr("simulation"),
             "ToolTip": tr("open_the_coin3d_simulation_and_freecad_tasks_panel"),
         }
@@ -1272,7 +1274,7 @@ class PressBrake2DCommand:
 class LoadPartCommand:
     def GetResources(self):
         return {
-            "Pixmap": str(_smbs_icon_path("gui_part.svg")),
+            "Pixmap": str(_smbs_icon_path("btn_part.svg")),
             "MenuText": tr("part"),
             "ToolTip": tr("load_the_selected_sheetmetal_unfold"),
         }
@@ -1318,7 +1320,7 @@ class LoadPartCommand:
 class ToolingTabCommand:
     def GetResources(self):
         return {
-            "Pixmap": str(_smbs_icon_path("gui_tooling.svg")),
+            "Pixmap": str(_smbs_icon_path("btn_tooling.svg")),
             "MenuText": tr("tooling_ab652d22"),
             "ToolTip": tr("open_simulator_tooling"),
         }
@@ -1339,7 +1341,7 @@ class BackgaugeCommand:
     """Configure explicit backgauge stop geometry and per-bend targets."""
     def GetResources(self):
         return {
-            "Pixmap": str(_smbs_icon_path("gui_backgauge.svg")),
+            "Pixmap": str(_smbs_icon_path("btn_backgauge.svg")),
             "MenuText": tr("backgauge"),
             "ToolTip": tr("preview_the_fcstd_backgauge_position_against_the_flat_outline"),
         }
@@ -1360,7 +1362,7 @@ class SequenceCatalogCommand:
     """Open saved sequence collection, without spawning a second simulator."""
     def GetResources(self):
         return {
-            "Pixmap": str(_smbs_icon_path("gui_sequence_catalog.svg")),
+            "Pixmap": str(_smbs_icon_path("btn_sequences.svg")),
             "MenuText": tr("sequences"),
             "ToolTip": tr("open_bend_sequences_saved_as_json"),
         }
@@ -1382,7 +1384,7 @@ class ManualCommand:
 
     def GetResources(self):
         return {
-            "Pixmap": str(_smbs_icon_path("gui_manual.svg")),
+            "Pixmap": str(_smbs_icon_path("btn_sequence_checks.svg")),
             "MenuText": tr("sequence_and_checks"),
             "ToolTip": tr("set_the_bend_order_manually_simulate_or_check_collisions"),
         }
@@ -1403,7 +1405,7 @@ class _WorkspaceActionCommand:
 
     label = ""
     method = ""
-    icon = "control_validate.svg"
+    icon = "btn_check_and_show.svg"
 
     def GetResources(self):
         return {"Pixmap": str(_smbs_icon_path(self.icon)), "MenuText": tr(self.label),
@@ -1422,25 +1424,25 @@ class _WorkspaceActionCommand:
 class FastSearchCommand(_WorkspaceActionCommand):
     label = "fast_find_sequences_up_to_30_s"
     method = "_run_fast_sequence_search"
-    icon = "gui_simulation.svg"
+    icon = "btn_fast.svg"
 
 
 class BendInformationCommand(_WorkspaceActionCommand):
     label = "information"
     method = "_show_bend_information"
-    icon = "gui_part.svg"
+    icon = "btn_information.svg"
 
 
 class BendInstructionsPdfCommand(_WorkspaceActionCommand):
     label = "bend_plan_pdf"
     method = "_save_bend_instructions_pdf"
-    icon = "control_save.svg"
+    icon = "btn_bend_plan_pdf.svg"
 
 
 class MeshCheckCommand(_WorkspaceActionCommand):
     label = "Mesh 3D"
     method = "_open_mesh_menu"
-    icon = "control_mesh.svg"
+    icon = "btn_mesh.svg"
 
 
 class SettingsCommand:
@@ -1448,7 +1450,7 @@ class SettingsCommand:
 
     def GetResources(self):
         return {
-            "Pixmap": str(_smbs_icon_path("gui_settings.svg")),
+            "Pixmap": str(_smbs_icon_path("btn_settings.svg")),
             "MenuText": tr("settings"),
             "ToolTip": tr("bend_mode_speed_checks_tolerances_and_logging"),
         }
@@ -1936,7 +1938,7 @@ class _PreviewPanel:
                 self.fit_btn = _playback_button(QtCore, QtWidgets, tr("fit"), self.fit, True)
                 self.add_part_btn = _playback_button(QtCore, QtWidgets, "+", LoadPartCommand().Activated, True)
                 self.add_part_btn.setObjectName("SMBS_AddPart")
-                self.add_part_btn.setIcon(QtGui.QIcon(str(_smbs_icon_path("control_add.svg"))))
+                set_action_icon(self.add_part_btn, "btn_add_selected_unfold.svg", compact=True)
                 self.add_part_btn.setToolButtonStyle(QtCore.Qt.ToolButtonIconOnly)
                 buttons = (
                     self.add_part_btn, self.reset_btn, self.prev_step_btn, self.play_btn,
@@ -2203,7 +2205,7 @@ class _PreviewPanel:
                     button.setObjectName("SMBS_Result" + key)
                     button.setAutoRaise(True)
                     button.setIcon(QtGui.QIcon(str(_smbs_icon_path(
-                        "gui_simulation.svg" if key == "FAST" else "control_mesh.svg"
+                        "btn_fast_result_status.svg" if key == "FAST" else "btn_mesh_result_status.svg"
                     ))))
                     button.clicked.connect(
                         lambda _checked=False, name=key: self._show_task_result(name)
@@ -2230,13 +2232,13 @@ class _PreviewPanel:
                     self._preview_3d.hide()
                 else:
                     views.addTab(self._preview_3d, QtGui.QIcon(str(
-                        _smbs_icon_path("gui_part.svg")
+                        _smbs_icon_path("btn_coin3d_tab.svg")
                     )), "Coin3D")
                 self._flat_view = Canvas(bend_click_callback=self._select_flat_bend)
                 self._flat_view.setObjectName("SMBS_FlatPattern_ManualOrder")
                 self._create_flat_scene()
                 views.addTab(self._flat_view, QtGui.QIcon(str(
-                    _smbs_icon_path("gui_sequence_catalog.svg")
+                    _smbs_icon_path("btn_flat_sequence_tab.svg")
                 )), tr("flat_pattern_sequence"))
                 views.currentChanged.connect(self._on_view_changed)
 
@@ -2527,6 +2529,7 @@ class _PreviewPanel:
                                self.saved_sequences_btn, self.manual_check_summary):
                     widget.hide()
                 select_lines.setText("☷")
+                set_action_icon(select_lines, "btn_select_bend_lines.svg")
                 select_lines.setToolTip(tr("select_bend_lines_edit_order"))
                 fit_layout = self._playback_button_grid
                 index = fit_layout.indexOf(self.fit_btn)
@@ -2540,6 +2543,7 @@ class _PreviewPanel:
                                self.restore_order_btn, self.manual_undo_btn):
                     edit_layout.addWidget(button)
                 cancel_edit = QtWidgets.QPushButton(tr("cancel"))
+                set_action_icon(cancel_edit, "btn_cancel_editing.svg")
                 self.manual_undo_btn.setText(tr("back"))
                 edit_layout.addWidget(cancel_edit)
                 for button, text, hint in (
@@ -2566,6 +2570,7 @@ class _PreviewPanel:
                     self._manual_selection_enabled = False
                     edit_controls.hide()
                     select_lines.setText("☷")
+                    set_action_icon(select_lines, "btn_select_bend_lines.svg")
                     select_lines.setToolTip(tr("select_bend_lines_edit_order"))
                     for button in playback_buttons:
                         button.show()
@@ -2593,6 +2598,7 @@ class _PreviewPanel:
                         self.activate_manual_mode()
                         edit_controls.show()
                         select_lines.setText("✓")
+                        set_action_icon(select_lines, "btn_apply.svg")
                         select_lines.setToolTip(tr("apply_bend_sequence"))
                         for button in playback_buttons:
                             button.hide()
@@ -2783,6 +2789,7 @@ class _PreviewPanel:
                     QtWidgets.QPushButton(tr("advanced")), compact=True
                 )
                 advanced_toggle.setCheckable(True)
+                set_action_icon(advanced_toggle, "btn_advanced.svg")
                 advanced_toggle.setChecked(False)
                 advanced_toggle.setToolTip(
                     tr("tooling_parameters_additional_occ_checks_and_diagnostics")
@@ -2893,7 +2900,10 @@ class _PreviewPanel:
                     "warning": QtWidgets.QStyle.SP_MessageBoxWarning,
                     "error": QtWidgets.QStyle.SP_MessageBoxCritical,
                 }
-                button.setIcon(button.style().standardIcon(icons[state]))
+                if state == "idle":
+                    set_action_icon(button, "btn_fast_result_status.svg" if key == "FAST" else "btn_mesh_result_status.svg", compact=True)
+                else:
+                    button.setIcon(button.style().standardIcon(icons[state]))
                 button.setToolTip(f"{key} — {summary}")
                 button.setAccessibleName(f"{key} — {summary}")
                 self._task_results[key] = (summary, details, findings)
@@ -2966,40 +2976,42 @@ class _PreviewPanel:
                 QtSvg renders the assets in FreeCAD's bundled Qt runtime.
                 """
                 icon_pairs = (
-                    # Playback buttons are intentionally text-sized. Only
-                    # Play/Pause retains a state-changing icon alongside text.
-                    (self.play_btn, "control_play.svg"),
-                    (self.prev_step_btn, "control_step_back.svg"),
-                    (self.next_step_btn, "control_step_forward.svg"),
-                    (self.reset_btn, "control_reset.svg"),
-                    (self.move_up_btn, "control_step_back.svg"),
-                    (self.move_down_btn, "control_step_forward.svg"),
-                    (self.saved_sequences_btn, "gui_sequence_catalog.svg"),
-                    (self.manual_simulate_btn, "gui_simulation.svg"),
-                    (self.manual_validate_3d_btn, "control_validate.svg"),
-                    (self.manual_show_collision_btn, "control_collision.svg"),
-                    (self.manual_exact_occ_btn, "control_collision.svg"),
-                    (self.fast_save_template_btn, "control_save.svg"),
-                    (self.fcstd_save_btn, "control_save.svg"),
-                    (self.fcstd_load_btn, "control_add.svg"),
-                    (self.mesh_show_collision_btn, "control_collision.svg"),
-                    (self.import_tooling_btn, "gui_tooling.svg"),
-                    (self.restore_order_btn, "control_reset.svg"),
-                    (self.manual_undo_btn, "control_prev.svg"),
-                    (self.manual_clear_btn, "control_reset.svg"),
-                    (self.show_task_panel_btn, "gui_simulation.svg"),
-                    (self.tool_library_btn, "tooling.svg"),
-                    (self.import_punch_btn, "gui_tooling.svg"),
-                    (self.import_die_btn, "gui_tooling.svg"),
-                    (self.cycle_config_btn, "gui_backgauge.svg"),
+                    (self.play_btn, "btn_play.svg"),
+                    (self.prev_step_btn, "btn_previous_step.svg"),
+                    (self.next_step_btn, "btn_next_step.svg"),
+                    (self.reset_btn, "btn_simulation_reset.svg"),
+                    (self.fit_btn, "btn_fit_view.svg"),
+                    (self.move_up_btn, "btn_move_up.svg"),
+                    (self.move_down_btn, "btn_move_down.svg"),
+                    (self.saved_sequences_btn, "btn_saved_sequences.svg"),
+                    (self.manual_simulate_btn, "btn_simulate_without_checking.svg"),
+                    (self.manual_validate_3d_btn, "btn_check_and_show.svg"),
+                    (self.manual_lift_probe_btn, "btn_occ_lift.svg"),
+                    (self.manual_lift_preview_btn, "btn_lift_preview.svg"),
+                    (self.manual_release_probe_btn, "btn_occ_withdraw.svg"),
+                    (self.manual_show_collision_btn, "btn_show_collision_3d.svg"),
+                    (self.manual_exact_occ_btn, "btn_occ_overlap.svg"),
+                    (self.fast_save_template_btn, "btn_save_bend_template.svg"),
+                    (self.fcstd_save_btn, "btn_save_fcstd.svg"),
+                    (self.fcstd_load_btn, "btn_restore_fcstd.svg"),
+                    (self.mesh_show_collision_btn, "btn_mesh_collisions.svg"),
+                    (self.import_tooling_btn, "btn_tooling_import.svg"),
+                    (self.restore_order_btn, "btn_restore_order.svg"),
+                    (self.manual_undo_btn, "btn_undo_last_line.svg"),
+                    (self.manual_clear_btn, "btn_clear_order.svg"),
+                    (self.show_task_panel_btn, "btn_show_controls.svg"),
+                    (self.tool_library_btn, "btn_simulation_tool_library.svg"),
+                    (self.import_punch_btn, "btn_simulation_punch_import.svg"),
+                    (self.import_die_btn, "btn_simulation_die_import.svg"),
+                    (self.cycle_config_btn, "btn_cycle_settings.svg"),
                 )
                 for widget, icon_name in icon_pairs:
-                    asset = _smbs_icon_path(icon_name)
-                    if not asset.is_file():
-                        raise FileNotFoundError(
-                            "SMBS GUI icon is missing: " + str(asset)
-                        )
-                    widget.setIcon(QtGui.QIcon(str(asset)))
+                    set_action_icon(widget, icon_name)
+                for widget in (self.reset_btn, self.prev_step_btn, self.play_btn,
+                               self.next_step_btn, self.fit_btn):
+                    widget.setToolButtonStyle(QtCore.Qt.ToolButtonIconOnly)
+                    if not widget.accessibleName():
+                        widget.setAccessibleName(widget.toolTip() or widget.text())
 
             def _on_trace_checkbox_toggled(self, enabled):
                 if enabled:
@@ -3869,10 +3881,12 @@ class _PreviewPanel:
                 feedback.setWordWrap(True)
                 layout.addWidget(feedback)
                 apply_btn = QtWidgets.QPushButton(tr("apply_common_layout"))
+                set_action_icon(apply_btn, "btn_layout_apply.svg")
                 apply_btn.setObjectName("SMBS_ApplyCommonToolAssembly")
                 apply_btn.setToolTip(tr("use_one_layout_sized_for_the_longest_bend_in"))
                 layout.addWidget(apply_btn)
                 clear_btn = QtWidgets.QPushButton(tr("clear_common_layout"))
+                set_action_icon(clear_btn, "btn_layout_clear.svg")
                 layout.addWidget(clear_btn)
 
                 plans_by_bend = dict(reports)
@@ -4042,7 +4056,8 @@ class _PreviewPanel:
                 btn_continue = msg_box.addButton(
                     tr("continue_with_warning"), QtWidgets.QMessageBox.AcceptRole
                 )
-                msg_box.addButton(tr("cancel_555ad1c0"), QtWidgets.QMessageBox.RejectRole)
+                set_action_icon(btn_continue, "btn_continue_with_warning.svg")
+                set_action_icon(msg_box.addButton(tr("cancel_555ad1c0"), QtWidgets.QMessageBox.RejectRole), "btn_dialog_cancel.svg")
                 msg_box.exec()
                 return msg_box.clickedButton() == btn_continue
 
@@ -4565,6 +4580,7 @@ class _PreviewPanel:
                     tr("check_again_find_more_sequences"), dialog
                 )
                 screen_button.setObjectName("SMBS_FastShortlist2DScreen")
+                set_action_icon(screen_button, "btn_fast_retry.svg")
                 layout.addWidget(screen_button)
 
                 def log_template_2d_replay(stage, current_screen):
@@ -4981,6 +4997,8 @@ class _PreviewPanel:
                     tr("apply_unverified_sequence")
                 )
                 buttons.button(QtWidgets.QDialogButtonBox.Cancel).setText(tr("close"))
+                set_action_icon(buttons.button(QtWidgets.QDialogButtonBox.Ok), "btn_apply_unverified.svg")
+                set_action_icon(buttons.button(QtWidgets.QDialogButtonBox.Cancel), "btn_dialog_cancel.svg")
                 buttons.accepted.connect(dialog.accept)
                 buttons.rejected.connect(dialog.reject)
                 layout.addWidget(buttons)
@@ -5362,6 +5380,7 @@ class _PreviewPanel:
                     return
                 menu = QtWidgets.QMenu(self.operations)
                 automatic = menu.addAction(tr("choose_orientation_automatically"))
+                set_action_icon(automatic, "btn_orientation_auto.svg")
                 run_menu = getattr(menu, "exec", None) or menu.exec_
                 if run_menu(self.operations.viewport().mapToGlobal(pos)) == automatic:
                     self._set_manual_loading_override(item, None)
@@ -5796,6 +5815,8 @@ class _PreviewPanel:
                 btn_row = QtWidgets.QHBoxLayout()
                 btn_ok = QtWidgets.QPushButton(tr("apply"))
                 btn_cancel = QtWidgets.QPushButton(tr("cancel"))
+                set_action_icon(btn_ok, "btn_apply.svg")
+                set_action_icon(btn_cancel, "btn_dialog_cancel.svg")
                 btn_row.addWidget(btn_ok)
                 btn_row.addWidget(btn_cancel)
                 vbox.addLayout(btn_row)
@@ -6072,7 +6093,7 @@ class _PreviewPanel:
                 if self.session is None:
                     self._update_task_progress()
                     self.play_btn.setText(tr("play"))
-                    self.play_btn.setIcon(QtGui.QIcon(str(_smbs_icon_path("control_play.svg"))))
+                    set_action_icon(self.play_btn, "btn_play.svg", compact=True)
                     self.move_up_btn.setEnabled(False)
                     self.move_down_btn.setEnabled(False)
                     self.restore_order_btn.setEnabled(False)
@@ -6083,14 +6104,15 @@ class _PreviewPanel:
                 bend_order = getattr(self.session, "bend_order", [])
                 if st == PlaybackStatus.PLAYING:
                     self.play_btn.setText(tr("pause"))
-                    icon_name = "control_pause.svg"
+                    icon_name = "btn_pause.svg"
                 elif st == PlaybackStatus.PAUSED:
                     self.play_btn.setText(tr("resume"))
-                    icon_name = "control_play.svg"
+                    icon_name = "btn_resume.svg"
                 else:
                     self.play_btn.setText(tr("play"))
-                    icon_name = "control_play.svg"
-                self.play_btn.setIcon(QtGui.QIcon(str(_smbs_icon_path(icon_name))))
+                    icon_name = "btn_play.svg"
+                set_action_icon(self.play_btn, icon_name, compact=True)
+                self.play_btn.setAccessibleName(self.play_btn.text())
 
                 can_reorder_fn = getattr(self.session, "can_reorder", None)
                 can_reorder_val = can_reorder_fn() if callable(can_reorder_fn) else False
@@ -6289,6 +6311,7 @@ class _PreviewPanel:
                 if not hasattr(self, "manual_check_summary"):
                     return
                 self.manual_simulate_btn.setText(tr("simulate_without_checking"))
+                set_action_icon(self.manual_simulate_btn, "btn_simulate_without_checking.svg")
                 self.manual_check_summary.setText(
                     tr("the_current_sequence_has_not_been_checked")
                 )
@@ -6533,6 +6556,7 @@ class _PreviewPanel:
                         if self._collision_display_active else
                         tr("show_collision_in_3d")
                     )
+                    set_action_icon(self.manual_show_collision_btn, "btn_return_standard_3d.svg" if self._collision_display_active else "btn_show_collision_3d.svg")
                 if not self._open_coin_preview():
                     return False
                 self._trace_event(
@@ -6812,6 +6836,7 @@ class _PreviewPanel:
                     self._configure_for_active_bend()
                     self._collision_display_active = False
                     self.manual_show_collision_btn.setText(tr("show_collision_in_3d"))
+                    set_action_icon(self.manual_show_collision_btn, "btn_return_standard_3d.svg" if self._collision_display_active else "btn_show_collision_3d.svg")
                     self.play_all()
                 except (PressCycleError, SequenceError, ValueError) as exc:
                     self.status.setText(tr("lift_simulation_unavailable") + tr_message(exc))
@@ -7389,6 +7414,7 @@ class _PreviewPanel:
                     spin.setValue(value)
                     form.addRow(tr(label),spin)
                 next_hit = QtWidgets.QPushButton(tr("mesh_next_view"))
+                set_action_icon(next_hit, "btn_collision_next.svg")
                 form.addRow(next_hit)
                 next_hit.clicked.connect(self._show_next_mesh_collision)
 
@@ -7411,8 +7437,8 @@ class _PreviewPanel:
                 tool_alpha.valueChanged.connect(view_changed)
                 run = QtWidgets.QPushButton(tr("run_mesh"))
                 export = QtWidgets.QPushButton(tr("save_latest_collision"))
-                run.setIcon(QtGui.QIcon(str(_smbs_icon_path("control_mesh.svg"))))
-                export.setIcon(QtGui.QIcon(str(_smbs_icon_path("control_collision_export.svg"))))
+                set_action_icon(run, "btn_run_mesh.svg")
+                set_action_icon(export, "btn_collision_export.svg")
                 form.addRow(run)
                 form.addRow(export)
 
@@ -7806,6 +7832,7 @@ class _PreviewPanel:
                     self.manual_show_collision_btn.setText(
                         tr("show_collision_in_3d")
                     )
+                    set_action_icon(self.manual_show_collision_btn, "btn_return_standard_3d.svg" if self._collision_display_active else "btn_show_collision_3d.svg")
                     native_tooling_identity = self._current_native_tooling_identity()
                     for step in physical["steps"]:
                         if (self._collision_inspection is None
@@ -7984,6 +8011,7 @@ class _PreviewPanel:
                     self._last_manual_sequence_report = dict(result)
                     if physical["steps"]:
                         self.manual_simulate_btn.setText(tr("simulate_result"))
+                        set_action_icon(self.manual_simulate_btn, "btn_simulate_result.svg")
                     reason = physical["reason"]
                     last_step = physical["steps"][-1] if physical["steps"] else {}
                     blocker = last_step.get("first_blocker") or {}
@@ -8148,6 +8176,7 @@ class _PreviewPanel:
                     self.manual_show_collision_btn.setText(
                         tr("show_collision_in_3d")
                     )
+                    set_action_icon(self.manual_show_collision_btn, "btn_return_standard_3d.svg" if self._collision_display_active else "btn_show_collision_3d.svg")
                 if show_controls:
                     show_workspace_controls(self, tab=1)
                 try:
@@ -8788,6 +8817,8 @@ class _PreviewPanel:
                     dialog.accept()
                     self._on_staged_plan_changed(operation)
                 buttons.accepted.connect(apply_dialog_order)
+                set_action_icon(buttons.button(QtWidgets.QDialogButtonBox.Ok), "btn_dialog_ok.svg")
+                set_action_icon(buttons.button(QtWidgets.QDialogButtonBox.Cancel), "btn_dialog_cancel.svg")
                 buttons.rejected.connect(dialog.reject)
                 if current is not None:
                     # Keep this action obvious and separate from Save/Cancel.
@@ -8797,6 +8828,7 @@ class _PreviewPanel:
                         tr("remove_prebend_and_restore_single_bend"), dialog
                     )
                     delete_button.setObjectName("SMBS_DeletePrebend")
+                    set_action_icon(delete_button, "btn_prebend_restore_single.svg")
                     delete_button.setToolTip(
                         tr("remove_1_replace_2_with_the_original_bend_and").format(
                             bend_id, bend_id, bend_id
@@ -9152,6 +9184,7 @@ class _PreviewPanel:
                                 actions.setSpacing(3)
                                 edit_btn = QtWidgets.QToolButton(controls)
                                 edit_btn.setText(tr("edit"))
+                                set_action_icon(edit_btn, "btn_prebend_edit.svg", compact=True)
                                 edit_btn.setToolTip(
                                     tr("edit_prebend") + op.operation_id
                                 )
@@ -9161,6 +9194,7 @@ class _PreviewPanel:
                                 )
                                 delete_btn = QtWidgets.QToolButton(controls)
                                 delete_btn.setText("×")
+                                set_action_icon(delete_btn, "btn_prebend_delete.svg", compact=True)
                                 delete_btn.setObjectName("SMBS_DeletePrebendRow")
                                 delete_btn.setToolTip(
                                     tr("remove_prebend_and_restore_normal_bend").format(
@@ -9179,6 +9213,7 @@ class _PreviewPanel:
                             else:
                                 add_btn = QtWidgets.QToolButton(self.operations)
                                 add_btn.setText("+" if op.kind == "SINGLE" else tr("edit"))
+                                set_action_icon(add_btn, "btn_prebend_add.svg" if op.kind == "SINGLE" else "btn_prebend_edit.svg", compact=True)
                                 add_btn.setToolTip(
                                     tr("add_or_edit_intermediate_bend_angle")
                                     + bend_id
@@ -9194,6 +9229,7 @@ class _PreviewPanel:
                                 widget.setText(
                                     "+" if op.kind == "SINGLE" else tr("edit")
                                 )
+                                set_action_icon(widget, "btn_prebend_add.svg" if op.kind == "SINGLE" else "btn_prebend_edit.svg", compact=True)
                     if 0 <= self.session.active_bend_index < count:
                         active = self.operations.topLevelItem(self.session.active_bend_index)
                         if self.operations.currentItem() is not active:
@@ -9629,6 +9665,7 @@ class _PreviewPanel:
                             self.manual_show_collision_btn.setText(
                                 tr("return_to_standard_3d_view")
                             )
+                            set_action_icon(self.manual_show_collision_btn, "btn_return_standard_3d.svg" if self._collision_display_active else "btn_show_collision_3d.svg")
                         rendered = self._open_coin_preview()
                         reason = (
                             tr("occ_collision_angle_ram_z_mm")

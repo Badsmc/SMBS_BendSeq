@@ -5,7 +5,7 @@ from __future__ import annotations
 from freecad.bendseq.ui.localization import tr
 
 from freecad.bendseq.icon_theme import icon_path
-ICON_PATH = icon_path("tooling.svg")
+ICON_PATH = icon_path("btn_tooling_library.svg")
 
 
 class ToolingCommand:
@@ -49,9 +49,11 @@ class ToolingCommand:
 class ToolingSettingsCommand:
     label = ""
     action = ""
+    icon = "btn_tooling_library.svg"
 
     def GetResources(self):
-        return {"MenuText": tr(self.label), "ToolTip": tr(self.label), "Pixmap": str(ICON_PATH)}
+        return {"MenuText": tr(self.label), "ToolTip": tr(self.label),
+                "Pixmap": str(icon_path(self.icon))}
 
     def IsActive(self):
         return True
@@ -99,14 +101,17 @@ class ToolingSettingsCommand:
 
 class SegmentStockCommand(ToolingSettingsCommand):
     label = "segment_inventory"
+    icon = "btn_segment_inventory.svg"
     action = "stock"
 
 
 class VirtualClampsCommand(ToolingSettingsCommand):
     label = "virtual_clamps"
+    icon = "btn_virtual_clamps.svg"
     action = "clamps"
 
 
 class ToolLayoutCommand(ToolingSettingsCommand):
     label = "calculate_tool_layout"
+    icon = "btn_tool_layout.svg"
     action = "layout"
