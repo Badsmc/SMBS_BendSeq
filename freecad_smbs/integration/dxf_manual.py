@@ -82,8 +82,56 @@ def _native_curve(entity, props, scale):
     return DxfCurve(curve.toShape())
 
 
+def _decode_dxf_text(raw):
+    """Read ASCII DXF without silently merging distinct legacy layer names."""
+    if raw.startswith(b"\xef\xbb\xbf"):
+        return raw.decode("utf-8-sig")
+    # DXF group codes and header variable names are ASCII in all supported
+    # code pages. Inspect only the HEADER before decoding arbitrary names.
+    header = {}
+    in_header = False
+    variable = None
+    lines = raw.splitlines()
+    for code, value in zip(lines[::2], lines[1::2]):
+        code, value = code.strip(), value.strip()
+        if code == b"2" and value == b"HEADER":
+            in_header = True
+        if code == b"0" and value == b"ENDSEC" and in_header:
+            break
+        if code == b"2" and value == b"ENTITIES":
+            break
+        if in_header and code == b"9":
+            variable = value
+        elif in_header and variable in (b"$ACADVER", b"$DWGCODEPAGE"):
+            header[variable] = value
+            variable = None
+    version = header.get(b"$ACADVER", b"")
+    # AutoCAD 2007 (AC1021) and later write UTF-8 regardless of DWGCODEPAGE.
+    if version.startswith(b"AC") and version[2:].isdigit() and int(version[2:]) >= 1021:
+        return raw.decode("utf-8")
+    codepage = header.get(b"$DWGCODEPAGE", b"").decode("ascii").upper()
+    if codepage:
+        if codepage.startswith("ANSI_") and codepage[5:].isdigit():
+            encoding = "cp" + codepage[5:]
+        elif codepage.startswith("DOS") and codepage[3:].lstrip("_").isdigit():
+            encoding = "cp" + codepage[3:].lstrip("_")
+        elif codepage in ("UTF-8", "UTF8"):
+            encoding = "utf-8"
+        else:
+            encoding = codepage
+        # Strict decoding: a wrong or unknown encoding must be visible, not
+        # substituted with U+FFFD which collapses unrelated layer names.
+        return raw.decode(encoding)
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        # Older DXF files may omit DWGCODEPAGE; ANSI 1252 is the conventional
+        # default. Without the original header the actual encoding is unknown.
+        return raw.decode("cp1252")
+
+
 def read_lines(path, *, layers=None, unsupported=None):
-    pairs = _parse_dxf_pairs(Path(path).read_text(encoding="utf-8-sig", errors="replace"))
+    pairs = _parse_dxf_pairs(_decode_dxf_text(Path(path).read_bytes()))
     _, scale = _extract_dxf_units(pairs, None)
     start = pairs.index((2, "ENTITIES")) + 1
     edges = []
