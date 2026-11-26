@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
+from freecad.bendseq.icon_theme import set_action_icon
 from freecad.bendseq.ui.localization import tr
 from freecad.bendseq.ui.parametric_tool_preview import make_preview
 from freecad.bendseq.core.kinematics2d.parametric_tool import starter_recipes, dxf_text
@@ -45,6 +46,7 @@ def show_generator(parent, library_root, kind, *, on_created):
         presets.addItem(recipe.tool_id, recipe)
     left.addWidget(presets)
     reset = qt.QPushButton(tr("reset"))
+    set_action_icon(reset, "btn_generator_reset.svg")
     left.addWidget(reset)
     form = qt.QFormLayout()
     left.addLayout(form)
@@ -109,7 +111,10 @@ def show_generator(parent, library_root, kind, *, on_created):
     layout.addWidget(status)
     buttons = qt.QDialogButtonBox(qt.QDialogButtonBox.Ok | qt.QDialogButtonBox.Cancel)
     buttons.button(qt.QDialogButtonBox.Ok).setText(tr("parametric_save_new"))
+    set_action_icon(buttons.button(qt.QDialogButtonBox.Ok), "btn_generator_save.svg")
+    set_action_icon(buttons.button(qt.QDialogButtonBox.Cancel), "btn_dialog_cancel.svg")
     export = buttons.addButton(tr("parametric_export_dxf"), qt.QDialogButtonBox.ActionRole)
+    set_action_icon(export, "btn_generator_dxf_export.svg")
     layout.addWidget(buttons)
     buttons.rejected.connect(dialog.reject)
     created = []

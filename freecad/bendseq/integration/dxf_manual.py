@@ -1,5 +1,6 @@
 """Manual bending of a single flat outline from an ASCII DXF."""
 from dataclasses import asdict, dataclass
+from freecad.bendseq.icon_theme import set_action_icon
 from freecad.bendseq.ui.localization import tr, tr_message
 from freecad.bendseq.icon_theme import icon_path as _smbs_icon_path
 from itertools import combinations, groupby
@@ -511,7 +512,7 @@ _active_dxf_dialog = None
 class DxfManualCommand:
     def GetResources(self):
         return {"MenuText": tr("dxf_flat_pattern"),
-                "Pixmap": str(_smbs_icon_path("control_dxf.svg")),
+                "Pixmap": str(_smbs_icon_path("btn_dxf_flat_pattern.svg")),
                 "ToolTip": tr("assign_angles_to_bend_lines_in_a_dxf_flat")}
 
     def IsActive(self):
@@ -644,9 +645,11 @@ class DxfManualCommand:
         scene = qt.QGraphicsScene(dialog)
         view = DxfView(scene)
         fit_button = qt.QPushButton(tr("fit_drawing"))
+        set_action_icon(fit_button, "btn_dxf_fit.svg")
         fit_button.setToolTip(view.toolTip())
         fit_button.clicked.connect(view.fit_drawing)
         undo_button = qt.QPushButton(tr("back"))
+        set_action_icon(undo_button, "btn_dxf_back.svg")
         undo_button.setToolTip(tr("undo_the_last_bend_assignment_or_angle_change"))
         undo_button.setEnabled(False)
         drawing_actions = qt.QHBoxLayout()
@@ -786,6 +789,7 @@ class DxfManualCommand:
         outline_tolerance.setSingleStep(0.01)
         outline_tolerance.setToolTip(tr("increase_the_tolerance_for_small_gaps_between_dxf_outline"))
         button = qt.QPushButton(tr("calculate"))
+        set_action_icon(button, "btn_dxf_calculate.svg")
         layout.addWidget(button)
         layout.addWidget(feedback)
 

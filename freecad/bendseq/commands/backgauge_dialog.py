@@ -5,6 +5,7 @@ No gauge collision, penetration, contact or travel check participates in search.
 from __future__ import annotations
 
 import json
+from freecad.bendseq.icon_theme import set_action_icon
 from freecad.bendseq.core.kinematics2d.backgauge_2d import (
     BackgaugeModel2D, BackgaugePosition2D,
 )
@@ -27,6 +28,7 @@ def show_backgauge_settings(workspace, *, modal_parent=None):
     notice.setWordWrap(True)
     layout.addWidget(notice)
     inspect_btn = W.QPushButton(tr("inspect_backgauge_fcstd_model"))
+    set_action_icon(inspect_btn, "btn_gauge_inspect.svg")
     layout.addWidget(inspect_btn)
 
     def inspect_cad():
@@ -151,7 +153,9 @@ def show_backgauge_settings(workspace, *, modal_parent=None):
         layout.addWidget(warning)
     bottom = W.QHBoxLayout()
     save = W.QPushButton(tr("save"))
+    set_action_icon(save, "btn_gauge_save.svg")
     cancel = W.QPushButton(tr("cancel"))
+    set_action_icon(cancel, "btn_dialog_cancel.svg")
     bottom.addStretch()
     bottom.addWidget(save)
     bottom.addWidget(cancel)

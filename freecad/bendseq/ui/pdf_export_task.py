@@ -5,6 +5,7 @@ import json
 from time import perf_counter
 from traceback import format_exc
 
+from freecad.bendseq.icon_theme import set_action_icon
 from freecad.bendseq.core.kinematics2d.developer_debug_log import debug_event
 
 from freecad.bendseq.ui.native_preferences import NativePreferences
@@ -34,6 +35,7 @@ def show_pdf_export_task(workspace, embed):
     layout.addWidget(qt.QLabel(tr("pdf_output_path")))
     layout.addWidget(path)
     browse = qt.QPushButton(tr("pdf_choose_file"))
+    set_action_icon(browse, "btn_pdf_choose_file.svg")
     layout.addWidget(browse)
     def choose():
         filename,_ = qt.QFileDialog.getSaveFileName(workspace,tr("save_bend_instructions_as_pdf"),path.text(),"PDF (*.pdf)")
@@ -89,7 +91,9 @@ def show_pdf_export_task(workspace, embed):
     notice.setWordWrap(True)
     layout.addWidget(notice)
     reset = qt.QPushButton(tr("reset"))
+    set_action_icon(reset, "btn_pdf_reset.svg")
     export = qt.QPushButton(tr("pdf_generate"))
+    set_action_icon(export, "btn_pdf_generate.svg")
     layout.addWidget(reset)
     layout.addWidget(export)
     feedback = qt.QLabel()

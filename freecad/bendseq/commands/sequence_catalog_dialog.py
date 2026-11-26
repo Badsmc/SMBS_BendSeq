@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import json
 
+from freecad.bendseq.icon_theme import set_action_icon
 from freecad.bendseq.core.kinematics2d.sequence_catalog import load_catalog_file, parse_diagnostic
 
 from freecad.bendseq.ui.native_preferences import NativePreferences
@@ -26,8 +27,11 @@ def show_sequence_catalog(workspace):
     root.addWidget(intro)
     buttons = QtWidgets.QHBoxLayout()
     load_btn = QtWidgets.QPushButton(tr("load_json"))
+    set_action_icon(load_btn, "btn_catalog_json_load.svg")
     folder_btn = QtWidgets.QPushButton(tr("load_folder"))
+    set_action_icon(folder_btn, "btn_catalog_folder_load.svg")
     refresh_btn = QtWidgets.QPushButton(tr("refresh"))
+    set_action_icon(refresh_btn, "btn_catalog_refresh.svg")
     buttons.addWidget(load_btn)
     buttons.addWidget(folder_btn)
     buttons.addWidget(refresh_btn)
@@ -55,7 +59,9 @@ def show_sequence_catalog(workspace):
     footer = QtWidgets.QHBoxLayout()
     summary = QtWidgets.QLabel()
     assign_btn = QtWidgets.QPushButton(tr("apply_to_simulation"))
+    set_action_icon(assign_btn, "btn_catalog_apply.svg")
     close_btn = QtWidgets.QPushButton(tr("close"))
+    set_action_icon(close_btn, "btn_catalog_close.svg")
     footer.addWidget(summary, 1)
     footer.addWidget(assign_btn)
     footer.addWidget(close_btn)

@@ -1,5 +1,6 @@
 """Tooling library dialog for punches, dies, virtual clamps and backgauges."""
 from __future__ import annotations
+from freecad.bendseq.icon_theme import set_action_icon
 from freecad.bendseq.ui.localization import tr, tr_message
 
 from pathlib import Path
@@ -376,8 +377,10 @@ class ToolingPanel:
 
                     btn_box = QtWidgets.QHBoxLayout()
                     btn_save = QtWidgets.QPushButton(tr("save_configuration"))
+                    set_action_icon(btn_save, "btn_clamp_save_config.svg")
                     btn_save.clicked.connect(self._on_save_clamps)
                     btn_reset = QtWidgets.QPushButton(tr("reset"))
+                    set_action_icon(btn_reset, "btn_clamp_reset.svg")
                     btn_reset.clicked.connect(self._on_reset_clamps)
                     btn_box.addWidget(btn_save)
                     btn_box.addWidget(btn_reset)
@@ -666,6 +669,9 @@ class ToolingPanel:
                         self.import_tool_button.setText(tr("import_backgauge"))
                         self.remove_tool_button.setText(tr("remove_backgauge"))
                         self.segments_button.setText(tr("backgauge_settings"))
+                        set_action_icon(self.import_tool_button, "btn_library_gauge_import.svg")
+                        set_action_icon(self.remove_tool_button, "btn_library_gauge_delete.svg")
+                        set_action_icon(self.segments_button, "btn_library_gauge_settings.svg")
                         self.remove_tool_button.setEnabled(path is not None)
                         self.segments_button.setEnabled(self._workspace is not None)
                         self.lbl_selected_id.setText(
@@ -680,6 +686,10 @@ class ToolingPanel:
                     self.import_tool_button.setText(tr(("import_punch", "import_die")[index]))
                     self.remove_tool_button.setText(tr(("remove_punch", "remove_die")[index]))
                     self.segments_button.setText(tr(("punch_segments", "die_segments")[index]))
+                    set_action_icon(self.generate_tool_button, ("btn_create_punch.svg", "btn_create_die.svg")[index])
+                    set_action_icon(self.import_tool_button, ("btn_library_punch_import.svg", "btn_library_die_import.svg")[index])
+                    set_action_icon(self.remove_tool_button, ("btn_library_punch_delete.svg", "btn_library_die_delete.svg")[index])
+                    set_action_icon(self.segments_button, ("btn_punch_segments.svg", "btn_die_segments.svg")[index])
                     desc = self._current_descriptor()
                     if index == 0:
                         self._refresh_punch_orientation(desc)
@@ -868,7 +878,9 @@ class ToolingPanel:
                         add_row(segment["length_mm"], segment["quantity"])
                     controls = QtWidgets.QHBoxLayout()
                     add_button = QtWidgets.QPushButton(tr("add"))
+                    set_action_icon(add_button, "btn_segment_add_row.svg")
                     remove_button = QtWidgets.QPushButton(tr("remove_row"))
+                    set_action_icon(remove_button, "btn_segment_delete_row.svg")
                     add_button.clicked.connect(lambda: add_row())
                     remove_button.clicked.connect(
                         lambda: table.removeRow(table.currentRow())
@@ -883,6 +895,8 @@ class ToolingPanel:
                         parent=dialog,
                     )
                     layout.addWidget(buttons)
+                    set_action_icon(buttons.button(QtWidgets.QDialogButtonBox.Save), "btn_segment_save.svg")
+                    set_action_icon(buttons.button(QtWidgets.QDialogButtonBox.Cancel), "btn_dialog_cancel.svg")
                     error = QtWidgets.QLabel()
                     error.setWordWrap(True)
                     layout.addWidget(error)
