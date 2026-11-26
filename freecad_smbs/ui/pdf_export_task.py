@@ -3,6 +3,7 @@ from dataclasses import asdict
 from pathlib import Path
 import json
 
+from freecad_smbs.ui.native_preferences import NativePreferences
 from freecad_smbs.ui.localization import tr, tr_message
 from freecad_smbs.ui.pdf_export_options import PdfOptions, LAYERS, CONTENT, current_collision_hits
 
@@ -12,7 +13,7 @@ def show_pdf_export_task(workspace, embed):
     from freecad_smbs.ui.bend_instructions_pdf import export_bend_instructions_pdf, suggested_pdf_path
     from freecad_smbs.ui.bend_information import bend_rows
     core, gui, qt = _qt()
-    prefs = core.QSettings("SMBS","BendSeq")
+    prefs = NativePreferences(core)
     try:
         stored = prefs.value("pdf/options_v2","",type=str)
         saved = (PdfOptions(**json.loads(stored)) if stored else
