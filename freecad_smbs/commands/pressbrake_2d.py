@@ -995,6 +995,23 @@ def activate_task_dialog(workspace, key):
     return True
 
 
+# These pages contain data or callbacks tied to a particular source part.
+_PART_TASK_KEYS = (
+    "fast_results", "bend_information", "pdf_export", "mesh",
+    "tool_assembly", "backgauge", "cycle_config", "catalog",
+)
+
+
+def retire_part_tasks(workspace):
+    """Discard stale contextual forms after a successful new part load."""
+    dialogs = getattr(workspace, "_task_dialogs", {})
+    for key in _PART_TASK_KEYS:
+        widget = dialogs.get(key)
+        if widget is not None and workspace._qt_is_valid(widget):
+            widget.reject()
+            _desktop_debug_event("SPECIALIST_TASK_RETIRED", key=key)
+
+
 def embed_task_dialog(workspace, widget, title, key, *, add_close_button=True):
     """Rehost a real QDialog inside the *single* contextual Tasks surface.
 
@@ -1061,9 +1078,22 @@ def embed_task_dialog(workspace, widget, title, key, *, add_close_button=True):
         if dialogs.get(key) is widget:
             del dialogs[key]
         if was_current and not getattr(workspace, "_closing", False):
-            fallback = return_page if stack.indexOf(return_page) >= 0 else stack.widget(0)
+            fallback = (
+                return_page if workspace._qt_is_valid(return_page)
+                and stack.indexOf(return_page) >= 0 else stack.widget(0)
+            )
             if fallback is not None:
-                show_workspace_controls(workspace, tab=stack.indexOf(fallback))
+                stack.setCurrentWidget(fallback)
+                # Never reopen Tasks just because a hidden specialist form
+                # was retired during a part change or workbench switch.
+                panel = getattr(workspace, "_native_task_panel", None)
+                if panel is not None and panel._attached:
+                    import FreeCADGui as Gui
+                    if panel.owns_active_dialog(Gui.Control):
+                        header = getattr(workspace, "_task_section_label", None)
+                        if header is not None and workspace._qt_is_valid(header):
+                            header.setTitle(workspace._task_page_titles.get(fallback, tr("tasks")))
+        _desktop_debug_event("SPECIALIST_TASK_CLOSED", key=key, result=int(_result))
         page.deleteLater()
 
     def on_close():
@@ -6136,11 +6166,9 @@ class _PreviewPanel:
                     self.check_result.setText(msg)
                     return
 
-                # The old FAST page is tied to the previous controller.
-                # Never keep a stale candidate chooser across a part load.
-                fast_page = getattr(self, "_task_dialogs", {}).get("fast_results")
-                if fast_page is not None and self._qt_is_valid(fast_page):
-                    fast_page.reject()
+                # Retire all part-specific pages, not just the FAST chooser.
+                # Failed loads above leave the existing workspace untouched.
+                retire_part_tasks(self)
                 self._set_task_result("FAST", "idle", tr("search_has_not_run_for_this_part"))
                 self._set_task_result("Mesh", "idle", tr("this_part_has_not_been_checked_yet"))
                 self._finish_motion_trace("NEW_PART_LOADED")
