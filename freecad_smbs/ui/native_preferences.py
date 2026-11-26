@@ -59,7 +59,7 @@ class NativePreferences:
     def _has(group, name):
         # GetContents exposes (type, name, value) for FreeCAD parameters.
         # Use the actual stored name, not a truthiness check on the value.
-        return any(entry[1] == name for entry in group.GetContents())
+        return any(entry[1] == name for entry in (group.GetContents() or ()))
 
     def value(self, key, default=None, *, type=None):
         kind = type if type is not None else default.__class__
@@ -70,7 +70,10 @@ class NativePreferences:
             if not group.GetBool(marker, False):
                 old = self._legacy(key, default, kind)
                 if old is not None:
-                    self.setValue(key, old)
+                    try:
+                        self.setValue(key, kind(old))
+                    except (TypeError, ValueError, OverflowError):
+                        self.setValue(key, default)
                 group.SetBool(marker, True)
         fallback = json.dumps(default, ensure_ascii=False) if kind is list else default
         result = getattr(group, "Get" + method)(name, fallback)
