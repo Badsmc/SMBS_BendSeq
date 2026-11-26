@@ -263,7 +263,9 @@ def get_runtime_git_info() -> dict:
             if module is not None and getattr(module, "__file__", None)
             else None
         )
+    from freecad_smbs.startup_diagnostics import startup_snapshot
     return {
+        "startup": startup_snapshot(repo_root),
         "module_file": str(mod_path),
         "repo_root": str(repo_root),
         "git_branch": branch,

@@ -67,6 +67,8 @@ for _module_name in ("freecad_smbs", "smbs_core"):
         raise ImportError("SMBS: missing or conflicting package " + _module_name + "; keep one installation.")
 
 try:
+    from freecad_smbs.startup_diagnostics import note_gui_entrypoint
+    note_gui_entrypoint("legacy")
     from freecad_smbs.InitGui import *  # noqa: F401,F403
 except Exception:
     # FreeCAD normally reports only the last exception line during startup.
