@@ -2,8 +2,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from smbs_core.kinematics2d.tooling_25d import ToolLibrary25D, ToolKind
-from smbs_core.geometry_backend.io.tooling_library import ToolingLibrary
+from freecad.bendseq.core.kinematics2d.tooling_25d import ToolLibrary25D, ToolKind
+from freecad.bendseq.core.geometry_backend.io.tooling_library import ToolingLibrary
 
 
 class EmptyToolLibraryTest(unittest.TestCase):

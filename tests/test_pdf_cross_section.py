@@ -1,7 +1,7 @@
 import unittest
-from freecad_smbs.ui.pdf_cross_section import face_segments, contours, section_x, section_contours
-from freecad_smbs.ui.pdf_export_options import PdfOptions, collision_box_faces
-from smbs_core.kinematics2d.preview_mesh_3d import PreviewFace3D
+from freecad.bendseq.ui.pdf_cross_section import face_segments, contours, section_x, section_contours
+from freecad.bendseq.ui.pdf_export_options import PdfOptions, collision_box_faces
+from freecad.bendseq.core.kinematics2d.preview_mesh_3d import PreviewFace3D
 
 
 class PdfCrossSectionTest(unittest.TestCase):

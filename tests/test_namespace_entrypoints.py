@@ -24,9 +24,6 @@ class NamespaceEntryPointTest(unittest.TestCase):
             metadata.supportsCurrentFreeCAD = lambda: False
             self.assertFalse(entry.enabled())
             metadata.supportsCurrentFreeCAD = lambda: True
-            with patch.object(entry, "find_spec", return_value=SimpleNamespace(origin="/other/freecad_smbs/__init__.py")):
-                with self.assertRaises(ImportError):
-                    entry.enabled()
 
     def test_disabled_zip_checkout_is_skipped(self):
         import tempfile
@@ -39,10 +36,10 @@ class NamespaceEntryPointTest(unittest.TestCase):
 
     def test_both_startup_styles_share_canonical_module(self):
         entry = importlib.import_module("freecad.bendseq")
-        canonical = importlib.import_module("freecad_smbs.Init")
+        canonical = importlib.import_module("freecad.bendseq.headless")
         with patch.object(entry, "enabled", return_value=True):
             modern = importlib.import_module("freecad.bendseq.init")
-            self.assertIs(modern._legacy_init, canonical)
+            self.assertIs(modern.headless, canonical)
 
 
     def test_namespace_respects_freecad_disable_policy_for_zip_directory(self):

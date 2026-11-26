@@ -43,7 +43,7 @@ Open **Tools → Addon Manager**. If SMBS BendSeq is available in your configure
    print(Path(App.getUserAppDataDir()) / "Mod")
    ```
 
-3. Extract the archive into `Mod/SMBS_BendSeq/`. Keep `InitGui.py`, `freecad/`, `freecad_smbs/`, `smbs_core/`, and `toollibrary/` directly inside that folder when installing 0.2.0.
+3. Extract the archive into `Mod/SMBS_BendSeq/`. Keep `InitGui.py`, `freecad/`, `freecad/bendseq/`, `freecad/bendseq/core/`, and `toollibrary/` directly inside that folder when installing 0.2.0.
 4. Restart FreeCAD and select **PressBrakeSim**. SMBS displays English or Russian according to the FreeCAD language setting.
 
 ## Quick start

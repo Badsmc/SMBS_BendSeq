@@ -12,7 +12,7 @@ import shutil
 import subprocess
 from xml.sax.saxutils import escape
 
-ROOT = Path(__file__).resolve().parents[1] / "freecad_smbs" / "translations"
+ROOT = Path(__file__).resolve().parents[1] / "freecad/bendseq" / "resources/translations"
 # Qt Designer uses the form class as its translation context.
 UI_RU = {
     "Mesh 3D": "Mesh 3D",

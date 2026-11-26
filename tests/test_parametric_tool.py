@@ -4,10 +4,10 @@ from tempfile import TemporaryDirectory
 import unittest
 from dataclasses import replace
 
-from smbs_core.kinematics2d.parametric_tool import (
+from freecad.bendseq.core.kinematics2d.parametric_tool import (
     ToolRecipe, build_contour, dxf_text, starter_recipes, tooling_metadata,
 )
-from smbs_core.kinematics2d.tooling_25d import (
+from freecad.bendseq.core.kinematics2d.tooling_25d import (
     ArcSegment2D, ValidationStatus, import_tool_from_dxf,
 )
 
@@ -43,7 +43,7 @@ class ParametricToolTest(unittest.TestCase):
                 build_contour(recipe)
 
     def test_live_drawing_matches_export_and_updates_dimensions(self):
-        from smbs_core.kinematics2d.parametric_tool_drawing import drawing_model
+        from freecad.bendseq.core.kinematics2d.parametric_tool_drawing import drawing_model
         for recipe in starter_recipes():
             with self.subTest(tool=recipe.tool_id):
                 contour, dimensions = drawing_model(recipe)
@@ -70,7 +70,7 @@ class ParametricToolTest(unittest.TestCase):
                 build_contour(ToolRecipe("bad",kind="die",base_width=width,base_height=height))
 
     def test_independent_die_dimensions(self):
-        from smbs_core.kinematics2d.parametric_tool_drawing import drawing_model
+        from freecad.bendseq.core.kinematics2d.parametric_tool_drawing import drawing_model
         recipe = ToolRecipe("asymmetric",kind="die",width=36,opening=25,height=80,
                             body_offset=1,base_width=64,base_offset=2,
                             base_height=17,base_right_height=20,radius=1)
@@ -87,7 +87,7 @@ class ParametricToolTest(unittest.TestCase):
             self.assertAlmostEqual(float(profile.v_opening_mm),25,places=5)
 
     def test_mirror_and_relief_controls(self):
-        from smbs_core.kinematics2d.parametric_tool_drawing import drawing_model
+        from freecad.bendseq.core.kinematics2d.parametric_tool_drawing import drawing_model
         recipe = ToolRecipe("relief",height=150,width=45,relief_depth=24,
                             relief_height=35,relief_start=8,relief_transition=3)
         right,dims=drawing_model(recipe)
@@ -103,7 +103,7 @@ class ParametricToolTest(unittest.TestCase):
         self.assertRaises(ValueError,build_contour,replace(recipe,relief_transition=20))
 
     def test_punch_offset_keeps_tip_shank_and_angle(self):
-        from smbs_core.kinematics2d.parametric_tool_drawing import drawing_model
+        from freecad.bendseq.core.kinematics2d.parametric_tool_drawing import drawing_model
         for offset in (-12,-5,0,5,12):
             for relief in ("left","right"):
                 with self.subTest(offset=offset,relief=relief):

@@ -1,8 +1,8 @@
 import unittest
 from types import SimpleNamespace as NS
 from unittest.mock import patch
-from smbs_core.kinematics2d import collision_groups as cg
-from smbs_core.kinematics2d.workpiece_placement_3d import PlacementTransform3D
+from freecad.bendseq.core.kinematics2d import collision_groups as cg
+from freecad.bendseq.core.kinematics2d.workpiece_placement_3d import PlacementTransform3D
 
 I=((1,0,0),(0,1,0),(0,0,1))
 R=((0,-1,0),(1,0,0),(0,0,1))

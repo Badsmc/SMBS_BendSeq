@@ -2,9 +2,9 @@ name: Addon preflight
 
 on:
   push:
-    branches: [main, develop, 'feature/pdf-task-export', 'refactor/freecad-native-standards']
+    branches: [main, develop, 'feature/pdf-task-export', 'refactor/**']
   pull_request:
-    branches: [main, develop, 'feature/pdf-task-export', 'refactor/freecad-native-standards']
+    branches: [main, develop, 'feature/pdf-task-export', 'refactor/**']
   workflow_dispatch:
 
 permissions:
@@ -38,9 +38,9 @@ jobs:
       - name: Compile and validate native Qt catalog
         run: python3 scripts/build_qt_translations.py --check --compile --lrelease /usr/lib/qt6/bin/lrelease
       - name: Check compiled catalog is current
-        run: git diff --exit-code -- freecad_smbs/translations/BendSeq_ru.qm
+        run: git diff --exit-code -- freecad/bendseq/resources/translations/BendSeq_ru.qm
       - uses: actions/upload-artifact@v4
         with:
           name: BendSeq-Qt-translations
-          path: freecad_smbs/translations/BendSeq_ru.qm
+          path: freecad/bendseq/resources/translations/BendSeq_ru.qm
           if-no-files-found: error

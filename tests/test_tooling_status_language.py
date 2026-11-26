@@ -3,7 +3,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from freecad_smbs.commands.pressbrake_2d import _tooling_status_text
+from freecad.bendseq.commands.pressbrake_2d import _tooling_status_text
 
 
 class ToolingStatusLanguageTest(unittest.TestCase):
@@ -13,9 +13,9 @@ class ToolingStatusLanguageTest(unittest.TestCase):
             geometry_status_summary=lambda: "VERIFIED",
             match_active_bend_length=True, active_bend_length_mm=120.0,
         )
-        with patch("freecad_smbs.ui.localization.interface_language", return_value="en"):
+        with patch("freecad.bendseq.ui.localization.interface_language", return_value="en"):
             english = _tooling_status_text(setup)
-        with patch("freecad_smbs.ui.localization.interface_language", return_value="ru"):
+        with patch("freecad.bendseq.ui.localization.interface_language", return_value="ru"):
             russian = _tooling_status_text(setup)
         self.assertIn("Punch: P1 | Die: D1 | Geometry: verified", english)
         self.assertIn("Tool length: VIRTUAL=120.0 mm", english)

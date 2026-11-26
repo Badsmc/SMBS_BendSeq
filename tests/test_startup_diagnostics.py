@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from freecad_smbs import startup_diagnostics as startup
+from freecad.bendseq import startup_diagnostics as startup
 
 
 class StartupDiagnosticsTest(unittest.TestCase):

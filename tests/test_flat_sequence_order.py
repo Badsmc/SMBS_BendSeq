@@ -3,7 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace as NS
 import unittest
 
-from freecad_smbs.ui.flat_sequence_order import displayed_operations, operation_numbers
+from freecad.bendseq.ui.flat_sequence_order import displayed_operations, operation_numbers
 
 
 def steps(ids):
@@ -33,7 +33,7 @@ class FlatSequenceOrderTest(unittest.TestCase):
 
     def test_fast_lightweight_refresh_redraws_flat_without_native_preview(self):
         root=Path(__file__).resolve().parents[1]
-        tree=ast.parse((root/"freecad_smbs/commands/pressbrake_2d.py").read_text(encoding="utf-8"))
+        tree=ast.parse((root/"freecad/bendseq/commands/pressbrake_2d.py").read_text(encoding="utf-8"))
         fn=next(n for n in ast.walk(tree) if isinstance(n,ast.FunctionDef) and n.name=="_on_staged_plan_changed")
         branch=next(n for n in ast.walk(fn) if isinstance(n,ast.If) and isinstance(n.test,ast.Name) and n.test.id=="fast_apply" and any(isinstance(x,ast.Return) for x in n.body))
         calls=[n.func.attr for n in ast.walk(branch) if isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute)]

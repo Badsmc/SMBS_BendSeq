@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import unittest
 
 SOURCE = (Path(__file__).resolve().parents[1] /
-          "freecad_smbs/integration/dxf_manual.py").read_text(encoding="utf-8")
+          "freecad/bendseq/integration/dxf_manual.py").read_text(encoding="utf-8")
 
 
 class DxfEditorLifetimeTest(unittest.TestCase):

@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
-from smbs_core.geometry_backend.io.tooling_set import (
+from freecad.bendseq.core.geometry_backend.io.tooling_set import (
     ToolingSetError, load_set_file, save_set_file, validate_set_dict,
 )
 

@@ -7,8 +7,8 @@ import string
 import unittest
 
 
-ROOT = Path(__file__).resolve().parents[1] / "freecad_smbs"
-CORE = ROOT.parent / "smbs_core"
+ROOT = Path(__file__).resolve().parents[1] / "freecad/bendseq"
+CORE = ROOT / "core"
 RUSSIAN = re.compile(r"[А-Яа-яЁё]")
 
 
@@ -24,7 +24,7 @@ class TranslationCatalogTest(unittest.TestCase):
         self.assertEqual(violations, [])
 
     def test_freecad_language_preference_selects_catalog(self):
-        from freecad_smbs.ui.localization import resolve_language, tr
+        from freecad.bendseq.ui.localization import resolve_language, tr
 
         self.assertEqual(resolve_language("English", "ru_RU"), "en")
         self.assertEqual(resolve_language("Русский", "en_US"), "ru")
@@ -35,8 +35,8 @@ class TranslationCatalogTest(unittest.TestCase):
                          "Симуляция остановлена. B01")
 
     def test_formatted_core_errors_are_translated_at_ui_boundary(self):
-        from freecad_smbs.ui.localization import tr_message
-        from smbs_core.kinematics2d.fold_sequence import parse_manual_bend_order
+        from freecad.bendseq.ui.localization import tr_message
+        from freecad.bendseq.core.kinematics2d.fold_sequence import parse_manual_bend_order
 
         self.assertEqual(tr_message("Гиб B02 указан несколько раз.", language="en"),
                          "Bend B02 is listed more than once.")
@@ -53,7 +53,7 @@ class TranslationCatalogTest(unittest.TestCase):
                          "Гиб B01 указан несколько раз.")
         self.assertEqual(tr_message("UNVERIFIED: Гиб B01 указан несколько раз.", language="en"),
                          "UNVERIFIED: Bend B01 is listed more than once.")
-        from freecad_smbs.ui.localization import tr
+        from freecad.bendseq.ui.localization import tr
         self.assertEqual(tr("Ошибка загрузки детали: {error}", language="en", error=raised.exception),
                          "Could not load the part: Bend B01 is listed more than once.")
         self.assertEqual(tr("Пуансон: {punch} | Матрица: {die} | Геометрия: {geometry} | Коллизии: НЕ ПРОВЕРЕНЫ",
@@ -63,7 +63,7 @@ class TranslationCatalogTest(unittest.TestCase):
                          "Invalid tooling mesh: DIE")
 
     def test_literal_tr_calls_are_translated(self):
-        catalog = json.loads((ROOT / "translations/en/catalog.json").read_text(encoding="utf-8"))
+        catalog = json.loads((ROOT / "resources/translations/en/catalog.json").read_text(encoding="utf-8"))
         missing = []
         for source_file in ROOT.rglob("*.py"):
             tree = ast.parse(source_file.read_text(encoding="utf-8"))
@@ -78,15 +78,15 @@ class TranslationCatalogTest(unittest.TestCase):
         self.assertEqual(missing, [])
 
     def test_catalog_keys_are_english_identifiers(self):
-        english = json.loads((ROOT / "translations/en/catalog.json").read_text(encoding="utf-8"))
-        russian = json.loads((ROOT / "translations/ru/catalog.json").read_text(encoding="utf-8"))
+        english = json.loads((ROOT / "resources/translations/en/catalog.json").read_text(encoding="utf-8"))
+        russian = json.loads((ROOT / "resources/translations/ru/catalog.json").read_text(encoding="utf-8"))
         self.assertEqual(set(english), set(russian))
         self.assertTrue(all(re.fullmatch(r"[a-z0-9_]+", key) for key in english))
 
     def test_catalog_format_fields_match_sources(self):
-        catalog = json.loads((ROOT / "translations/en/catalog.json").read_text(encoding="utf-8"))
+        catalog = json.loads((ROOT / "resources/translations/en/catalog.json").read_text(encoding="utf-8"))
         formatter = string.Formatter()
-        russian = json.loads((ROOT / "translations/ru/catalog.json").read_text(encoding="utf-8"))
+        russian = json.loads((ROOT / "resources/translations/ru/catalog.json").read_text(encoding="utf-8"))
         for key, translation in catalog.items():
             source = russian[key]
             with self.subTest(source=source[:90]):

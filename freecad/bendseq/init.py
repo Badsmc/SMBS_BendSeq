@@ -1,6 +1,5 @@
-"""Headless startup using FreeCAD's modern lowercase entry point."""
+"""Headless namespace startup; no GUI dependencies."""
 from . import enabled
 
 if enabled():
-    # Import the same module as legacy Init.py, never initialize twice.
-    from freecad_smbs import Init as _legacy_init
+    from . import headless

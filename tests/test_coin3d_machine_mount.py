@@ -7,7 +7,7 @@ from unittest.mock import patch
 import json
 import unittest
 
-from freecad_smbs.ui import coin3d_machine as machine
+from freecad.bendseq.ui import coin3d_machine as machine
 
 
 def vec(x,y,z):

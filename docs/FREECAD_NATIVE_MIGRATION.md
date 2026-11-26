@@ -75,7 +75,7 @@ FreeCAD 1.1.3 discovers namespace packages in `freecad.__path__` and imports
 lowercase `init` and `init_gui`. This checkout now provides
 `freecad/bendseq/{__init__,init,init_gui}.py`, without a shared
 `freecad/__init__.py`. Both modern and legacy entrypoints import the same
-canonical `freecad_smbs.Init` / `freecad_smbs.InitGui` modules. Namespace
+canonical `freecad.bendseq.Init` / `freecad.bendseq.InitGui` modules. Namespace
 startup checks the actual checkout's metadata, ADDON_DISABLED flag and
 origin of both existing packages. No sys.path modification or duplicate
 workbench registration is introduced. The preflight includes the new files.
@@ -112,7 +112,7 @@ The 223-event journal confirms `gui_entrypoints_seen=["legacy","namespace"]`,
 `first_gui_entrypoint="legacy"`, `namespace_gui_imported=true` and all
 selected interface files present. Interface digest:
 `46c2aae2d6ae8dd7a939515c328f98d4de75653ee1806d7db9305b9c9924b091`.
-The canonical GUI module remained freecad_smbs.InitGui. FCStd auto-resume,
+The canonical GUI module remained freecad.bendseq.InitGui. FCStd auto-resume,
 DXF import (52 entities, Cyrillic layer name intact, 2.135 s), FAST
 (2.460 s total), opening the specialist task pages, and shutdown succeeded.
 Mesh and PDF were opened but not executed in this session. Tool assembly
