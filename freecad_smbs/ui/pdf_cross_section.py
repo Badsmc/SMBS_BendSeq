@@ -13,15 +13,30 @@ _COLORS = dict(part="#476389", punch="#ab6855", die="#598b7c",
                collision="#d51e26")
 
 
-def section_x(hit):
+def section_x(hit, overlap_faces=()):
+    """Prefer the bounds midpoint, but ensure a nonempty exact mesh cut."""
     bounds = hit.get("overlap_bbox_xyz_mm") or {}
+    x = 0.0
     try:
         lo, hi = float(bounds["xmin"]), float(bounds["xmax"])
         if isfinite(lo) and isfinite(hi) and lo <= hi:
-            return lo + (hi-lo)/2
+            x = lo + (hi-lo)/2
     except (KeyError, ValueError, TypeError):
         pass
-    return 0.0
+    if not overlap_faces or any(face_segments(face,x) for face in overlap_faces):
+        return x
+    # A disconnected exact intersection can have an empty central cut.
+    # Choose the midpoint of the widest actual intersectable face.
+    candidates = []
+    for face in overlap_faces:
+        depths = [v[1] for v in face.vertices]
+        if depths:
+            lo,hi = min(depths),max(depths)
+            if hi>lo:
+                mid = lo+(hi-lo)/2
+                if face_segments(face,mid):
+                    candidates.append((hi-lo,mid))
+    return max(candidates)[1] if candidates else x
 
 
 def face_segments(face, x):
@@ -97,7 +112,14 @@ def draw_section(painter, core, gui, faces, x, caption, evidence, *, options, le
         painter.setPen(gui.QColor("#34465a"))
         painter.drawText(core.QRectF(left+4,3,width-8,18),core.Qt.AlignCenter,f"2D section · X={x:+.2f} mm")
         painter.drawText(core.QRectF(left+4,22,width-8,20),core.Qt.AlignCenter,caption)
-        painter.drawText(core.QRectF(left+4,226,width-8,42),int(core.Qt.AlignCenter)|int(core.Qt.TextWordWrap),evidence)
+        if any(face_layer(f) == "collision" for f in faces) and not any(
+                key[0] == "collision" for key,_ in groups):
+            evidence = "No overlap cut at this plane; see recorded evidence"
+        flags = core.Qt.AlignCenter
+        wrap = core.Qt.TextWordWrap
+        # PySide6 scoped enums expose .value; PySide2 flags are int-like.
+        flags = int(getattr(flags,"value",flags)) | int(getattr(wrap,"value",wrap))
+        painter.drawText(core.QRectF(left+4,226,width-8,42),flags,evidence)
         points = [p for (layer,_,_,_),paths in groups
                   if options.fit_machine or layer in ("part","collision","gauge")
                   for path,_ in paths for p in path]

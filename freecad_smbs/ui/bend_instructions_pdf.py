@@ -435,7 +435,7 @@ def _collision_page(workspace, hit, tooling, options, core, gui, diagrams, index
         native_by_length=native_by_length)
     # The right section always depicts an actual recorded sample, not a
     # material-attached map of non-simultaneous intersections.
-    section = ((*machine, *sheet, *box), section_x(hit),
+    section = ((*machine, *sheet, *box), section_x(hit, box),
                _sample_caption(hit), _sample_evidence_label(box))
     if options.group_collisions and group:
         zones = projected_zones(session.graph,session.fixed_panel,group,hit)
@@ -621,13 +621,14 @@ def export_bend_instructions_pdf(workspace, path, qt_core, gui, rows, *, positio
                     bed_z=bed_z, rest_z=rest_z, punch_outline=punch_outline, punch_top=punch_top,
                     clamp_spans=clamp_spans, clamp_height=clamp_height, clamp_depth=clamp_depth,
                     native_by_length=native_by_length)
-                sample_section = ((*sample_machine, *sample_sheet, *box), section_x(hit),
+                sample_section = ((*sample_machine, *sample_sheet, *box), section_x(hit, box),
                                   _sample_caption(hit), _sample_evidence_label(box))
                 section_note = (f"Right collision section: recorded Mesh sample, "
                                 f"{hit.get('phase', '')}, {float(hit.get('angle_deg', 0)):.1f}°; "
                                 f"{len(operation_hits)} finding(s) for this operation. "
                                 "See collision evidence pages for details. "
-                                "The left image remains the nominal operation pose.")
+                                "The left image remains the nominal operation pose. "
+                                "Backgauge omitted from the recorded sample section.")
             except _CAD_ERRORS as exc:
                 section_note = f"Recorded collision section unavailable: {exc}. See collision evidence."
         for label, faces, sheet in zip(("before", "after"), scenes, (before, after)):

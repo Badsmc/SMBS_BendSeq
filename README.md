@@ -59,6 +59,8 @@ Sample models are available in [`demo/parts/`](demo/parts); see the [demo index]
 
 Open **Mesh 3D** in FreeCAD's **Tasks** panel. Set the time limit in seconds and the minimum penetration volume in mm³, then click **Run Mesh**. If the time limit is reached, review which operations were checked and which are still pending.
 
+The PDF export Tasks panel has a **Separate workpiece view** selector: **3D** keeps the existing inset; **2D — Cross-section** slices the placed preview geometry at the middle of the active bend. Selecting 2D enables collision evidence by default. If the unchanged setup has recorded Mesh findings, the after-bending inset instead shows a section through a representative actual collision sample, with its phase, angle and machine X coordinate. Confirmed findings are red; conditional findings are orange. Exact retained intersection meshes and recorded overlap bounds are explicitly distinguished. Other findings remain in the collision evidence appendix; disable grouping to obtain one page per sample. A nominal section is not evidence of clearance. The left 3D view remains the nominal pose.
+
 **Save latest collision…** exports the most recent confirmed collision for the current setup to a separate `.FCStd`. The intersecting volume is shown in red and the colliding bodies are translucent.
 
 FAST proposes bend sequences. Mesh checks sampled positions of the part against the selected punch and die. Its result applies to the reported samples and tool geometry. Continuous motion, the backgauge, clamps and the machine frame are outside the scope of this check.

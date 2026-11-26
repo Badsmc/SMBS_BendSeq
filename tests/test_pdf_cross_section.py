@@ -31,3 +31,14 @@ class PdfCrossSectionTest(unittest.TestCase):
         self.assertFalse(opt.shows("collision"))
         with self.assertRaises(ValueError):
             PdfOptions(right_view="invalid")
+
+
+    def test_disconnected_exact_overlap_selects_a_nonempty_cut(self):
+        hit={"overlap_bbox_xyz_mm":dict(xmin=-20,xmax=20)}
+        faces=(
+            PreviewFace3D(((0,-20,0),(1,-20,0),(0,-10,0)), "collision","overlap_solid"),
+            PreviewFace3D(((0,10,0),(1,10,0),(0,20,0)), "collision","overlap_solid"),
+        )
+        x=section_x(hit,faces)
+        self.assertIn(x,(-15,15))
+        self.assertTrue(any(face_segments(face,x) for face in faces))
