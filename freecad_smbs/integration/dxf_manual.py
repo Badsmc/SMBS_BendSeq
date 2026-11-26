@@ -457,6 +457,9 @@ def _folded_dxf_preview(session, trace):
         return None, tr("the_final_shape_self_intersects_components_the_flat_pattern", pairs=pairs)
 
 
+_active_dxf_dialog = None
+
+
 class DxfManualCommand:
     def GetResources(self):
         return {"MenuText": tr("dxf_flat_pattern"),
@@ -473,8 +476,13 @@ class DxfManualCommand:
             PressBrake2DCommand, _qt, get_workspace_widget, show_workspace_controls,
         )
 
+        global _active_dxf_dialog
         core, gui, qt = _qt()
         parent = Gui.getMainWindow()
+        if _active_dxf_dialog is not None:
+            _active_dxf_dialog.raise_()
+            _active_dxf_dialog.activateWindow()
+            return
         path, _ = qt.QFileDialog.getOpenFileName(parent, tr("dxf_flat_pattern"), "", "DXF (*.dxf)")
         if not path:
             return
@@ -497,9 +505,26 @@ class DxfManualCommand:
             {"index": index, "layer": layer, **_geometry_for_log(line)}
             for index, (layer, line) in enumerate(zip(layers, lines))
         ])
-        dialog = qt.QDialog(parent)
+        class DxfEditor(qt.QDialog):
+            calculating = False
+
+            def reject(self):
+                if not self.calculating:
+                    super().reject()
+
+            def closeEvent(self, event):
+                if self.calculating:
+                    event.ignore()
+                else:
+                    super().closeEvent(event)
+
+        dialog = DxfEditor(parent)
+        dialog.setObjectName("SMBS_DxfEditor")
         dialog.setWindowTitle(tr("dxf_bend_lines"))
-        dialog.resize(780, 620)
+        screen = parent.screen()
+        bounds = screen.availableGeometry() if screen else None
+        dialog.resize(min(780, bounds.width() - 40) if bounds else 780,
+                      min(620, bounds.height() - 60) if bounds else 620)
         layout = qt.QVBoxLayout(dialog)
         layout.addWidget(qt.QLabel(tr("click_a_line_and_enter_its_angle_zero_clears")))
         class DxfView(qt.QGraphicsView):
@@ -717,9 +742,16 @@ class DxfManualCommand:
         layout.addWidget(feedback)
 
         attempt = 0
+        closed = False
+        pending = False
 
         def calculate():
-            nonlocal attempt
+            nonlocal attempt, pending
+            pending = False
+            if closed or dialog.calculating:
+                return
+            dialog.calculating = True
+            dialog.setEnabled(False)
             attempt += 1
             started = perf_counter()
             stage = "validate_inputs"
@@ -801,22 +833,37 @@ class DxfManualCommand:
                 feedback.setText(detail)
                 return
             finally:
+                dialog.calculating = False
+                dialog.setEnabled(True)
                 button.setEnabled(True)
             log("DXF_CALCULATION_COMPLETED", attempt=attempt, document=doc.Name,
                 elapsed_ms=round((perf_counter() - started) * 1000, 2))
             dialog.accept()
 
         def start_calculation():
+            nonlocal pending
+            if closed or pending or dialog.calculating:
+                return
             if not angles:
                 log("DXF_CALCULATION_REJECTED", reason="no_bend_angles")
                 feedback.setText(tr("assign_an_angle_to_at_least_one_bend_line"))
                 return
+            pending = True
             button.setEnabled(False)
             feedback.setText(tr("building_shape"))
             core.QTimer.singleShot(0, calculate)
 
+        def on_finished(result):
+            nonlocal closed
+            global _active_dxf_dialog
+            closed = True
+            if _active_dxf_dialog is dialog:
+                _active_dxf_dialog = None
+            log("DXF_DIALOG_CLOSED", result=int(result), attempts=attempt)
+            dialog.deleteLater()
+
         button.clicked.connect(start_calculation)
-        core.QTimer.singleShot(0, view.fit_drawing)
-        run = getattr(dialog, "exec", None) or dialog.exec_
-        result = run()
-        log("DXF_DIALOG_CLOSED", result=int(result), attempts=attempt)
+        dialog.finished.connect(on_finished)
+        _active_dxf_dialog = dialog
+        dialog.open()
+        core.QTimer.singleShot(0, lambda: None if closed else view.fit_drawing())
