@@ -7,7 +7,7 @@ from xml.etree import ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 sources = [ROOT / "Init.py", ROOT / "InitGui.py"]
-for folder in ("freecad_smbs", "smbs_core"):
+for folder in ("freecad", "freecad_smbs", "smbs_core"):
     sources.extend(sorted((ROOT / folder).rglob("*.py")))
 
 imports = defaultdict(set)
@@ -24,7 +24,7 @@ for path in sources:
         else:
             names = []
         for name in names:
-            if name not in sys.stdlib_module_names and name not in {"freecad_smbs", "smbs_core"}:
+            if name not in sys.stdlib_module_names and name not in {"freecad", "freecad_smbs", "smbs_core"}:
                 imports[name].add(relative)
         if isinstance(node, ast.Call):
             name = ast.unparse(node.func)
