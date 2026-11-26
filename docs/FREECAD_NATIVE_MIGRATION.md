@@ -86,6 +86,26 @@ compatibility stage. Test native startup in a clean FreeCAD installation,
 both direct-Mod ZIP and standard addon installation, with a saved FCStd.
 A complete package relocation is not required to validate these entrypoints.
 
+## Follow-up Windows acceptance (2026-11-26)
+
+The 165-event follow-up journal records automatic restoration of an FCStd
+with 11 panels and ten bends, then import of the same DXF with the Cyrillic
+layer name "Стандарт" intact. The four-bend, seven-hole part was constructed
+and loaded in 2.137 s on the first attempt. Native Tasks detached with
+reason source_document_deleted at normal application shutdown. No logged
+calculation error or unhandled exception was observed.
+
+The journal confirms those interactions but not the actual namespace
+loader path: the canonical module path and existing native fingerprint
+remain unchanged when only wrappers or DXF code change. Startup diagnostics
+now record the observed GUI wrappers, first wrapper, canonical module and
+namespace import presence, plus a separate fingerprint of selected
+interface and startup files. The existing native benchmark fingerprint
+retains its original schema. Verify these fields in the next Windows
+journal before retiring either loader. A full module relocation is not
+necessary for namespace discovery and remains deferred until the existing
+FCStd compatibility can be established.
+
 ## Acceptance checklist (real FreeCAD run still required)
 1. Clean install and activate in FreeCAD 1.1.x on Windows, macOS and Linux; switch workbenches, verify no unrelated toolbar or theme changes.
 2. Minimize/restore FreeCAD 10 times with Tasks active, including FAST/Mesh and simulation; controls and session remain intact. Close/reopen Tasks 20 times; no duplicate callbacks or stale Qt wrappers.
