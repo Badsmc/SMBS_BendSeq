@@ -151,9 +151,37 @@ class TaskLifecycleTest(unittest.TestCase):
         exec(compile(ast.Module(body=nodes,type_ignores=[]),"<retire>","exec"),ns)
         closed=[]
         dialogs={}
-        for key in ("fast_results","pdf_export","mesh","backgauge","bend_information","full_tooling_library","virtual_clamps"):
+        for key in ("fast_results","pdf_export","mesh","backgauge","bend_information","prebend","full_tooling_library","virtual_clamps"):
             dialogs[key]=NS(reject=lambda k=key:closed.append(k))
         self.ws._task_dialogs=dialogs
         ns["retire_part_tasks"](self.ws)
-        self.assertEqual(set(closed),{"fast_results","pdf_export","mesh","backgauge","bend_information"})
+        self.assertEqual(set(closed),{"fast_results","pdf_export","mesh","backgauge","bend_information","prebend"})
         self.assertEqual(len(events),len(closed))
+
+
+    def test_prebend_guard_rejects_changed_controller_and_operations(self):
+        tree=ast.parse(SOURCE)
+        editor=next(n for n in ast.walk(tree) if isinstance(n,ast.FunctionDef)
+                    and n.name=="_edit_prebend_dialog")
+        guard=next(n for n in ast.walk(editor) if isinstance(n,ast.FunctionDef)
+                   and n.name=="is_current_plan")
+        controller=NS(operation_steps=("B01","B02"))
+        session=NS(controller=controller,can_reorder=lambda:True)
+        workspace=NS(session=session,_playback_alive=lambda:True,_task_progress_busy=False)
+        ns={"self":workspace,"controller":controller,"source_steps":tuple(controller.operation_steps)}
+        exec(compile(ast.Module(body=[guard],type_ignores=[]),"<prebend-guard>","exec"),ns)
+        check=ns["is_current_plan"]
+        self.assertTrue(check())
+        controller.operation_steps=("B02","B01")
+        self.assertFalse(check())
+        controller.operation_steps=("B01","B02")
+        workspace._task_progress_busy=True
+        self.assertFalse(check())
+        workspace._task_progress_busy=False
+        session.can_reorder=lambda:False
+        self.assertFalse(check())
+        session.can_reorder=lambda:True
+        session.controller=NS(operation_steps=("B01","B02"))
+        self.assertFalse(check())
+        workspace.session=None
+        self.assertFalse(check())
