@@ -43,3 +43,18 @@ class NamespaceEntryPointTest(unittest.TestCase):
         with patch.object(entry, "enabled", return_value=True):
             modern = importlib.import_module("freecad.bendseq.init")
             self.assertIs(modern._legacy_init, canonical)
+
+
+    def test_namespace_respects_freecad_disable_policy_for_zip_directory(self):
+        import tempfile
+        entry = importlib.import_module("freecad.bendseq")
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / "BendSeq-test-zip"
+            root.mkdir()
+            (root / "package.xml").touch()
+            fake = SimpleNamespace(ConfigGet=lambda key: root.name)
+            with patch.object(entry, "_ROOT", root), patch.dict(sys.modules, {"FreeCAD": fake}):
+                self.assertFalse(entry.enabled())
+                fake.ConfigGet = lambda key: ""
+                (root.parent / "ALL_ADDONS_DISABLED").touch()
+                self.assertFalse(entry.enabled())

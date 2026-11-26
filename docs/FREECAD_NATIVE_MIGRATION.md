@@ -106,6 +106,29 @@ journal before retiring either loader. A full module relocation is not
 necessary for namespace discovery and remains deferred until the existing
 FCStd compatibility can be established.
 
+## Windows dual-loader acceptance (2026-11-26)
+
+The 223-event journal confirms `gui_entrypoints_seen=["legacy","namespace"]`,
+`first_gui_entrypoint="legacy"`, `namespace_gui_imported=true` and all
+selected interface files present. Interface digest:
+`46c2aae2d6ae8dd7a939515c328f98d4de75653ee1806d7db9305b9c9924b091`.
+The canonical GUI module remained freecad_smbs.InitGui. FCStd auto-resume,
+DXF import (52 entities, Cyrillic layer name intact, 2.135 s), FAST
+(2.460 s total), opening the specialist task pages, and shutdown succeeded.
+Mesh and PDF were opened but not executed in this session. Tool assembly
+reported NO_INVENTORY_COMBINATION with empty punch/die stock.
+
+FreeCAD 1.1.3's legacy metadata loader uses the root InitGui.py to associate
+the workbench icon with package.xml and runs before namespace discovery.
+Retain the thin legacy compatibility entrypoints rather than removing
+a validated Addon Manager integration merely for directory aesthetics.
+The shared canonical GUI import remains idempotent. The modern namespace
+guard now also honors the actual checkout's --disable-addon configuration
+and ALL_ADDONS_DISABLED marker, preventing accidental activation of an
+otherwise disabled ZIP install through the second discovery route.
+Independent namespace-only initialization and macOS are not yet verified.
+Do not move existing serialized module paths as part of this release.
+
 ## Acceptance checklist (real FreeCAD run still required)
 1. Clean install and activate in FreeCAD 1.1.x on Windows, macOS and Linux; switch workbenches, verify no unrelated toolbar or theme changes.
 2. Minimize/restore FreeCAD 10 times with Tasks active, including FAST/Mesh and simulation; controls and session remain intact. Close/reopen Tasks 20 times; no duplicate callbacks or stale Qt wrappers.

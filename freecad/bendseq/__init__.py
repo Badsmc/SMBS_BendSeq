@@ -15,7 +15,13 @@ def enabled():
     necessarily the name of a manually installed or ZIP checkout.
     """
     import FreeCAD as App
-    if (_ROOT / "ADDON_DISABLED").exists():
+    # Match FreeCAD's legacy loader disable policy for the actual directory.
+    # Its namespace scanner instead assumes the directory is named bendseq.
+    if ((_ROOT / "ADDON_DISABLED").exists()
+            or (_ROOT.parent / "ALL_ADDONS_DISABLED").exists()):
+        return False
+    disabled = App.ConfigGet("DisabledAddons") if hasattr(App, "ConfigGet") else ""
+    if _ROOT.name in (disabled or "").split(";"):
         return False
     manifest = _ROOT / "package.xml"
     if not manifest.is_file():
