@@ -76,7 +76,6 @@ class ToolingPanel:
 
                     self.tabs = QtWidgets.QTabWidget()
                     self.tabs.tabBar().setUsesScrollButtons(True)
-                    self.tabs.setIconSize(QtCore.QSize(17, 17))
                     self.tabs.addTab(self._build_punch_tab(), tr("punches_0"))
                     self.tabs.addTab(self._build_die_tab(), tr("dies_0"))
                     clamps_scroll = QtWidgets.QScrollArea()
@@ -496,8 +495,7 @@ class ToolingPanel:
                         )
 
                 def _set_status(self, text: str, is_error: bool = False) -> None:
-                    color = "red" if is_error else "black"
-                    self.status_label.setStyleSheet(f"color: {color};")
+                    # Keep text readable in the active FreeCAD theme.
                     self.status_label.setText(tr("status_e4572c00", text=tr_message(text)))
                     try:
                         if is_error:
