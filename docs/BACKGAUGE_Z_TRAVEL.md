@@ -49,3 +49,21 @@ of applying the historical no-algorithm-change requirement to all future
 features. It still verifies all 82 original modules and the original session
 serializer against the pre-migration baseline. Current code is covered by tests
 and preflight. No new dependency was added.
+
+## Follow-up: warning visibility on die selection
+The Windows journal from 2026-11-26 confirmed the prior branch bytes but exposed
+that die selection did not refresh operation rows, and the scene warning only
+covered the active bend. It could therefore miss the operator's attention when
+a different bend had a short flange.
+
+Die selection now refreshes the table, assesses every canonical bend, displays
+one popup per changed unsuitable selection and maintains a bold multiline
+warning above the viewer. Routine playback refreshes the banner without modal
+spam. Unspecified V or flange measurements are explicitly shown as unverified,
+not silently passed. V can come from the numeric catalog field or authoritative
+die shoulder datums; die body width and names are never used as V. The diagnostic
+FLANGE_DIE_CHECK records opening, dimensions, short bends and unknown bends.
+
+Regression tests cover V8 -> V32 with the active 50 mm flange and an inactive
+10 mm flange, actual banner/popup execution without Qt, non-repetition, switching
+to a suitable die, and unknown metadata. GUI placement still needs host review.

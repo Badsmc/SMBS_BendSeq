@@ -2050,6 +2050,17 @@ class _PreviewPanel:
                 root.addWidget(self.check_result)
 
                 self._install_workspace_layout(root, QtCore, QtWidgets)
+                self._flange_warning_banner = QtWidgets.QLabel(self)
+                self._flange_warning_banner.setObjectName("SMBS_FlangeDieWarning")
+                self._flange_warning_banner.setWordWrap(True)
+                self._flange_warning_banner.setTextFormat(QtCore.Qt.PlainText)
+                warning_font = self._flange_warning_banner.font()
+                warning_font.setBold(True)
+                self._flange_warning_banner.setFont(warning_font)
+                self._flange_warning_banner.hide()
+                root.insertWidget(1, self._flange_warning_banner)
+                self._flange_warning_signature = None
+                self._flange_warning_notified = None
                 self._install_automatic_debug_ui_signals(QtWidgets)
                 self._last_debug_frame_at = 0.0
                 self._last_debug_frame_signature = None
@@ -5898,6 +5909,9 @@ class _PreviewPanel:
                 self._refresh_tooling_combos()
                 self._update_tooling_status_label()
                 self.draw()
+                if self.session is not None:
+                    self._update_operations_visual_state()
+                self._refresh_flange_warning(notify=True)
                 # Camera stays fixed; use the explicit Fit control to reframe.
 
             def _on_punch_combo_changed(self, _index: int):
@@ -9823,12 +9837,44 @@ class _PreviewPanel:
                 return values
 
             def _flange_die_warning(self, bend_id):
-                from freecad.bendseq.core.kinematics2d.gauge_motion_limits import flange_below_opening
-                flange = self.session.local_bend_dimensions_mm.get(bend_id)
-                opening = getattr(self.tooling_setup.die, "v_opening_mm", None)
-                if flange_below_opening(flange, opening):
-                    return tr("flange_below_die_opening", bend=bend_id, flange=flange, opening=opening)
+                from freecad.bendseq.core.kinematics2d.flange_die_check import assess_flanges
+                check = assess_flanges(self.session, self.tooling_setup.die)
+                for bid, flange in check["short_bends"]:
+                    if bid == bend_id:
+                        return tr("flange_below_die_opening", bend=bid, flange=flange,
+                                  opening=check["opening_mm"])
                 return ""
+
+            def _refresh_flange_warning(self, *, notify=False):
+                banner = getattr(self, "_flange_warning_banner", None)
+                if banner is None:
+                    return
+                from freecad.bendseq.core.kinematics2d.flange_die_check import assess_flanges
+                die = self.tooling_setup.die
+                check = assess_flanges(self.session, die)
+                warnings = [tr("flange_below_die_opening", bend=bid, flange=flange,
+                               opening=check["opening_mm"])
+                            for bid, flange in check["short_bends"]]
+                if die is not None and self.session is not None:
+                    if check["opening_mm"] is None:
+                        warnings.append(tr("die_opening_unknown_flange_check"))
+                    if check["unknown_bends"]:
+                        warnings.append(tr("flange_dimensions_unknown", bends=", ".join(check["unknown_bends"])))
+                text = "\n".join(warnings)
+                banner.setText(text)
+                banner.setVisible(bool(text))
+                signature = (id(self.session), getattr(die, "tool_id", None),
+                             check["opening_mm"], tuple(check["dimensions_mm"].items()))
+                if signature != self._flange_warning_signature:
+                    self._flange_warning_signature = signature
+                    _desktop_debug_event("FLANGE_DIE_CHECK", die=getattr(die, "tool_id", None),
+                                         **check)
+                if not text:
+                    self._flange_warning_notified = None
+                elif notify and signature != self._flange_warning_notified:
+                    self._flange_warning_notified = signature
+                    _, _, widgets = _qt()
+                    widgets.QMessageBox.warning(self, tr("die_flange_warning_title"), text)
 
             def _gauge_limit_geometry(self, index):
                 from freecad.bendseq.ui.coin3d_machine import load_gauge_envelope
@@ -9967,6 +10013,7 @@ class _PreviewPanel:
             def draw(self):
                 if not self._playback_alive():
                     return False
+                self._refresh_flange_warning()
                 self._update_task_progress()
                 self._update_loading_orientation_label()
                 return self._update_3d_preview()

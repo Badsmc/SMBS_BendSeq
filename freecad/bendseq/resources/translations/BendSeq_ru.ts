@@ -1280,9 +1280,19 @@ Mode was not saved. Fix the CAD model.</source>
       <translation>Матрица:</translation>
     </message>
     <message>
+      <source>Die is unsuitable for the flange</source>
+      <comment>die_flange_warning_title</comment>
+      <translation>Матрица не подходит для полки</translation>
+    </message>
+    <message>
       <source>Die, mm × qty</source>
       <comment>die_mm_qty</comment>
       <translation>Матрица, мм × шт.</translation>
+    </message>
+    <message>
+      <source>Die V opening is unspecified: minimum-flange compatibility cannot be checked.</source>
+      <comment>die_opening_unknown_flange_check</comment>
+      <translation>Раскрытие V матрицы не задано: совместимость с длиной полки проверить нельзя.</translation>
     </message>
     <message>
       <source>Die segments</source>
@@ -1650,6 +1660,11 @@ Drag the rows after adding a pre-bend. The pre-bend must come before the finish 
       <source>{bend}: flange {flange:.2f} mm is shorter than die opening V={opening:.2f} mm. This die is unsuitable under the minimum-flange rule.</source>
       <comment>flange_below_die_opening</comment>
       <translation>{bend}: полка {flange:.2f} мм короче раскрытия V={opening:.2f} мм. По правилу минимальной полки эта матрица не подходит.</translation>
+    </message>
+    <message>
+      <source>Flange dimension unavailable for: {bends}. Compatibility is unverified.</source>
+      <comment>flange_dimensions_unknown</comment>
+      <translation>Не определён размер полки для: {bends}. Совместимость не проверена.</translation>
     </message>
     <message>
       <source>Flat flange, mm</source>
