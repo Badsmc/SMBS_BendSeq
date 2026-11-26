@@ -950,7 +950,13 @@ def show_workspace_controls(workspace, tab=None):
     workspace._native_task_panel = panel
     try:
         # This opens the actual native FreeCAD Tasks tab, not a new dock.
-        Gui.Control.showDialog(panel)
+        native_dialog = Gui.Control.showDialog(panel)
+        # FreeCAD 1.1 returns its native TaskDialog wrapper. A simulation is
+        # not an edit transaction: visibility/undo changes must not close it.
+        # Deleting its associated document does require teardown.
+        if native_dialog is not None:
+            native_dialog.setAutoCloseOnTransactionChange(False)
+            native_dialog.setAutoCloseOnDeletedDocument(True)
         Gui.Control.showTaskView()
     except Exception:
         panel.closed()
@@ -1907,16 +1913,13 @@ class _PreviewPanel:
                     self.next_step_btn, self.fit_btn,
                 )
                 captions = (tr("add_the_selected_sheetmetal_unfold"), "Reset", "|<<", "Play / Pause", ">>|", "Fit")
-                sizes = (27, 48, 34, 64, 34, 36)
                 row.setColumnMinimumWidth(0, 0)
-                for col, (widget, caption, width) in enumerate(
-                    zip(buttons, captions, sizes)
-                ):
+                for col, (widget, caption) in enumerate(zip(buttons, captions)):
                     # Native compact controls: one row, no separate labels and
                     # no duplicate Pause button. Text updates in the original
                     # _sync_playback_buttons() callback.
                     widget.setToolTip(caption)
-                    widget.setFixedSize(width, 27)
+                    # The native Qt style supplies the size hint.
                     row.addWidget(widget, 0, col)
                     row.setColumnStretch(col, 0)
                 root.addLayout(row)
@@ -2495,7 +2498,6 @@ class _PreviewPanel:
                     widget.hide()
                 select_lines.setText("☷")
                 select_lines.setToolTip(tr("select_bend_lines_edit_order"))
-                select_lines.setFixedSize(27, 27)
                 fit_layout = self._playback_button_grid
                 index = fit_layout.indexOf(self.fit_btn)
                 row, column, _rs, _cs = fit_layout.getItemPosition(index)
