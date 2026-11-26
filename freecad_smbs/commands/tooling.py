@@ -59,6 +59,7 @@ class ToolingSettingsCommand:
     def Activated(self):
         from freecad_smbs.commands.pressbrake_2d import (
             PressBrake2DCommand, get_workspace_widget, _qt,
+            activate_task_dialog, embed_task_dialog,
         )
         from freecad_smbs.ui.tooling_panel import ToolingPanel
         from smbs_core.geometry_backend.io.tooling_library import ToolingLibrary
@@ -74,10 +75,10 @@ class ToolingSettingsCommand:
             return
         library = ToolingLibrary(workspace.tool_library.library_root)
         if self.action == "clamps":
+            if activate_task_dialog(workspace, "virtual_clamps"):
+                return
             panel = ToolingPanel(library, parent=workspace, clamps_only=True)
-            run = getattr(panel, "exec", None) or panel.exec_
-            run()
-            panel.deleteLater()
+            embed_task_dialog(workspace, panel, tr("virtual_clamps"), "virtual_clamps")
             return
         _, _, qt = _qt()
         catalog = library.list_tools()
