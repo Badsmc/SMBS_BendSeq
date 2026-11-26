@@ -37,17 +37,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y qt6-l10n-tools
       - name: Compile and validate native Qt catalog
         run: python3 scripts/build_qt_translations.py --check --compile --lrelease /usr/lib/qt6/bin/lrelease
-      - name: Publish reproducible catalog checksum and transfer encoding
-        run: |
-          python3 - <<'PY'
-          import base64, hashlib
-          from pathlib import Path
-          data = Path("freecad_smbs/translations/BendSeq_ru.qm").read_bytes()
-          print("BENDSEQ_QM_SHA256:" + hashlib.sha256(data).hexdigest())
-          encoded = base64.b64encode(data).decode("ascii")
-          for offset in range(0, len(encoded), 2048):
-              print("BENDSEQ_QM_CHUNK:" + str(offset) + ":" + encoded[offset:offset+2048])
-          PY
+      - name: Check compiled catalog is current
+        run: git diff --exit-code -- freecad_smbs/translations/BendSeq_ru.qm
       - uses: actions/upload-artifact@v4
         with:
           name: BendSeq-Qt-translations
