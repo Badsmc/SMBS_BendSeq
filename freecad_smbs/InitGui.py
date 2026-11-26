@@ -12,6 +12,7 @@ except ImportError:
 
 _ICON_ROOT = Path(__file__).resolve().parent / "resources" / "icons"
 
+from freecad_smbs.ui.native_preferences import NativePreferences
 from freecad_smbs.ui.localization import tr
 from freecad_smbs.commands.pressbrake_2d import (
     PressBrake2DCommand, LoadPartCommand, ToolingTabCommand,
@@ -69,7 +70,7 @@ def register_commands() -> None:
     from freecad_smbs.commands.pressbrake_2d import _qt
     from smbs_core.kinematics2d.developer_debug_log import set_debug_log_enabled
     core, _, _ = _qt()
-    preferences = core.QSettings("SMBS", "BendSeq")
+    preferences = NativePreferences(core)
     set_debug_log_enabled(preferences.value("debug_log/enabled", False, type=bool))
     registered = set(FreeCADGui.listCommands()) if hasattr(FreeCADGui, "listCommands") else set()
     for name, cls in COMMANDS_MAP.items():
