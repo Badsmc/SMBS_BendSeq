@@ -50,6 +50,42 @@ The next user-provided journal records a new part (Omega), restores its existing
 - Verify both editors in FreeCAD on Windows and macOS, including cancel, retry, successful save/import and window close. Headless tests cover DXF lifecycle guards but not the actual graphical interaction.
 - Keep existing package paths and FCStd compatibility until a separately tested namespace migration is ready.
 
+## DXF and generator runtime acceptance (2026-11-26)
+
+A subsequent Windows FreeCAD 1.1.3 journal records one successful DXF import:
+52 entities, seven circular holes, five panels, four bends, one folded solid,
+3.586 s total. The generated punch and die were both saved and used by FAST.
+FAST returned five preliminary-clear candidates in 2.424 s including screening,
+but the sampled Mesh run (19.785 s) found one punch/P02 collision at B04, 67.5
+degrees (205.611 mm³ overlap). PDF export completed in 1.322 s (320592 bytes).
+The journal ends in normal Qt shutdown, with native Tasks detach explicitly
+attributed to two rejections and deletion of the source document.
+
+The journal contained replacement characters in DXF layer names. The previous
+reader used UTF-8 with errors="replace"; it could collapse distinct names.
+The new reader uses the DXF version and declared DWGCODEPAGE, reads modern
+AC1021+ DXF as UTF-8, and reports undecodable declared data rather than
+silently replacing names. Undeclared legacy encoding cannot be inferred
+reliably; the fallback is UTF-8 then CP1252. The original DXF bytes were not
+supplied, so the particular file still needs a fresh import test.
+
+## Namespace startup, compatibility stage
+
+FreeCAD 1.1.3 discovers namespace packages in `freecad.__path__` and imports
+lowercase `init` and `init_gui`. This checkout now provides
+`freecad/bendseq/{__init__,init,init_gui}.py`, without a shared
+`freecad/__init__.py`. Both modern and legacy entrypoints import the same
+canonical `freecad_smbs.Init` / `freecad_smbs.InitGui` modules. Namespace
+startup checks the actual checkout's metadata, ADDON_DISABLED flag and
+origin of both existing packages. No sys.path modification or duplicate
+workbench registration is introduced. The preflight includes the new files.
+
+This is an entrypoint migration, not a full relocation of existing modules.
+Keep root Init.py / InitGui.py and serialized Python module names during this
+compatibility stage. Test native startup in a clean FreeCAD installation,
+both direct-Mod ZIP and standard addon installation, with a saved FCStd.
+A complete package relocation is not required to validate these entrypoints.
+
 ## Acceptance checklist (real FreeCAD run still required)
 1. Clean install and activate in FreeCAD 1.1.x on Windows, macOS and Linux; switch workbenches, verify no unrelated toolbar or theme changes.
 2. Minimize/restore FreeCAD 10 times with Tasks active, including FAST/Mesh and simulation; controls and session remain intact. Close/reopen Tasks 20 times; no duplicate callbacks or stale Qt wrappers.
