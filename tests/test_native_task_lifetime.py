@@ -138,3 +138,22 @@ class TaskLifecycleTest(unittest.TestCase):
         self.panel.bind_native_document(native, None)
         self.assertEqual(events,[("document",""),("undo",False),("delete",False)])
         self.panel.bind_native_document(None, "SourcePart")
+
+
+    def test_retiring_part_tasks_preserves_global_library(self):
+        tree=ast.parse(SOURCE)
+        nodes=[n for n in tree.body if
+               isinstance(n,ast.FunctionDef) and n.name=="retire_part_tasks"
+               or isinstance(n,ast.Assign) and any(
+                   isinstance(t,ast.Name) and t.id=="_PART_TASK_KEYS" for t in n.targets)]
+        events=[]
+        ns={"_desktop_debug_event":lambda name,**kw:events.append((name,kw))}
+        exec(compile(ast.Module(body=nodes,type_ignores=[]),"<retire>","exec"),ns)
+        closed=[]
+        dialogs={}
+        for key in ("fast_results","pdf_export","mesh","backgauge","bend_information","full_tooling_library","virtual_clamps"):
+            dialogs[key]=NS(reject=lambda k=key:closed.append(k))
+        self.ws._task_dialogs=dialogs
+        ns["retire_part_tasks"](self.ws)
+        self.assertEqual(set(closed),{"fast_results","pdf_export","mesh","backgauge","bend_information"})
+        self.assertEqual(len(events),len(closed))
