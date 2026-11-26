@@ -100,14 +100,6 @@ class SMBSWorkbench(Workbench):
     Icon = str(_ICON_ROOT / "gui_workbench.svg")
 
     def Initialize(self) -> None:
-        FreeCADGui.addIconPath(str(_ICON_ROOT))
-        FreeCADGui.addLanguagePath(str(_ICON_ROOT.parent.parent / "translations"))
-        FreeCADGui.updateLocale()
-        from freecad_smbs.ui.mesh_preferences import migrate_mesh_preferences
-        migrate_mesh_preferences()
-        FreeCADGui.addPreferencePage(
-            str(_ICON_ROOT.parent / "panels" / "MeshPreferences.ui"), "BendSeq"
-        )
         register_commands()
         toolbar = [
             CMD_DXF_MANUAL, CMD_TOOLING_TAB, CMD_PRESSBRAKE_2D,
@@ -197,4 +189,13 @@ class SMBSWorkbench(Workbench):
 
 if FreeCADGui is not None and hasattr(FreeCADGui, "addWorkbench"):
     if "SMBSWorkbench" not in (FreeCADGui.listWorkbenches() if hasattr(FreeCADGui, "listWorkbenches") else {}):
+        # Register Preferences at startup, even before the user activates BendSeq.
+        FreeCADGui.addIconPath(str(_ICON_ROOT))
+        FreeCADGui.addLanguagePath(str(_ICON_ROOT.parent.parent / "translations"))
+        FreeCADGui.updateLocale()
+        from freecad_smbs.ui.mesh_preferences import migrate_mesh_preferences
+        migrate_mesh_preferences()
         FreeCADGui.addWorkbench(SMBSWorkbench())
+        FreeCADGui.addPreferencePage(
+            str(_ICON_ROOT.parent / "panels" / "MeshPreferences.ui"), "BendSeq"
+        )
