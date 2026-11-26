@@ -16,10 +16,27 @@ Base: feature/pdf-task-export. Do not merge into main until acceptance checks pa
 ## Remaining release gates
 - QM resource is compiled and shipped. Verify both Qt Designer preference translations and Python UI translation in a running FreeCAD. Do not remove JSON fallback until parity is verified.
 - Native preference page currently exposes the Mesh numeric defaults; other migrated settings are still edited through their existing contextual controls.
-- Verify additional dialogs, especially DXF graphical selection, pre-bend placement and tool editors. Retain native Qt modal forms for interactions that genuinely require them; never close another workbench's task. Verify FAST's wide table in narrow Tasks and under overlay modes.
+- Verify additional dialogs, especially DXF graphical selection, the migrated pre-bend page and tool editors. Retain native Qt modal forms for interactions that genuinely require them; never close another workbench's task. Verify FAST's wide table in narrow Tasks and under overlay modes.
 - The legacy Init.py/InitGui.py layout is permitted by Addon Index policy but modern freecad/<namespace>/ is preferred. Retain existing paths until clean installation and FCStd compatibility can be validated; no sys.path manipulation.
 - Review remaining hard-coded units and sizes, threading, timers, observers and document ownership. Keep command IDs and old serialization import paths.
 - Verify manifest, licenses, asset provenance and Addon Index preflight; see ADDON_INDEX_SUBMISSION.md.
+
+## Windows runtime evidence (2026-11-26)
+
+A user-provided debug log from the experimental branch records:
+- Two minimize/restore cycles with Mesh and PDF Tasks active. The root and stack receive Hide/Show events; neither cycle triggers TASKS_CLOSE_DETACH.
+- FAST produces five candidates in 3.535 s; additional screening takes 5.682 s. All five have preliminary obstructions. The applied order and flat drawing order are identical.
+- Two ten-operation Mesh runs complete without pending operations (24.450 s and 23.149 s), with 9 and 6 findings respectively, plus 8 conditional findings each. These are not clearance verdicts.
+- PDF export completes in 3.299 s, producing 796136 bytes; an overwrite request is recorded separately.
+- Three Task openings and detachments are recorded; no unhandled Python exception appears and Qt reports normal application shutdown.
+
+This verifies the recorded Windows interactions only, not all acceptance cases. Three detachments occur outside the recorded minimize cycles; the prior journal does not identify their causes. New code adds explicit detach attribution.
+
+## Subsequent changes
+- Pre-bend/finish-bend editor now uses a non-modal contextual Tasks page. Its captured controller and operation snapshot must still match at Apply/Delete; the editor is retired when another part loads.
+- Part-specific Tasks are retired after successful loads, without raising the hidden native panel; global tooling pages remain intact.
+- PDF logs start/completion/error and validates the temporary PDF header before replacing the destination.
+- Native lifecycle diagnostics record actual window state, Tasks visibility and close reason.
 
 ## Acceptance checklist (real FreeCAD run still required)
 1. Clean install and activate in FreeCAD 1.1.x on Windows, macOS and Linux; switch workbenches, verify no unrelated toolbar or theme changes.
