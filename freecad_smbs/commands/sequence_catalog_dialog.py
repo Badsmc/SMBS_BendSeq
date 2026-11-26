@@ -5,6 +5,7 @@ import json
 
 from smbs_core.kinematics2d.sequence_catalog import load_catalog_file, parse_diagnostic
 
+from freecad_smbs.ui.native_preferences import NativePreferences
 from freecad_smbs.ui.localization import tr, tr_message
 
 
@@ -60,7 +61,7 @@ def show_sequence_catalog(workspace):
     footer.addWidget(close_btn)
     root.addLayout(footer)
 
-    settings = QtCore.QSettings("SMBS", "BendSeq")
+    settings = NativePreferences(QtCore)
     saved = settings.value("sequence_catalog/json_paths", [], type=list)
     paths = [str(p) for p in saved if p]
     entries = []
