@@ -26,15 +26,14 @@ def _valid_overlap(value):
 
 
 def migrate_mesh_preferences():
-    from PySide import QtCore
-    old = QtCore.QSettings("SMBS", "BendSeq")
-    group = _group()
-    if group.GetInt("BudgetSeconds", -1) == -1:
-        budget = old.value("mesh/budget_seconds", DEFAULT_BUDGET, type=int)
-        group.SetInt("BudgetSeconds", budget if _valid_budget(budget) else DEFAULT_BUDGET)
-    if group.GetFloat("MinimumOverlapMM3", -1.0) == -1.0:
-        overlap = old.value("mesh/min_overlap_mm3", DEFAULT_OVERLAP, type=float)
-        group.SetFloat("MinimumOverlapMM3", overlap if _valid_overlap(overlap) else DEFAULT_OVERLAP)
+    from freecad_smbs.ui.native_preferences import NativePreferences
+    prefs = NativePreferences()
+    budget = prefs.value("mesh/budget_seconds", DEFAULT_BUDGET, type=int)
+    overlap = prefs.value("mesh/min_overlap_mm3", DEFAULT_OVERLAP, type=float)
+    if not _valid_budget(budget):
+        prefs.setValue("mesh/budget_seconds", DEFAULT_BUDGET)
+    if not _valid_overlap(overlap):
+        prefs.setValue("mesh/min_overlap_mm3", DEFAULT_OVERLAP)
 
 
 def mesh_defaults():
