@@ -2893,17 +2893,10 @@ class _PreviewPanel:
             def _set_task_result(self, key, state, summary, details="", findings=""):
                 summary, details, findings = (tr_message(value) for value in (summary, details, findings))
                 button = self._task_result_buttons[key]
-                icons = {
-                    "idle": QtWidgets.QStyle.SP_MessageBoxInformation,
-                    "running": QtWidgets.QStyle.SP_BrowserReload,
-                    "done": QtWidgets.QStyle.SP_DialogApplyButton,
-                    "warning": QtWidgets.QStyle.SP_MessageBoxWarning,
-                    "error": QtWidgets.QStyle.SP_MessageBoxCritical,
-                }
-                if state == "idle":
-                    set_action_icon(button, "btn_fast_result_status.svg" if key == "FAST" else "btn_mesh_result_status.svg", compact=True)
-                else:
-                    button.setIcon(button.style().standardIcon(icons[state]))
+                prefix = "fast" if key == "FAST" else "mesh"
+                filename = (f"btn_{prefix}_result_status.svg" if state == "idle"
+                            else f"status_{prefix}_{state}.svg")
+                set_action_icon(button, filename, compact=True)
                 button.setToolTip(f"{key} — {summary}")
                 button.setAccessibleName(f"{key} — {summary}")
                 self._task_results[key] = (summary, details, findings)
