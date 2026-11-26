@@ -8,13 +8,15 @@ Base: feature/pdf-task-export. Do not merge into main until acceptance checks pa
 - Native Preferences > BendSeq > Mesh 3D (time budget and penetration volume), including legacy migration. Task controls and Mesh check share these parameters.
 - Typed ParamGet adapter for diagnostics, grouped Mesh view, backgauge configuration, operation weight defaults, sequence catalog paths and PDF export settings. Existing QSettings values are migrated once; old storage is not deleted. Restored FCStd operation weights no longer overwrite global defaults.
 - Native Qt theme for tooling status and tabs.
-- Register Qt language path, generate BendSeq_ru.ts from all English/Russian catalog keys, and use Qt translations if available with JSON fallback. Qt 6 lrelease is a development tool, not an addon runtime dependency.
-- New headless tests for preference migration and task lifecycle, including repeated opening, window state changes, and ownership checks.
+- Register Qt language path and preferences at FreeCAD startup, following Addon Academy. Generate BendSeq_ru.ts from all English/Russian catalog keys and ship the compiled BendSeq_ru.qm from a successful Qt 6 CI build. Qt translations are used with JSON fallback. Qt 6 lrelease is development-only.
+- New headless tests for preference migration and task lifecycle, including repeated opening, window state changes, ownership checks and source document association.
+- FAST shortlist and standalone virtual clamps now use the shared native Tasks surface, without independent floating windows. Reject the old FAST chooser before loading a new part. A native Tasks dialog is bound to the actual source FCStd, not the temporary animation view.
+- Preferences migration uses one-way markers, including Mesh values already stored natively; deleting a migrated value no longer resurrects obsolete Qt settings. CI checks that compiled QM matches its TS source.
 
 ## Remaining release gates
-- Compile and ship the QM resource; verify both Qt Designer preference translations and Python UI translation in FreeCAD. Do not remove JSON fallback until parity is verified.
+- QM resource is compiled and shipped. Verify both Qt Designer preference translations and Python UI translation in a running FreeCAD. Do not remove JSON fallback until parity is verified.
 - Native preference page currently exposes the Mesh numeric defaults; other migrated settings are still edited through their existing contextual controls.
-- Audit additional dialogs, especially DXF graphical selection and specialist forms. Retain modal forms for interactions that genuinely require them; never close another workbench's task.
+- Verify additional dialogs, especially DXF graphical selection, pre-bend placement and tool editors. Retain native Qt modal forms for interactions that genuinely require them; never close another workbench's task. Verify FAST's wide table in narrow Tasks and under overlay modes.
 - The legacy Init.py/InitGui.py layout is permitted by Addon Index policy but modern freecad/<namespace>/ is preferred. Retain existing paths until clean installation and FCStd compatibility can be validated; no sys.path manipulation.
 - Review remaining hard-coded units and sizes, threading, timers, observers and document ownership. Keep command IDs and old serialization import paths.
 - Verify manifest, licenses, asset provenance and Addon Index preflight; see ADDON_INDEX_SUBMISSION.md.
