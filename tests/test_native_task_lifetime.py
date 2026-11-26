@@ -9,8 +9,14 @@ SOURCE=(ROOT/"freecad_smbs/commands/pressbrake_2d.py").read_text(encoding="utf-8
 
 
 class Signal:
+    def __init__(self):
+        self.fn=None
     def connect(self,fn):
         self.fn=fn
+    def disconnect(self,fn):
+        if self.fn != fn:
+            raise TypeError('not connected')
+        self.fn=None
 
 
 class Widget:
@@ -20,6 +26,11 @@ class Widget:
         self.hidden=False
     def installEventFilter(self,guard):
         self.guard=guard
+    def removeEventFilter(self,guard):
+        if self.guard is guard:
+            self.guard=None
+    def setEnabled(self,enabled):
+        self.enabled=enabled
     def parentWidget(self):
         return self.parent
     def layout(self):
@@ -38,11 +49,14 @@ class TaskLifecycleTest(unittest.TestCase):
         class Object:
             def __init__(self,parent):
                 self.parent=parent
-        self.events=NS(Hide=1,DeferredDelete=2,Show=3)
+                self.deleted=False
+            def deleteLater(self):
+                self.deleted=True
+        self.events=NS(Hide=1,DeferredDelete=2,Show=3,HideToParent=4,WindowStateChange=5)
         ns={"_qt":lambda:(NS(QObject=Object,QEvent=self.events),None,None),
             "_desktop_debug_event":lambda *a,**k:None}
         exec(compile(ast.Module(body=[cls],type_ignores=[]),"<adapter>","exec"),ns)
-        self.ws=NS(_qt_is_valid=lambda w:w is not None,_closing=False)
+        self.ws=NS(_qt_is_valid=lambda w:w is not None,_closing=False,destroyed=Signal())
         self.form=Widget()
         self.children=[]
         for name in ("_task_stack","status","task_progress","_task_status_chip",
@@ -60,8 +74,8 @@ class TaskLifecycleTest(unittest.TestCase):
         self.form.guard.eventFilter(self.form,NS(type=lambda:kind))
 
     def test_minimize_and_restore_keep_every_control(self):
-        self.send(self.events.Hide)
-        self.send(self.events.Show)
+        for event in (self.events.Hide, self.events.HideToParent, self.events.WindowStateChange, self.events.Show):
+            self.send(event)
         self.assertTrue(self.panel._attached)
         self.assertTrue(all(w.parent is self.form for w in self.children))
         self.assertTrue(self.ws.show_task_panel_btn.hidden)
@@ -72,6 +86,9 @@ class TaskLifecycleTest(unittest.TestCase):
         self.assertTrue(all(w.parent is self.ws for w in self.children))
         self.assertIsNone(self.ws._native_task_panel)
         self.assertFalse(self.ws.show_task_panel_btn.hidden)
+        self.assertIsNone(self.ws.destroyed.fn)
+        self.assertIsNone(self.form.guard)
+        self.assertTrue(self.panel._lifetime_guard.deleted)
         self.assertTrue(self.panel.reject())
 
     def test_synchronous_destroy_rescues_controls_without_layout_access(self):
@@ -87,3 +104,22 @@ class TaskLifecycleTest(unittest.TestCase):
         for box,expected in ((mine,True),(other,False)):
             control=NS(activeTaskDialog=lambda:NS(getDialogContent=lambda:[box]))
             self.assertEqual(self.panel.owns_active_dialog(control),expected)
+
+    def test_workspace_destruction_does_not_touch_deleted_controls(self):
+        self.ws.destroyed.fn()
+        self.assertFalse(self.panel._attached)
+        self.assertIsNone(self.panel.workspace)
+        self.assertFalse(self.form.enabled)
+        self.assertTrue(self.form.hidden)
+
+    def test_task_reopen_does_not_accumulate_lifetime_guards(self):
+        panel_class=type(self.panel)
+        for _ in range(20):
+            old=self.panel
+            old.closed()
+            self.assertIsNone(self.ws.destroyed.fn)
+            self.assertTrue(old._lifetime_guard.deleted)
+            self.form=Widget()
+            self.panel=panel_class(self.ws,self.form)
+            self.ws._native_task_panel=self.panel
+        self.assertIsNotNone(self.ws.destroyed.fn)
