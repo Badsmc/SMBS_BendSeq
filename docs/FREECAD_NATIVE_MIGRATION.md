@@ -38,6 +38,18 @@ This verifies the recorded Windows interactions only, not all acceptance cases. 
 - PDF logs start/completion/error and validates the temporary PDF header before replacing the destination.
 - Native lifecycle diagnostics record actual window state, Tasks visibility and close reason.
 
+## Further Windows runtime evidence (2026-11-26)
+
+The next user-provided journal records a new part (Omega), restores its existing six staged operations, cancels editing B02, and successfully adds B04.1 at -45 degrees and B04.2 at -90 degrees. The resulting seven operations are reordered successfully. Closing the native Tasks surface while editing B04 retains the editor and it can be reopened and applied. One minimize/restore cycle produces no detach. The journal ends with normal Qt shutdown. It does not demonstrate DXF import, tooling generation, or physical collision clearance.
+
+## Graphical editor lifecycle
+- Retain the full-size native Qt drawing surfaces for DXF and parametric tooling: narrowing them to a task sidebar would impair geometric selection and dimension editing.
+- Use QDialog.open() and finished callbacks instead of nested exec() loops.
+- DXF protects against duplicate queued calculations, cancelled-dialog callbacks, and closing during a calculation.
+- Parametric tool creation refreshes the calling library only after acceptance.
+- Verify both editors in FreeCAD on Windows and macOS, including cancel, retry, successful save/import and window close. Headless tests cover DXF lifecycle guards but not the actual graphical interaction.
+- Keep existing package paths and FCStd compatibility until a separately tested namespace migration is ready.
+
 ## Acceptance checklist (real FreeCAD run still required)
 1. Clean install and activate in FreeCAD 1.1.x on Windows, macOS and Linux; switch workbenches, verify no unrelated toolbar or theme changes.
 2. Minimize/restore FreeCAD 10 times with Tasks active, including FAST/Mesh and simulation; controls and session remain intact. Close/reopen Tasks 20 times; no duplicate callbacks or stale Qt wrappers.
