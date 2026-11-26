@@ -19,6 +19,7 @@ import weakref
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from freecad_smbs.ui.native_preferences import NativePreferences
 from freecad_smbs.ui.localization import interface_language, tr, tr_message
 from freecad_smbs.icon_theme import icon_path as _smbs_icon_path
 
@@ -1643,7 +1644,7 @@ class _PreviewPanel:
                 self._mesh_collision_hits = ()
                 self._mesh_collision_index = None
                 self._mesh_collision_identity = None
-                self._mesh_grouped = QtCore.QSettings("SMBS","BendSeq").value("mesh/grouped_view",True,type=bool)
+                self._mesh_grouped = NativePreferences(QtCore).value("mesh/grouped_view",True,type=bool)
                 self._mesh_sheet_transparency = 35
                 self._mesh_tool_transparency = 55
                 self._collision_inspection = None
@@ -1653,7 +1654,7 @@ class _PreviewPanel:
                 self._collision_display_active = False
                 self._manual_3d_verdicts = {}
                 self._manual_retract_verdicts = {}
-                self._backgauge_settings = QtCore.QSettings("SMBS", "BendSeq")
+                self._backgauge_settings = NativePreferences(QtCore)
                 self.backgauge_model = None
                 # FCStd-specific clamp settings override the shared tooling
                 # library only for this loaded document; never mutate it on open.
@@ -1900,7 +1901,6 @@ class _PreviewPanel:
                 self.add_part_btn = _playback_button(QtCore, QtWidgets, "+", LoadPartCommand().Activated, True)
                 self.add_part_btn.setObjectName("SMBS_AddPart")
                 self.add_part_btn.setIcon(QtGui.QIcon(str(_smbs_icon_path("control_add.svg"))))
-                self.add_part_btn.setIconSize(QtCore.QSize(24, 24))
                 self.add_part_btn.setToolButtonStyle(QtCore.Qt.ToolButtonIconOnly)
                 buttons = (
                     self.add_part_btn, self.reset_btn, self.prev_step_btn, self.play_btn,
@@ -2169,7 +2169,6 @@ class _PreviewPanel:
                     button = QtWidgets.QToolButton(self._task_result_icons)
                     button.setObjectName("SMBS_Result" + key)
                     button.setAutoRaise(True)
-                    button.setIconSize(QtCore.QSize(24, 24))
                     button.setIcon(QtGui.QIcon(str(_smbs_icon_path(
                         "gui_simulation.svg" if key == "FAST" else "control_mesh.svg"
                     ))))
@@ -2187,7 +2186,6 @@ class _PreviewPanel:
                 views = QtWidgets.QTabWidget(self)
                 views.setObjectName("SMBS_ViewerTabs")
                 views.setDocumentMode(True)
-                views.setIconSize(QtCore.QSize(24, 24))
                 views.tabBar().setExpanding(False)
                 self._last_3d_frame_at = -1.0
                 self._last_3d_debug_at = -1.0
@@ -2523,7 +2521,6 @@ class _PreviewPanel:
                     button.setToolTip(tr(hint))
                     button.setMinimumWidth(24)
                     button.setMaximumWidth(16777215)
-                    button.setFixedHeight(27)
                     button.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
                                          QtWidgets.QSizePolicy.Fixed)
                     edit_layout.setStretch(edit_layout.indexOf(button), 1)
@@ -2677,7 +2674,7 @@ class _PreviewPanel:
                 advanced_layout.addWidget(tool_opts_card)
 
                 from smbs_core.kinematics2d.operation_cost import OperationWeights
-                preferences = QtCore.QSettings("SMBS", "BendSeq")
+                preferences = NativePreferences(QtCore)
                 self._operation_weights = {
                     key: float(preferences.value("operation_weights/" + key, default, type=float))
                     for key, default in OperationWeights().to_dict().items()
@@ -2971,7 +2968,6 @@ class _PreviewPanel:
                             "SMBS GUI icon is missing: " + str(asset)
                         )
                     widget.setIcon(QtGui.QIcon(str(asset)))
-                    widget.setIconSize(QtCore.QSize(24, 24))
 
             def _on_trace_checkbox_toggled(self, enabled):
                 if enabled:
@@ -7220,9 +7216,7 @@ class _PreviewPanel:
                             if math.isfinite(number) and 0.0 <= number <= 100000.0:
                                 if self._operation_weights[key] != number:
                                     self._operation_weights[key] = number
-                                    QtCore.QSettings("SMBS", "BendSeq").setValue(
-                                        "operation_weights/" + key, number
-                                    )
+                                    # Restored FCStd weights belong to this project only.
                         except (TypeError, ValueError):
                             warnings.append(tr("operation_cost") + str(key))
 
@@ -7332,7 +7326,7 @@ class _PreviewPanel:
                 if activate_task_dialog(self, "mesh"):
                     return
                 from freecad_smbs.ui.mesh_preferences import mesh_defaults, save_mesh_defaults
-                preferences = QtCore.QSettings("SMBS", "BendSeq")
+                preferences = NativePreferences(QtCore)
                 default_budget, default_overlap = mesh_defaults()
                 dialog = QtWidgets.QDialog(self)
                 dialog.setWindowTitle("Mesh 3D")
@@ -7385,8 +7379,6 @@ class _PreviewPanel:
                 export = QtWidgets.QPushButton(tr("save_latest_collision"))
                 run.setIcon(QtGui.QIcon(str(_smbs_icon_path("control_mesh.svg"))))
                 export.setIcon(QtGui.QIcon(str(_smbs_icon_path("control_collision_export.svg"))))
-                run.setIconSize(QtCore.QSize(24, 24))
-                export.setIconSize(QtCore.QSize(24, 24))
                 form.addRow(run)
                 form.addRow(export)
 
@@ -9125,7 +9117,6 @@ class _PreviewPanel:
                                 )
                                 delete_btn = QtWidgets.QToolButton(controls)
                                 delete_btn.setText("×")
-                                delete_btn.setFixedWidth(25)
                                 delete_btn.setObjectName("SMBS_DeletePrebendRow")
                                 delete_btn.setToolTip(
                                     tr("remove_prebend_and_restore_normal_bend").format(
