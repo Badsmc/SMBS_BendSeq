@@ -72,3 +72,34 @@ class DxfEditorLifetimeTest(unittest.TestCase):
         exec(compile(ast.Module(body=[wrapper], type_ignores=[]),
                      "<queued-start>", "exec"), ns)
         ns["harness"]()()
+
+
+    def test_legacy_and_modern_dxf_layer_names(self):
+        node = self._node(ast.FunctionDef, "_decode_dxf_text")
+        ns = {}
+        exec(compile(ast.Module(body=[node], type_ignores=[]),
+                     "<dxf-decoding>", "exec"), ns)
+        decode = ns["_decode_dxf_text"]
+
+        def file(version, codepage, layer, encoding):
+            text = ("0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\n"
+                    + version + "\n9\n$DWGCODEPAGE\n3\n" + codepage
+                    + "\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n"
+                    + "0\nLINE\n8\n" + layer + "\n0\nENDSEC\n0\nEOF\n")
+            return text.encode(encoding)
+
+        for version, codepage, encoding in (
+            ("AC1015", "ANSI_1251", "cp1251"),
+            ("AC1015", "DOS866", "cp866"),
+            ("AC1021", "ANSI_1252", "utf-8"),
+            ("AC1032", "ANSI_1251", "utf-8-sig"),
+        ):
+            with self.subTest(version=version, codepage=codepage):
+                raw = file(version, codepage, "Линии гиба", encoding)
+                self.assertIn("Линии гиба", decode(raw))
+                self.assertNotIn("\ufffd", decode(raw))
+
+        with self.assertRaises(UnicodeDecodeError):
+            decode(file("AC1021", "ANSI_1251", "Гибы", "cp1251"))
+        with self.assertRaises(LookupError):
+            decode(file("AC1015", "INVALID_CODEC", "Layer", "ascii"))
