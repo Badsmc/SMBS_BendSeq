@@ -4,7 +4,21 @@
 
 **Version 0.2.0 — development preview.** Native FreeCAD integration and Windows runtime checks have been improved. Full cross-platform acceptance and manufacturing validation remain pending.
 
-[Requirements](#requirements) · [Installation](#installation) · [Quick start](#quick-start) · [Collision checks](#collision-checks) · [Tooling](#tooling)
+[Workflow demonstrations](#workflow-demonstrations) · [Requirements](#requirements) · [Installation](#installation) · [Quick start](#quick-start) · [Collision checks](#collision-checks) · [Tooling](#tooling)
+
+## Workflow demonstrations
+
+### 1. DXF flat pattern
+
+Import an ASCII DXF, choose the relevant drawing layers, assign bend angles in operation order, and set the sheet thickness, inside radius, K factor and outline joining tolerance. Select **Calculate** to generate the folded part.
+
+### 2. 3D bending simulation
+
+Preview the selected operation in the FreeCAD viewport with the workpiece, segmented punch and die, clamps and machine geometry. Inspect the setup and workpiece orientation before running sampled collision checks.
+
+### 3. PDF bend instructions
+
+Export a workshop instruction sheet with the flat pattern, operation table, bend angle and direction, backgauge values, punch and die profiles, suggested segment layouts and before/after bending illustrations. Verify collision clearance separately; the illustrations are not a clearance certificate.
 
 ## Requirements
 
@@ -96,9 +110,9 @@ Development tooling editor: [guide](docs/PARAMETRIC_TOOL_GENERATOR.md). Create o
 
 ## Native package migration preview
 
-The `refactor/native-package-layout` branch targets FreeCAD 1.1.3+ and Python 3.11+.
-Install its [branch ZIP](https://github.com/Badsmc/SMBS_BendSeq/archive/refs/heads/refactor/native-package-layout.zip)
-into a single `Mod/BendSeq` folder with FreeCAD closed. Remove duplicate enabled
+The native package layout is integrated into `develop` and targets FreeCAD 1.1.3+ and Python 3.11+.
+Install the [develop ZIP](https://github.com/Badsmc/SMBS_BendSeq/archive/refs/heads/develop.zip)
+into a single addon folder with FreeCAD closed. Remove duplicate enabled
 installations. Keep a copy of your previous installation and FCStd documents.
 The release version stays 0.2.0 until the 0.3.0 acceptance checks succeed.
 
