@@ -8,17 +8,35 @@
 
 ## Workflow demonstrations
 
+The animations below play directly in the README. Click an animation or the **Watch full video** link to open the original MP4.
+
 ### 1. DXF flat pattern
 
 Import an ASCII DXF, choose the relevant drawing layers, assign bend angles in operation order, and set the sheet thickness, inside radius, K factor and outline joining tolerance. Select **Calculate** to generate the folded part.
+
+![DXF — bend-line selection and angle assignment](docs/media/dxf.png)
+
+[![DXF — workflow demonstration](docs/media/dxf.gif)](docs/media/dxf.mp4)
+
+[▶ Watch full DXF video](docs/media/dxf.mp4)
 
 ### 2. 3D bending simulation
 
 Preview the selected operation in the FreeCAD viewport with the workpiece, segmented punch and die, clamps and machine geometry. Inspect the setup and workpiece orientation before running sampled collision checks.
 
+![Bend — 3D workpiece and press-brake tooling](docs/media/bend.png)
+
+[![Bend — bending simulation](docs/media/bend.gif)](docs/media/bend.mp4)
+
+[▶ Watch full Bend video](docs/media/bend.mp4)
+
 ### 3. PDF bend instructions
 
 Export a workshop instruction sheet with the flat pattern, operation table, bend angle and direction, backgauge values, punch and die profiles, suggested segment layouts and before/after bending illustrations. Verify collision clearance separately; the illustrations are not a clearance certificate.
+
+[![PDF — bend-instruction demonstration](docs/media/pdf.gif)](docs/media/pdf.mp4)
+
+[▶ Watch full PDF video](docs/media/pdf.mp4)
 
 ## Requirements
 
