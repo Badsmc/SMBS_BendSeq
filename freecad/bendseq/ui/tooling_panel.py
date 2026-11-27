@@ -767,7 +767,8 @@ class ToolingPanel:
                     from freecad.bendseq.core.geometry_backend.io.tooling_library import ToolingLibraryError
 
                     try:
-                        desc = self.library.add_tool(Path(file_path), kind=("punch", "die")[cur_idx])
+                        from freecad.bendseq.integration.fcstd_tool_import import import_fcstd_tool
+                        desc = import_fcstd_tool(self.library, Path(file_path), kind=("punch", "die")[cur_idx])
                         self._set_status(tr("added_tool", tool=desc.tool_id, kind=desc.kind))
                         self._refresh_lists()
                         target_list = self.punch_list if desc.kind == "punch" else self.die_list
