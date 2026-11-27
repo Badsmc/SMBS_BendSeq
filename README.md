@@ -4,6 +4,8 @@
 
 **Version 0.2.0 — development preview.** Native FreeCAD integration and Windows runtime checks have been improved. Full cross-platform acceptance and manufacturing validation remain pending.
 
+> **Intended use — preliminary assessment only.** This addon helps users explore bend sequences and assess a part before production. Calculated sequences, workpiece orientations, backgauge values and collision results may be incorrect or incomplete. A sequence shown as clear is not a guarantee that the part can be manufactured or that the machine setup is safe. Verify the proposed sequence, tooling, clearances and machine settings independently with a qualified operator before using them on a press brake.
+
 [Workflow demonstrations](#workflow-demonstrations) · [Requirements](#requirements) · [Installation](#installation) · [Quick start](#quick-start) · [Collision checks](#collision-checks) · [Tooling](#tooling)
 
 ## Workflow demonstrations
