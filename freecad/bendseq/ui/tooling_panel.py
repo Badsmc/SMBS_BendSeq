@@ -480,8 +480,13 @@ class ToolingPanel:
                             # A loaded FCStd owns its own clamp configuration.
                             self._workspace._project_clamp_config = new_cfg
                         self._draw_clamps(new_cfg)
+                        from freecad.bendseq.core.kinematics2d.developer_debug_log import debug_event
+                        debug_event("CLAMP_CONFIG_SAVED",
+                                    source=("project" if self._workspace is not None
+                                            and self._workspace.session is not None else "library"),
+                                    previous=cfg.to_dict(), config=new_cfg.to_dict())
                         if new_cfg != cfg and self._workspace is not None:
-                            self._workspace._on_tool_inventory_changed()
+                            self._workspace._on_clamp_config_changed()
                         self._set_status(tr("clamp_configuration_saved"))
                         QtWidgets.QMessageBox.information(
                             self, tr("tooling_ab652d22"), (
