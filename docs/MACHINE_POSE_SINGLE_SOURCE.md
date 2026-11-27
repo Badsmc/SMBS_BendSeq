@@ -10,7 +10,7 @@ geometry. No separate fast-search sheet representation is introduced.
 The single phase-aware entry point is:
 
 ```python
-from smbs_core.kinematics2d.machine_pose_contract import compute_machine_pose
+from freecad.bendseq.core.kinematics2d.machine_pose_contract import compute_machine_pose
 
 placement = compute_machine_pose(
     fold_state, bend_id,

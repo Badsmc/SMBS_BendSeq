@@ -1,9 +1,9 @@
 """The headless catalog accepts a UI translator without importing FreeCAD."""
 import unittest
 
-from freecad_smbs.ui.localization import tr
-from freecad_smbs.ui.localization import tr_message
-from smbs_core.kinematics2d.sequence_catalog import parse_diagnostic
+from freecad.bendseq.ui.localization import tr
+from freecad.bendseq.ui.localization import tr_message
+from freecad.bendseq.core.kinematics2d.sequence_catalog import parse_diagnostic
 
 
 class SequenceCatalogLanguageTest(unittest.TestCase):

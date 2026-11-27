@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <package format="1" xmlns="https://wiki.freecad.org/Package_Metadata">
   <name>SMBS BendSeq</name>
-  <description>PressBrakeSim workbench for sheet-metal bend sequence planning, tooling setup, 3D simulation, and sampled collision checks. Initial public preview. See LICENSE.md for CAD asset provenance.</description>
-  <version>0.1.0</version>
-  <date>2026-11-25</date>
+  <description>PressBrakeSim workbench for sheet-metal bend sequence planning, tooling setup, 3D simulation, and sampled collision checks. For preliminary part assessment only: calculated sequences and collision results may be incorrect or incomplete and require independent verification before machine use. Public preview. See LICENSE.md for CAD asset provenance.</description>
+  <version>0.2.0</version>
+  <date>2026-11-27</date>
   <maintainer email="109237230+Badsmc@users.noreply.github.com">Badsmc</maintainer>
   <license file="LICENSE-Code">LGPL-2.1-or-later</license>
   <license file="LICENSE-Assets">CC-BY-SA-4.0</license>
   <url type="repository" branch="main">https://github.com/Badsmc/SMBS_BendSeq</url>
   <url type="readme">https://github.com/Badsmc/SMBS_BendSeq/raw/main/README.md</url>
   <url type="bugtracker">https://github.com/Badsmc/SMBS_BendSeq/issues</url>
-  <icon>freecad_smbs/resources/icons/gui_workbench.svg</icon>
-  <freecadmin>1.1.0</freecadmin>
+  <icon>freecad/bendseq/resources/icons/gui_workbench.svg</icon>
+  <freecadmin>1.1.3</freecadmin>
   <pythonmin>3.11</pythonmin>
   <tag>Sheet metal</tag>
   <tag>Press brake</tag>
@@ -19,7 +19,7 @@
   <content>
     <workbench>
       <name>PressBrakeSim</name>
-      <icon>freecad_smbs/resources/icons/gui_workbench.svg</icon>
+      <icon>freecad/bendseq/resources/icons/gui_workbench.svg</icon>
       <classname>SMBSWorkbench</classname>
       <subdirectory>./</subdirectory>
       <depend type="addon" optional="true">SheetMetal Workbench</depend>

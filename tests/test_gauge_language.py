@@ -2,8 +2,8 @@
 import unittest
 from types import SimpleNamespace
 
-from freecad_smbs.ui.localization import tr
-from smbs_core.kinematics2d.gauge_preview import visual_gauge_target
+from freecad.bendseq.ui.localization import tr
+from freecad.bendseq.core.kinematics2d.gauge_preview import visual_gauge_target
 
 
 class GaugeLanguageTest(unittest.TestCase):

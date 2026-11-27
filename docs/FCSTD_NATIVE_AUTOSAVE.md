@@ -6,7 +6,8 @@
 2. After loading the part, SMBS configuration changes remain in the open session.
 3. **FreeCAD → File → Save / Ctrl+S** automatically updates the embedded
    `SMBS_Data.SessionJSON` *before* native FCStd serialization. A separate JSON
-   export or a "Save to FCStd" button is not required.
+   export is not required. The redundant Save to FCStd and Restore from FCStd
+   controls have been removed from Settings.
 4. When reopening an FCStd while PressBrakeSim is active, the addon finds
    `SMBS_Data`, reads the **exact name** of the associated unfold, and loads it
    automatically. If the file was opened in another workbench, switching to
@@ -36,7 +37,15 @@ JSON size is limited to 4 MiB. Missing `tooling.backgauge` and
 - Automatic loading requires valid `SMBS_Data` and its specified unfold.
   An arbitrary CAD object is not selected in place of a missing unfold.
 - The geometry is compared again using SHA256. If it differs, automatic
-  overwriting of the old JSON is disabled pending manual resolution.
+  overwriting of the old JSON is disabled pending manual resolution. A native
+  save reports the blocked BendSeq attachment in Report View and task status;
+  the CAD document itself can still be saved. Manual verification does not
+  bypass this protection. To retry restoration, resolve the original error
+  (for example, restore compatible source geometry) and reopen the document.
+  If intentionally starting a new BendSeq session with changed geometry,
+  first make a separate backup copy of the original FCStd. Only in a separate
+  working copy, remove the old SMBS_Data object and reopen/reload the part
+  before native Save; this discards the old embedded plan in that copy only.
 - A JSON generation error does not cancel saving the CAD model itself.
   Report View shows the reason, and previously saved SMBS data may remain unchanged.
 - Restoring clamp settings **does not overwrite the global**

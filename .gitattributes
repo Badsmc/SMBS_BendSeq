@@ -1,2 +1,7 @@
 # Preserve source DXF line endings and trailing spaces in linetype descriptions.
 *.dxf whitespace=-blank-at-eol,cr-at-eol
+
+# Development-only files are retained in Git, omitted from installation archives.
+/tests export-ignore
+/scripts export-ignore
+/.github export-ignore

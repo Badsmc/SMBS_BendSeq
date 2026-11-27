@@ -1,0 +1,34 @@
+{
+  "schema_version": "1.0",
+  "id": "machine_frame",
+  "kind": "machine_frame",
+  "source": "machine_frame.FCStd",
+  "datums": {
+    "mounting_plane": {
+      "kind": "plane",
+      "origin": [
+        0,
+        0,
+        0
+      ],
+      "normal": [
+        0,
+        0,
+        1
+      ],
+      "tolerance_mm": 0.05
+    }
+  },
+  "visual_mount": {
+    "assembly_object": "Assembly",
+    "bed_object": "Body002",
+    "bed_face": "Face1",
+    "operator_y_sign": -1,
+    "moving_object": "Body004",
+    "moving_face": "Face1"
+  },
+  "metadata": {
+    "description": "User provided machine frame",
+    "motion_contract": "Fixed assembly bodies lh, rh, down, up; moving z layer and clamps follow punch ram Z. Common XY origin at bed."
+  }
+}

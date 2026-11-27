@@ -1,16 +1,50 @@
-# CAD asset provenance and redistribution review
+# CAD asset provenance
 
-This inventory records an unresolved release gate; it does not assert ownership or permission from an external supplier.
+## Maintainer confirmation — 2026-11-27
 
-| Location | Contents | Review status |
-| --- | --- | --- |
-| toollibrary/punch/ and toollibrary/die/ | Empty distributed directories; local user-created/imported tools only | No bundled punch/die files; user is responsible for permissions for their own tools |
-| toollibrary/Backgauge/, Clamp/, machine_frame/, presses/ | Machine and fixture models | Confirm original authorship or permission |
-| demo/parts/ | Sheet-metal example geometry | Confirm ownership and that no employer/customer restrictions apply |
-| demo/legacy-tooling/ | Remaining fixture metadata; historical punch/die models and sets removed | Confirm provenance of remaining fixtures |
-| Historical diagnostic scenes and bend-sequence JSON | Removed from published branch and tag histories | Not distributed |
-| freecad_smbs/resources/ | Project artwork and templates | Original project assets licensed CC-BY-SA-4.0; any separately sourced asset retains its terms |
+The repository maintainer, Badsmc, explicitly confirmed that all 20 CAD models listed below and their accompanying fixture settings were created by them. This records the author's declaration; it is not an independent provenance audit.
 
-For any externally sourced CAD file, record the source URL or supplier, author, applicable license or permission, and attribution. If permission cannot be established, replace the file with an original synthetic example before official Addon Index distribution. Punch and die CAD files and sidecars have been removed from the current distribution. The published branches and tags were rewritten with git-filter-repo to remove the audited tooling files, diagnostic scenes, historical tooling-data reports and duplicate blobs. Old commit objects, pull-request references, third-party copies and GitHub caches may still retain previous content. History rewriting is not a guarantee of complete erasure or legal clearance.
+These original non-code resources are distributed under the project's existing **CC-BY-SA-4.0** license; see [LICENSE-Assets](../LICENSE-Assets) and [licensing and attribution](../LICENSE.md). Attribution: Badsmc / SMBS BendSeq contributors.
 
-The code license is not a certification of machine geometry, collision clearance or safe manufacturing.
+The previously pending authorship review for these files is resolved by this confirmation.
+
+## CAD models covered by the confirmation
+
+- `freecad/bendseq/resources/default_toollibrary/Backgauge/Backgauge.FCStd`
+- `freecad/bendseq/resources/default_toollibrary/Clamp/Clamp.FCStd`
+- `freecad/bendseq/resources/default_toollibrary/machine_frame/machine_frame.FCStd`
+- `freecad/bendseq/resources/default_toollibrary/presses/cncbender.FCStd`
+- `demo/parts/angle-135.FCStd`
+- `demo/parts/box-100-inward-50-outward-expected-blocked.FCStd`
+- `demo/parts/box-100-outward-50-inward.FCStd`
+- `demo/parts/four-bend-sequence.FCStd`
+- `demo/parts/l-profile-30-6-expected-blocked.FCStd`
+- `demo/parts/l-profile.FCStd`
+- `demo/parts/square-inward-200-25-10.FCStd`
+- `demo/parts/square-outward-200-25-10.FCStd`
+- `demo/parts/u-profile-10-10-20-expected-blocked.FCStd`
+- `demo/parts/u-profile-10-15-10-alternate-punch.FCStd`
+- `demo/parts/u-profile-10-30-10.FCStd`
+- `demo/parts/u-profile-60deg-30deg.FCStd`
+- `demo/parts/u-profile-90deg-90deg.FCStd`
+- `demo/parts/z-profile-10-20-10-expected-blocked.FCStd`
+- `demo/parts/z-profile-10-20-10.FCStd`
+- `demo/parts/z-profile.FCStd`
+
+## Accompanying fixture settings
+
+- `freecad/bendseq/resources/default_toollibrary/Backgauge/Backgauge.tooling.json`
+- `freecad/bendseq/resources/default_toollibrary/Clamp/Clamp.tooling.json`
+- `freecad/bendseq/resources/default_toollibrary/machine_frame/machine_frame.tooling.json`
+
+The unused historical copies of fixture settings in `demo/legacy-tooling/` were removed during repository cleanup on 2026-11-27. The active settings listed above remain bundled.
+
+## Distribution scope
+
+No punch or die CAD models or tooling sidecars are bundled in the distributed punch/die directories. User-imported tooling remains subject to its own ownership and licensing terms.
+
+Historical punch/die assets and diagnostic scenes were removed from published branch and tag histories. This confirmation applies to the files listed above and does not establish rights in removed third-party content or copies retained outside the current distribution.
+
+For future externally sourced CAD assets, record their source, author, license or redistribution permission, and required attribution before distribution.
+
+Authorship and licensing do not certify machine geometry, collision clearance or manufacturing feasibility.

@@ -2,9 +2,9 @@ name: Addon preflight
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, 'feature/**', 'refactor/**', 'fix/**']
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, 'feature/**', 'refactor/**', 'fix/**']
   workflow_dispatch:
 
 permissions:
@@ -19,10 +19,34 @@ jobs:
         python: ['3.11', '3.12']
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
       - name: Inspect runtime dependencies and manifest
         run: python scripts/addon_preflight.py
+      - name: Check generated Qt translation source
+        run: python scripts/build_qt_translations.py --check
+      - name: Guard unchanged core and FCStd session algorithms
+        run: python scripts/check_core_migration.py
+      - name: Compile all Python sources
+        run: python -m compileall -q freecad scripts tests Init.py InitGui.py
       - name: Run headless regression tests
         run: python -m unittest discover -s tests -v
+
+  qt-translations:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Qt Linguist development tool
+        run: sudo apt-get update && sudo apt-get install -y qt6-l10n-tools
+      - name: Compile and validate native Qt catalog
+        run: python3 scripts/build_qt_translations.py --check --compile --lrelease /usr/lib/qt6/bin/lrelease
+      - name: Check compiled catalog is current
+        run: git diff --exit-code -- freecad/bendseq/resources/translations/BendSeq_ru.qm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BendSeq-Qt-translations
+          path: freecad/bendseq/resources/translations/BendSeq_ru.qm
+          if-no-files-found: error

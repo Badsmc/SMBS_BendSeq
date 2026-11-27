@@ -3,8 +3,8 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 import unittest
 
-import freecad_smbs
-import smbs_core
+import freecad.bendseq
+import freecad.bendseq.core
 
 ROOT = Path(__file__).resolve().parents[1]
 NS = {"p": "https://wiki.freecad.org/Package_Metadata"}
@@ -15,8 +15,8 @@ class ReleaseVersionTest(unittest.TestCase):
         package = ET.parse(ROOT / "package.xml").getroot()
         version = package.findtext("p:version", namespaces=NS)
         self.assertRegex(version, r"^\d+\.\d+\.\d+$")
-        self.assertEqual(version, freecad_smbs.__version__)
-        self.assertEqual(version, smbs_core.__version__)
+        self.assertEqual(version, freecad.bendseq.__version__)
+        self.assertEqual(version, freecad.bendseq.core.__version__)
         self.assertIn(f"## {version} ", (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"))
         self.assertIn(version, (ROOT / "README.md").read_text(encoding="utf-8"))
         icon = package.findtext("p:icon", namespaces=NS)
