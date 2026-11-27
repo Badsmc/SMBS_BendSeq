@@ -4481,6 +4481,26 @@ Simulation and Verification are ready.</source>
       <translation>Общий набор активен в Coin3D и OCC · {length:.3f} мм</translation>
     </message>
     <message>
+      <source>{bends} operations could take {strokes} strokes. Candidate groups:</source>
+      <comment>shared_strokes_count</comment>
+      <translation>Операций: {bends}. Возможное число ходов: {strokes}. Кандидаты для объединения:</translation>
+    </message>
+    <message>
+      <source>Preliminary suggestions for the current order. Check tooling coverage, clearance in the gaps, backgauge and simultaneous movement separately. Simulation and exports still show the individual bends.</source>
+      <comment>shared_strokes_limits</comment>
+      <translation>Предварительная оценка для текущего порядка. Отдельно проверьте оснастку, зазоры в разрывах, задний упор и одновременное движение. Симуляция и экспорт показывают отдельные гибы.</translation>
+    </message>
+    <message>
+      <source>No compatible consecutive bend sections were found in the current order.</source>
+      <comment>shared_strokes_none</comment>
+      <translation>В текущем порядке нет соседних операций с совместимыми участками гиба.</translation>
+    </message>
+    <message>
+      <source>Preview shared strokes</source>
+      <comment>shared_strokes_preview</comment>
+      <translation>Возможные совместные ходы</translation>
+    </message>
+    <message>
       <source>short side toward the backgauge; CONTACT NOT CHECKED</source>
       <comment>short_side_toward_the_backgauge_contact_not_checked</comment>
       <translation>короткая сторона к упору; КОНТАКТ НЕ ПРОВЕРЕН</translation>

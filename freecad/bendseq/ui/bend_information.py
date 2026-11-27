@@ -237,6 +237,32 @@ def show_bend_information(workspace, embed):
             table.setItem(row, col, qt.QTableWidgetItem(value))
     table.resizeColumnsToContents()
     layout.addWidget(table)
+    shared_strokes = qt.QPushButton(tr("shared_strokes_preview"))
+    layout.addWidget(shared_strokes)
+
+    def preview_shared_strokes():
+        from freecad.bendseq.core.kinematics2d.shared_strokes import propose_shared_strokes
+
+        session = workspace.session
+        if session is None:
+            return
+        steps = session.controller.operation_steps
+        groups = propose_shared_strokes(
+            steps, session.fold_state.bends,
+            workspace._effective_operation_orientation_map(),
+        )
+        candidates = [
+            f"{index}. {' + '.join(group)}"
+            for index, group in enumerate(groups, start=1) if len(group) > 1
+        ]
+        if candidates:
+            summary = tr("shared_strokes_count", bends=len(steps), strokes=len(groups))
+            message = "\n\n".join((summary, "\n".join(candidates), tr("shared_strokes_limits")))
+        else:
+            message = tr("shared_strokes_none")
+        qt.QMessageBox.information(dialog, tr("shared_strokes_preview"), message)
+
+    shared_strokes.clicked.connect(preview_shared_strokes)
     prepare = qt.QPushButton(tr("prepare_flat_pattern_for_techdraw"))
     prepare.setToolTip(tr("create_the_outline_and_bend_lines_for_the_standard"))
     layout.addWidget(prepare)

@@ -1089,5 +1089,9 @@
   "flange_below_die_opening": "{bend}: flange {flange:.2f} mm is shorter than die opening V={opening:.2f} mm. This die is unsuitable under the minimum-flange rule.",
   "die_flange_warning_title": "Die is unsuitable for the flange",
   "die_opening_unknown_flange_check": "Die V opening is unspecified: minimum-flange compatibility cannot be checked.",
-  "flange_dimensions_unknown": "Flange dimension unavailable for: {bends}. Compatibility is unverified."
+  "flange_dimensions_unknown": "Flange dimension unavailable for: {bends}. Compatibility is unverified.",
+  "shared_strokes_preview": "Preview shared strokes",
+  "shared_strokes_count": "{bends} operations could take {strokes} strokes. Candidate groups:",
+  "shared_strokes_limits": "Preliminary suggestions for the current order. Check tooling coverage, clearance in the gaps, backgauge and simultaneous movement separately. Simulation and exports still show the individual bends.",
+  "shared_strokes_none": "No compatible consecutive bend sections were found in the current order."
 }
