@@ -1,0 +1,73 @@
+name: Publish README demonstration media
+on:
+  push:
+    branches: [develop]
+    paths: ['bendseq_readme_publish.zip']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: publish-readme-media-develop
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'Badsmc/SMBS_BendSeq' && github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+      - name: Validate archive and publish media
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import zipfile
+
+          archive = Path("bendseq_readme_publish.zip")
+          if hashlib.sha256(archive.read_bytes()).hexdigest() != "f340f38657471597538f0334c6d65ab8ffb73179248b31b5145681cdc9029ee6":
+              raise SystemExit("Unexpected archive checksum; nothing published.")
+
+          readme = Path("README.md")
+          content = readme.read_text(encoding="utf-8")
+          sections = [
+              ("DXF", "DXF bend-line editor", "DXF import and folded-part generation", "### 2. 3D bending simulation"),
+              ("Bend", "3D press-brake simulation with segmented tooling", "3D bending simulation", "### 3. PDF bend instructions"),
+              ("PDF", "Exported bend instruction sheet", "PDF bend instructions", "## Requirements"),
+          ]
+          files = {}
+          with zipfile.ZipFile(archive) as z:
+              for name, alt, title, following in sections:
+                  for ext in ("png", "gif", "mp4"):
+                      path = Path("docs/media") / (name + "." + ext)
+                      data = z.read(path.as_posix())
+                      if path.exists() and path.read_bytes() != data:
+                          raise SystemExit(f"Refusing to overwrite different media: {path}")
+                      files[path] = data
+                  marker = f"<!-- workflow-media:{name} -->"
+                  if marker in content:
+                      continue
+                  if content.count(following + "\n") != 1:
+                      raise SystemExit(f"Cannot locate section boundary: {following}")
+                  block = (
+                      f'{marker}\n'
+                      f'<img src="docs/media/{name}.png" alt="{alt}" width="820">\n\n'
+                      f'<img src="docs/media/{name}.gif" alt="{title} — animated preview" width="820">\n\n'
+                      f'[Watch full video: {title} (MP4)](docs/media/{name}.mp4?raw=true)\n\n'
+                  )
+                  content = content.replace(following + "\n", block + following + "\n", 1)
+          for path, data in files.items():
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_bytes(data)
+          readme.write_text(content, encoding="utf-8")
+          print("Validated and extracted", len(files), "media files.")
+          PY
+          git add README.md docs/media/{DXF,Bend,PDF}.{png,gif,mp4}
+          git rm -- bendseq_readme_publish.zip
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Publish DXF, bending and PDF demonstration media'
+          git push origin HEAD:refs/heads/develop
