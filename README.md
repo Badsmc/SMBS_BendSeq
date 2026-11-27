@@ -136,3 +136,8 @@ The 0.2.0 package requires FreeCAD 1.1.3+ and Python 3.11+. Install it into a si
 Writable tooling, segment inventories, configs, templates and saved sequences are stored under `FreeCAD.getUserAppDataDir()/BendSeq/`. Existing installation data is copied and SHA-256 verified on first library access; original files and existing destination files are preserved. Conflicts are retained for review.
 
 See [data migration, acceptance and rollback](docs/NATIVE_PACKAGE_MIGRATION.md).
+
+## Contributors
+
+- [Badsmc](https://github.com/Badsmc) — project creator and maintainer; CAD models, requirements and practical testing.
+- [ChatGPT (OpenAI)](https://chatgpt.com/) — AI assistance with code development, debugging, repository organization and documentation.
