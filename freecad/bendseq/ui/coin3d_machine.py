@@ -277,7 +277,7 @@ class CoinMachineScene:
         self.gauges.whichChild.setValue(self.coin.SO_SWITCH_NONE)
         self.clamps.whichChild.setValue(self.coin.SO_SWITCH_NONE)
 
-    def update_clamps(self, library_root):
+    def update_clamps(self, library_root, *, project_config=None):
         from dataclasses import replace
 
         from freecad.bendseq.core.geometry_backend.io.clamp_validator import ClampValidatorError, load_clamp_config
@@ -285,16 +285,21 @@ class CoinMachineScene:
 
         config_path = library_root / "config.json"
         try:
-            try:
-                stamp = config_path.stat().st_mtime_ns
-            except FileNotFoundError:
-                stamp = None
-            key = (library_root, stamp, self.ram_mount_width)
+            if project_config is not None:
+                # A restored or edited FCStd session owns its clamp config.
+                # Include the immutable value in the key, not the file mtime.
+                key = ("project", library_root, project_config, self.ram_mount_width)
+            else:
+                try:
+                    stamp = config_path.stat().st_mtime_ns
+                except FileNotFoundError:
+                    stamp = None
+                key = ("library", library_root, stamp, self.ram_mount_width)
             if key != self.clamp_config_key:
-                self.clamp_config_key = key
                 self.clamp_spans = ()
                 self.clamp_config_error = ""
-                config = load_clamp_config(library_root)
+                config = (project_config if project_config is not None
+                          else load_clamp_config(library_root))
                 if not config.centres_mm and self.ram_mount_width > 0:
                     # Unconfigured library: fill the CAD ram with a centred
                     # nominal row for display, independently of the tools.
@@ -304,7 +309,13 @@ class CoinMachineScene:
                 self.clamp_height, self.clamp_depth = config.height_mm, config.depth_mm
                 self._position_ram()
                 self.clamp_spans = clamp_spans_for_centres(config.centres_mm, config.width_mm)
+                self.clamp_config_key = key
+                from freecad.bendseq.core.kinematics2d.developer_debug_log import debug_event
+                debug_event("CLAMP_PREVIEW_CONFIG", source=key[0],
+                            config=config.to_dict(), spans_xm_mm=self.clamp_spans,
+                            ram_mount_width_mm=self.ram_mount_width)
         except (OSError, ClampValidatorError) as exc:
+            self.clamp_config_key = None
             self.clamp_config_error = tr("clamps_baec283a", error=exc)
         spans = self.clamp_spans if not self.clamp_config_error else ()
         if not spans:

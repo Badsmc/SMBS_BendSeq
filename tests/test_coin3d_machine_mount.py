@@ -111,3 +111,59 @@ class MachineFrameTest(unittest.TestCase):
             before=machine._frame_file_key(root)
             path.write_bytes(b"edited")
             self.assertNotEqual(before,machine._frame_file_key(root))
+
+
+class ClampPreviewTest(unittest.TestCase):
+    def test_project_dimensions_override_library_and_rebuild_on_edit(self):
+        from dataclasses import replace
+        from unittest.mock import Mock
+        from freecad.bendseq.core.geometry_backend.io.clamp_validator import ClampConfig, save_clamp_config
+
+        scene = machine.CoinMachineScene.__new__(machine.CoinMachineScene)
+        scene.coin = NS(SO_SWITCH_NONE=-1, SO_SWITCH_ALL=-3, SoSeparator=Mock)
+        scene.clamps = Mock()
+        scene.clamp_config_key = None
+        scene.clamp_key = None
+        scene.clamp_spans = ()
+        scene.clamp_config_error = ""
+        scene.clamp_height, scene.clamp_depth = 25.0, 50.0
+        scene.ram_motion = FakeTransform()
+        scene.ram_mount_width = 500
+        scene.last_ram_z = 6.5
+        scene.punch_top = 100
+        cfg = replace(ClampConfig.from_defaults(), width_mm=40.0, height_mm=35.0,
+                      depth_mm=60.0, positions_mm=(-80.0, 80.0))
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            global_cfg = replace(cfg, width_mm=20.0, height_mm=25.0, depth_mm=50.0)
+            save_clamp_config(root, global_cfg)
+            with patch.object(machine, "_virtual_clamps") as mesh:
+                self.assertEqual(scene.update_clamps(root, project_config=cfg), "")
+                self.assertEqual(scene.clamp_spans, ((-100.0,-60.0),(60.0,100.0)))
+                mesh.assert_called_once_with(scene.coin, scene.clamp_spans, 35.0,60.0)
+                self.assertEqual(scene.ram_motion.value,(0,0,141.5))
+                scene.update_clamps(root, project_config=cfg)
+                self.assertEqual(mesh.call_count,1)
+                edited=replace(cfg,width_mm=60.0,height_mm=45.0,depth_mm=70.0)
+                scene.update_clamps(root, project_config=edited)
+                self.assertEqual(scene.clamp_spans,((-110.0,-50.0),(50.0,110.0)))
+                mesh.assert_called_with(scene.coin,scene.clamp_spans,45.0,70.0)
+                self.assertEqual(scene.ram_motion.value,(0,0,151.5))
+                self.assertEqual(mesh.call_count,2)
+                # Another document without embedded clamps uses the library.
+                scene.update_clamps(root)
+                self.assertEqual(scene.clamp_spans,((-90.0,-70.0),(70.0,90.0)))
+                mesh.assert_called_with(scene.coin,scene.clamp_spans,25.0,50.0)
+                self.assertEqual(mesh.call_count,3)
+                from freecad.bendseq.core.geometry_backend.io.clamp_validator import load_clamp_config
+                self.assertEqual(load_clamp_config(root),global_cfg)
+
+    def test_workspace_forwards_project_config(self):
+        import ast
+        root = Path(__file__).resolve().parents[1] / "freecad/bendseq"
+        tree = ast.parse((root/"commands/pressbrake_2d.py").read_text(encoding="utf-8"))
+        calls = [n for n in ast.walk(tree) if isinstance(n,ast.Call)
+                 and isinstance(n.func,ast.Attribute) and n.func.attr=="update_machine"]
+        self.assertEqual(len(calls),1)
+        keyword=next(k for k in calls[0].keywords if k.arg=="project_clamp_config")
+        self.assertEqual(ast.unparse(keyword.value),"self._project_clamp_config")

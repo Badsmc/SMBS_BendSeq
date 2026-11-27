@@ -3443,6 +3443,7 @@ class _PreviewPanel:
                         self.tool_library.library_root, tooling, ram_z,
                         frame_visible=self.machine_preview_checkbox.isChecked(),
                         gauge_stations=stations, gauge_contact=contact,
+                        project_clamp_config=self._project_clamp_config,
                     )
                     section_preview = proposal[1] if show_proposal else None
                     if show_proposal:
@@ -3573,7 +3574,6 @@ class _PreviewPanel:
                 show_pdf_export_task(self, embed_task_dialog)
 
             def _tool_assembly_inputs(self, *, require_pair=True):
-                from freecad.bendseq.core.geometry_backend.io.clamp_validator import load_clamp_config
                 from freecad.bendseq.core.kinematics2d.segment_assembly_planner import read_inventory
 
                 punch, die = self.tooling_setup.punch, self.tooling_setup.die
@@ -3592,11 +3592,7 @@ class _PreviewPanel:
                 p_inventory, d_inventory = stock(punch), stock(die)
                 if require_pair and (not p_inventory or not d_inventory):
                     raise ValueError(tr("set_punch_and_die_inventory_using_segments_and_quantities"))
-                clamp_config = (
-                    self._project_clamp_config
-                    if self._project_clamp_config is not None
-                    else load_clamp_config(self.tool_library.library_root)
-                )
+                clamp_config = self._current_clamp_config()
                 return p_inventory, d_inventory, clamp_config
 
             def _tool_assembly_order(self):
@@ -3724,6 +3720,13 @@ class _PreviewPanel:
                     self.status.setText(tr("stock_or_clamps_changed_calculate_the_layout_again"))
                 elif kind is None:
                     self.draw()
+
+            def _on_clamp_config_changed(self):
+                """Invalidate layout proposals and refresh the visible machine immediately."""
+                self._segment_display_cache = None
+                self._on_tool_inventory_changed()
+                if self.session is not None:
+                    self._update_3d_preview(force=True)
 
             def _show_manual_tooling_assembly(self):
                 """Show per-bend proposals and an explicit common layout for native OCC."""
