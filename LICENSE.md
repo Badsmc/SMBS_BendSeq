@@ -16,7 +16,7 @@ Original project documentation, artwork, icons, templates and other non-code res
 
 These grants apply only to rights held by the project's licensors. They do not relicense third-party software, trademarks, manufacturer's drawings or externally supplied models.
 
-The `toollibrary/`, `demo/parts/`, `demo/legacy-tooling/` and `demo/SMBendTests/` directories contain supplied CAD geometry, tooling sidecars or historical data. In particular, named commercial punch and die profiles and models derived from supplied DXFs require a provenance and redistribution-rights check before official distribution. No third-party permission is asserted by the project license. Original project-owned material in these directories is covered by the appropriate license above; independently owned material retains its existing terms. See [CAD asset provenance](docs/ASSET_PROVENANCE.md).
+The bundled machine and fixture models in `freecad/bendseq/resources/default_toollibrary/`, demonstration models in `demo/parts/`, and accompanying fixture settings listed in [CAD asset provenance](docs/ASSET_PROVENANCE.md) were confirmed by repository maintainer Badsmc on 2026-11-27 to be their own creations. These original non-code resources are distributed under CC-BY-SA-4.0, with attribution to Badsmc / SMBS BendSeq contributors. No punch or die CAD models are bundled in the distributed punch/die directories. This declaration does not relicense removed third-party content or user-imported tooling.
 
 FreeCAD and SheetMetal are separate projects under their own licenses. Their use as dependencies does not change their licenses.
 

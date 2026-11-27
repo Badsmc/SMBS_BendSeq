@@ -56,5 +56,5 @@ assert licenses == {"LGPL-2.1-or-later": "LICENSE-Code", "CC-BY-SA-4.0": "LICENS
 for filename in licenses.values():
     assert (ROOT / filename).is_file()
 print("License identifiers and referenced license files: OK")
-print("RELEASE GATE: confirm CAD asset provenance and redistribution permissions")
+print("CAD provenance: maintainer authorship confirmation recorded in docs/ASSET_PROVENANCE.md (2026-11-27)")
 
