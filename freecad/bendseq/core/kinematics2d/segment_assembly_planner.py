@@ -278,7 +278,7 @@ class _PunchLayout:
         return round(self.short_support, 9), -abs(self.shift_mm)
 
 
-def _place_punch(lengths, bend_length_mm, config, zones, max_clamp_gap):
+def _place_punch(lengths, bend_length_mm, config, zones, max_clamp_gap, *, full_coverage=False):
     cursor = -math.fsum(lengths) / 2.0
     chain = []
     for length in lengths:
@@ -290,6 +290,9 @@ def _place_punch(lengths, bend_length_mm, config, zones, max_clamp_gap):
     best = None
     for shift in _punch_shifts(chain, bend_length_mm, zones, config):
         shifted = tuple(PunchSegment(seg.start_mm + shift, seg.end_mm + shift) for seg in chain)
+        if full_coverage and (shifted[0].start_mm > -bend_length_mm / 2 + CONTACT_EPS_MM
+                              or shifted[-1].end_mm < bend_length_mm / 2 - CONTACT_EPS_MM):
+            continue
         validation = _validate_clamps(shifted, config)
         if validation is None:
             continue
@@ -307,13 +310,13 @@ def _place_punch(lengths, bend_length_mm, config, zones, max_clamp_gap):
 
 
 def plan_punch_for_bend(punch_inventory, bend_length_mm,
-                        clamps: ClampConfig, allowance_mm=15.0):
+                        clamps: ClampConfig, allowance_mm=15.0, *, full_coverage=False):
     """Find the best supported punch chain independently of the die stock."""
     if not isinstance(clamps, ClampConfig):
         raise AssemblyPlanningError("clamp configuration required")
     p_solutions, p_limited = _segment_combinations(
         punch_inventory, bend_length_mm, allowance_mm,
-        shortfall_mm=min(MAX_PUNCH_SHORTFALL_MM, allowance_mm),
+        shortfall_mm=0.0 if full_coverage else min(MAX_PUNCH_SHORTFALL_MM, allowance_mm),
     )
 
     def fit(total):
@@ -343,7 +346,8 @@ def plan_punch_for_bend(punch_inventory, bend_length_mm,
             if index == _MAX_PUNCH_ORDERS:
                 search_limited = True
                 break
-            placed = _place_punch(lengths, bend_length_mm, clamps, zones, max_clamp_gap)
+            placed = _place_punch(lengths, bend_length_mm, clamps, zones, max_clamp_gap,
+                                  full_coverage=full_coverage)
             if placed is not None and (best is None or placed.rank > best.rank):
                 best = placed
                 if best.rank == (1.0, 0.0):
@@ -381,10 +385,11 @@ def plan_punch_for_bend(punch_inventory, bend_length_mm,
 
 
 def plan_pair_for_bend(punch_inventory, die_inventory, bend_length_mm,
-                       clamps: ClampConfig, allowance_mm=15.0):
+                       clamps: ClampConfig, allowance_mm=15.0, *, full_coverage=False):
     """Find a supported punch chain and a die covering the centred line."""
     d_solutions, d_limited = _segment_combinations(die_inventory, bend_length_mm, allowance_mm)
-    punch = plan_punch_for_bend(punch_inventory, bend_length_mm, clamps, allowance_mm)
+    punch = plan_punch_for_bend(punch_inventory, bend_length_mm, clamps, allowance_mm,
+                                 full_coverage=full_coverage)
     if not d_solutions:
         status = ("NO_INVENTORY_COMBINATION"
                   if not d_limited or punch["status"] == "NO_INVENTORY_COMBINATION"

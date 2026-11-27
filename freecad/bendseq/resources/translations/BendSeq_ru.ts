@@ -4486,9 +4486,9 @@ Simulation and Verification are ready.</source>
       <translation>Операций: {bends}. Возможное число ходов: {strokes}. Кандидаты для объединения:</translation>
     </message>
     <message>
-      <source>Preliminary suggestions for the current order. Check tooling coverage, clearance in the gaps, backgauge and simultaneous movement separately. Simulation and exports still show the individual bends.</source>
+      <source>The simulation and segment planner combine eligible consecutive sections when both tools cover the full span. An intervening bend line or insufficient coverage keeps the sections separate. Shared strokes are kinematic previews. Mesh, OCC and PDF still use individual bends.</source>
       <comment>shared_strokes_limits</comment>
-      <translation>Предварительная оценка для текущего порядка. Отдельно проверьте оснастку, зазоры в разрывах, задний упор и одновременное движение. Симуляция и экспорт показывают отдельные гибы.</translation>
+      <translation>Симуляция и подбор сегментов объединяют совместимые соседние операции, если пуансон и матрица покрывают весь пролёт. Участки остаются раздельными, если в разрыве есть другой гиб или не хватает оснастки. Совместный ход проверяется только как кинематическая симуляция. Mesh, OCC и PDF пока работают с отдельными гибами.</translation>
     </message>
     <message>
       <source>No compatible consecutive bend sections were found in the current order.</source>

@@ -3417,12 +3417,22 @@ class _PreviewPanel:
                         fold_state = self.session.fold_state
                         placement = self._current_preview_machine_placement()
                         ram_z = float(self.tooling_setup.ram_z_mm)
-                        current_verdict = self._manual_3d_verdicts.get(bend_id)
+                        from freecad.bendseq.core.kinematics2d.shared_strokes import stroke_axis
+
+                        playback_group = self._playback_tool_stroke(self.session.controller.active_index)
+                        active_group = proposal[2] if show_proposal else playback_group
+                        if show_proposal and active_group != playback_group:
+                            placement = self.press_cycle.center_stroke_pose(placement, group=active_group)
+                        if len(active_group) > 1:
+                            inspected_length = math.dist(*stroke_axis(active_group, fold_state.bends))
+                        current_verdict = self._manual_3d_verdicts.get(bend_id) if len(active_group) == 1 else None
                         message = (
                             "OCC: {} (SAMPLED)".format(current_verdict) if current_verdict
                             else tr("simulation_without_a_verified_occ_result")
                         )
 
+                    if not (mesh_hit or inspection) and len(active_group) > 1:
+                        message += " · " + " + ".join(active_group)
                     fold_signature = (id(self.session), bend_id, tuple(fold_state.angles.items()))
                     reused_fold_mesh = fold_signature == self._coin_fold_mesh_key
                     if not reused_fold_mesh:
@@ -3452,7 +3462,11 @@ class _PreviewPanel:
                             tooling = replace(tooling, visible=True)
                     if section_preview is None and not inspection and not mesh_hit:
                         from freecad.bendseq.ui.tool_segment_display import suggested_sections
-                        section_preview = suggested_sections(self, math.dist(*fold_state.bends[bend_id].axis_xyz))
+                        section_preview = suggested_sections(
+                            self, inspected_length if inspected_length is not None
+                            else math.dist(*fold_state.bends[bend_id].axis_xyz),
+                            full_coverage=len(active_group) > 1,
+                        )
                         if section_preview:
                             message += " · " + tr("suggested_segment_layout_visual_only")
                     viewer.update_tools(
@@ -3598,6 +3612,57 @@ class _PreviewPanel:
             def _tool_assembly_order(self):
                 return tuple(self._manual_sequence_prefix) or self.session.bend_order
 
+            def _continuous_tool_strokes(self, order=None):
+                from freecad.bendseq.core.kinematics2d.shared_strokes import continuous_strokes
+
+                controller = self.session.controller
+                if controller.has_stages:
+                    return tuple((bid,) for bid in (order or controller.order))
+                order = tuple(order) if order is not None else controller.order
+                orientations = self._effective_operation_orientation_map()
+                key = (id(self.session.fold_state), order, tuple(sorted(orientations.items())))
+                cache = getattr(self, "_continuous_stroke_cache", None)
+                if cache is None or cache[0] != key:
+                    operations = {op.bend_id: op for op in controller.operation_steps}
+                    strokes = continuous_strokes(
+                        tuple(operations[bid] for bid in order),
+                        self.session.fold_state.bends, orientations,
+                    )
+                    cache = self._continuous_stroke_cache = (key, strokes)
+                return cache[1]
+
+            def _playback_tool_stroke(self, index):
+                from freecad.bendseq.core.kinematics2d.shared_strokes import spans_cover_interval, stroke_axis
+                from freecad.bendseq.ui.tool_segment_display import suggested_sections
+
+                controller = self.session.controller
+                bid = controller.operation_at(index).bend_id
+                single = (bid,)
+                if (controller.has_stages or self._partial_preview_limit is not None
+                        or self._last_manual_sequence_report):
+                    return single
+                group = next((g for g in self._continuous_tool_strokes()
+                              if g[0] == bid), single)
+                if len(group) == 1:
+                    return single
+                state = self.session.fold_state
+                if any(abs(state.angles[member] - state.angles[bid]) > 1e-6
+                       for member in group[1:]):
+                    return single
+                length = math.dist(*stroke_axis(group, state.bends))
+                setup = self.tooling_setup
+                if setup.match_active_bend_length and setup.punch is not None and setup.die is not None:
+                    return group
+                if setup.tool_assembly is not None:
+                    sections = {"punch": setup.punch_section_spans_xm,
+                                "die": setup.die_section_spans_xm}
+                else:
+                    sections = suggested_sections(self, length, full_coverage=True) or {}
+                return group if all(
+                    spans_cover_interval(sections.get(kind, ()), -length / 2, length / 2)
+                    for kind in ("punch", "die")
+                ) else single
+
             def _calculate_common_tool_assembly(self, order):
                 from freecad.bendseq.core.kinematics2d.segment_assembly_planner import plan_pair_for_bend
                 from freecad.bendseq.core.kinematics2d.tooling_assembly import ToolAssembly
@@ -3606,8 +3671,17 @@ class _PreviewPanel:
                 if not cfg.centres_mm:
                     raise ValueError(tr("set_clamp_centres_or_their_count_in_the_clamps"))
                 bends = self.session.fold_state.bends
-                required = max(math.dist(*bends[bend_id].axis_xyz) for bend_id in order)
-                plan = plan_pair_for_bend(p_inventory, d_inventory, required, cfg)
+                from freecad.bendseq.core.kinematics2d.shared_strokes import stroke_axis
+
+                strokes = self._continuous_tool_strokes(order)
+                required = max(math.dist(*stroke_axis(group, bends)) for group in strokes)
+                shared = any(len(group) > 1 for group in strokes)
+                plan = plan_pair_for_bend(
+                    p_inventory, d_inventory, required, cfg, full_coverage=shared,
+                )
+                if shared and plan["status"] != "ASSEMBLY_CANDIDATE_UNVERIFIED":
+                    required = max(math.dist(*bends[bid].axis_xyz) for bid in order)
+                    plan = plan_pair_for_bend(p_inventory, d_inventory, required, cfg)
                 return ToolAssembly.from_plan(plan)
 
             def _verify_tool_assembly_geometry(self, assembly):
@@ -3757,13 +3831,29 @@ class _PreviewPanel:
                     bends = self.session.fold_state.bends
                     reports = []
                     by_length = {}
-                    for bend_id in order:
-                        length = math.dist(*bends[bend_id].axis_xyz)
-                        if length not in by_length:
-                            by_length[length] = plan_pair_for_bend(
-                                p_inventory, d_inventory, length, cfg,
+                    from freecad.bendseq.core.kinematics2d.shared_strokes import stroke_axis
+
+                    stroke_members = {}
+
+                    def plan_for(group):
+                        length = math.dist(*stroke_axis(group, bends))
+                        key = (length, len(group) > 1)
+                        if key not in by_length:
+                            by_length[key] = plan_pair_for_bend(
+                                p_inventory, d_inventory, length, cfg, full_coverage=key[1],
                             )
-                        reports.append((bend_id, by_length[length]))
+                        return by_length[key]
+
+                    for group in self._continuous_tool_strokes(order):
+                        plan = plan_for(group)
+                        groups = (
+                            tuple((bid,) for bid in group)
+                            if len(group) > 1 and plan["status"] != "ASSEMBLY_CANDIDATE_UNVERIFIED"
+                            else (group,)
+                        )
+                        for members in groups:
+                            stroke_members[members[0]] = members
+                            reports.append((members[0], plan_for(members)))
                 except (OSError, ValueError, KeyError, ClampValidatorError) as exc:
                     self.status.setText(str(exc))
                     return
@@ -3836,7 +3926,8 @@ class _PreviewPanel:
                     titles.append(tr("a_cad_crossbeam_row_is_shown_for_calculation_set"))
                 lines = [tr("segment_layout_by_bend"), ""]
                 for bend_id, plan in reports:
-                    lines.append(tr("bend_line_mm", bend=bend_id, length=plan['required_mm']))
+                    lines.append(tr("bend_line_mm", bend=" + ".join(stroke_members[bend_id]),
+                                    length=plan['required_mm']))
                     lines.extend(describe(plan))
                     lines.append("")
                 per_bend = "\n".join(lines)
@@ -3847,7 +3938,8 @@ class _PreviewPanel:
                 bend_picker = QtWidgets.QComboBox()
                 bend_picker.setAccessibleName(tr("bend_for_section_preview"))
                 for bend_id, plan in reports:
-                    bend_picker.addItem(tr("mm_df291b2a", bend=bend_id, length=plan['required_mm']), bend_id)
+                    bend_picker.addItem(tr("mm_df291b2a", bend=" + ".join(stroke_members[bend_id]),
+                                               length=plan['required_mm']), bend_id)
                 current = bend_picker.findData(self.session.active_bend_id)
                 bend_picker.setCurrentIndex(max(0, current))
                 layout.addWidget(bend_picker)
@@ -3888,7 +3980,7 @@ class _PreviewPanel:
                         feedback.setText(tr("punch_mm_in_coin3d_apply_the_shared_set_for", bend=bend_id, lengths=lengths))
                     else:
                         feedback.setText(tr("no_suitable_segments_for_preview", bend=bend_id))
-                    self._tooling_sections_preview = (bend_id, sections) if any(sections.values()) else None
+                    self._tooling_sections_preview = (bend_id, sections, stroke_members[bend_id]) if any(sections.values()) else None
                     if self._tooling_sections_preview is not None:
                         row = self.session.bend_order.index(bend_id)
                         self.operations.setCurrentItem(self.operations.topLevelItem(row))
@@ -5613,7 +5705,7 @@ class _PreviewPanel:
                         "BEND_ONLY_COUPLED_SHEET_PLACEMENT_FAILED:" + str(exc)
                     ) from exc
                 orientations = self._effective_operation_orientation_map()
-                return compute_machine_pose(
+                pose = compute_machine_pose(
                     fs, bid,
                     phase="BEND_ONLY",
                     support_plane_zm=float(sheet_support_z),
@@ -5622,6 +5714,7 @@ class _PreviewPanel:
                     )),
                     rear_panel_vertices_xy=self._rear_frame_for_preview(),
                 )
+                return pc.center_stroke_pose(pose)
 
             def _update_loading_orientation_label(self):
                 """Expose the actual machine direction, never CAD-certify a hint."""
@@ -5685,6 +5778,7 @@ class _PreviewPanel:
                     follow_sheet_contact_preview=True,
                     animate_workpiece_transfer=True,
                 )
+                self.press_cycle.shared_stroke_for_step = self._playback_tool_stroke
                 self.press_cycle.loading_rear_frame_for_step = self._rear_frame_for_preview
                 self.press_cycle.loading_orientation_by_bend = (
                     self._effective_operation_orientation_map()
@@ -9310,7 +9404,7 @@ class _PreviewPanel:
                     return
                 try:
                     pc = self._ensure_press_cycle_controller()
-                    if pc is not None and self.execution_mode == CycleExecutionMode.FULL_CYCLE:
+                    if pc is not None:
                         pc.play_all()
                         self.session.active_bend_index = self.session.controller.active_index
                     else:
@@ -9550,24 +9644,14 @@ class _PreviewPanel:
                     previous_bend = self.session.active_bend_index
                     pc = self._ensure_press_cycle_controller()
                     phase_before = pc.phase.value if pc is not None else None
-                    if (pc is not None and
-                            self.execution_mode == CycleExecutionMode.FULL_CYCLE):
+                    if pc is not None:
                         pc.advance_time(dt)
-                        self.session.active_bend_index = (
-                            self.session.controller.active_index
-                        )
-                    else:
-                        # Bend Only is genuine TIMER-driven automatic playback,
-                        # even if machine pose is unsupported for nonparallel bends.
-                        self.session.advance_time(dt)
-                        if (self.session.active_bend_index != previous_bend
-                                and self.tooling_setup.aligned):
-                            self._sync_tooling_to_active_bend()
-                        elif pc is not None:
-                            # Exactly the same coupled stroke model as the
-                            # manual slider. Do not leave the punch parked
-                            # while the sheet is bending in Bend Only mode.
+                        self.session.active_bend_index = self.session.controller.active_index
+                        if (self.execution_mode == CycleExecutionMode.BEND_ONLY
+                                and self.session.active_bend_index == previous_bend):
                             pc.preview_punch_at_current_angle()
+                    else:
+                        self.session.advance_time(dt)
                     angle_only = (
                         getattr(self.session.unfold_data, "dxf_manual", False)
                         and self.session.active_bend_index == previous_bend

@@ -26,6 +26,7 @@ import math
 from typing import Any, Callable, Dict, Optional
 
 from .fold_sequence import ANGLE_EPS, BendSequenceController, PlaybackStatus, SequenceError
+from .shared_strokes import stroke_axis
 from .staged_orientation import reverse_axis_for_operation
 from .workpiece_placement_3d import PlacementTransform3D, WorkpiecePlacement3D
 from .machine_pose_contract import compute_machine_pose, bend_support_plane_zm
@@ -209,6 +210,7 @@ class PressCycleController:
         self.coupled_kinematics: Optional[CoupledAirBendingKinematics] = None
         # A user-controlled slider scrub is not an automatic press phase.
         # Keep it explicitly distinguishable from APPROACH/IDLE/RETRACT.
+        self.shared_stroke_for_step = None
         self._manual_preview_active = False
 
         self.phase: CyclePhase = CyclePhase.IDLE
@@ -615,7 +617,12 @@ class PressCycleController:
         """Start or restart automatic playback in the active `execution_mode`."""
         self._manual_preview_active = False
         if self.execution_mode == CycleExecutionMode.BEND_ONLY:
-            self.sequence.play_all()
+            if (self.sequence.status == PlaybackStatus.PAUSED
+                    and self.phase == CyclePhase.BENDING
+                    and len(self.stroke_bends()) > 1):
+                self.sequence.status = PlaybackStatus.PLAYING
+            else:
+                self.sequence.play_all()
             self.phase = CyclePhase.BENDING
             self._sync_bounds_and_orientation_for_active_bend(reposition_tools=True)
             return
@@ -648,7 +655,10 @@ class PressCycleController:
             if self.phase in (CyclePhase.BOTTOM, CyclePhase.RETRACT, CyclePhase.STEP_COMPLETE, CyclePhase.TRANSFER):
                 self.sequence.status = PlaybackStatus.PLAYING
                 return
-            self.sequence.play_all()
+            if len(self.stroke_bends()) > 1:
+                self.sequence.status = PlaybackStatus.PLAYING
+            else:
+                self.sequence.play_all()
             return
 
         # Starting fresh from IDLE, COMPLETED, or after a manual slider change on a valid prefix
@@ -697,23 +707,69 @@ class PressCycleController:
             # Cannot resume after an unrecovered transfer fault without reset
             return
         if self.execution_mode == CycleExecutionMode.BEND_ONLY:
-            self.sequence.resume()
-            self.phase = CyclePhase.BENDING
+            self.play_all()
             return
         self.play_all()
+
+    def stroke_bends(self, index=None):
+        index = self.sequence.active_index if index is None else index
+        if self.shared_stroke_for_step is not None:
+            return self.shared_stroke_for_step(index)
+        if getattr(self.sequence, "has_stages", False):
+            return (self.sequence.operation_at(index).bend_id,)
+        return (self.sequence.order[index],)
+
+    def center_stroke_pose(self, pose, index=None, *, midpoint_xm=0.0, group=None):
+        group = self.stroke_bends(index) if group is None else group
+        if len(group) == 1:
+            return pose
+        state = self.sequence.fold_state
+        a, b = stroke_axis(group, state.bends)
+        fixed = state.transforms[state.bends[group[0]].fixed_panel]
+        center = fixed.point(tuple((x + y) / 2 for x, y in zip(a, b)))
+        x, y, z = pose.translation
+        return PlacementTransform3D(pose.rotation, (x + midpoint_xm - pose.apply(center)[0], y, z))
+
+    def _next_stroke_index(self):
+        return self.sequence.active_index + len(self.stroke_bends())
+
+    def _set_stroke_angle(self, angle):
+        group = self.stroke_bends()
+        if len(group) > 1:
+            self.sequence.fold_state.set_angles(dict.fromkeys(group, angle))
+        else:
+            self.sequence.fold_state.set_angle(group[0], angle)
+
+    def _advance_bend_only(self, dt_sec):
+        group = self.stroke_bends()
+        if len(group) == 1:
+            return self.sequence.advance_time(dt_sec)
+        target = self.target_angle_deg
+        next_mag = abs(self.current_angle_deg) + self.sequence.speed_deg_per_sec * min(dt_sec, 0.1)
+        if next_mag < abs(target) - ANGLE_EPS:
+            self._set_stroke_angle(math.copysign(next_mag, target))
+            return True
+        self._set_stroke_angle(target)
+        next_index = self._next_stroke_index()
+        if next_index < self.sequence.total_steps:
+            self.sequence.active_index = next_index
+        else:
+            self.sequence.status = PlaybackStatus.COMPLETED
+        return True
 
     def _begin_workpiece_transfer(self) -> None:
         """Prepare visible retract/turn/feed motion without changing bend state."""
         self.transfer_progress = 0.0
         active = self.sequence.active_bend
+        next_index = self._next_stroke_index()
         # The next stage can revisit the same physical bend after other bends.
         # Never use the unique physical order to locate a staged operation.
         if getattr(self.sequence, "has_stages", False):
             next_id = self.sequence.operation_at(
-                self.sequence.active_index + 1
+                next_index
             ).bend_id
         else:
-            next_id = self.sequence.order[self.sequence.active_index + 1]
+            next_id = self.sequence.order[next_index]
         nxt = self.sequence.bend_for(next_id)
         zone = active.bend_zone
         next_zone = nxt.bend_zone
@@ -782,9 +838,9 @@ class PressCycleController:
                 phase="TRANSFER_TARGET",
                 support_plane_zm=next_outer_r,
                 reverse_axis=self._loading_reverse_axis_for_step(
-                    self.sequence.active_index + 1
+                    next_index
                 ),
-                rear_panel_vertices_xy=self._loading_rear_frame(self.sequence.active_index + 1),
+                rear_panel_vertices_xy=self._loading_rear_frame(next_index),
             )
             from freecad.bendseq.core.kinematics2d.workpiece_transfer_3d import build_transfer_3d
             self.transfer_3d = build_transfer_3d(
@@ -822,7 +878,7 @@ class PressCycleController:
 
         if self.execution_mode == CycleExecutionMode.BEND_ONLY:
             prev_idx = self.sequence.active_index
-            changed = self.sequence.advance_time(dt_sec)
+            changed = self._advance_bend_only(dt_sec)
             if self.sequence.active_index != prev_idx:
                 self._sync_bounds_and_orientation_for_active_bend(reposition_tools=True)
             if self.sequence.status == PlaybackStatus.COMPLETED:
@@ -883,7 +939,6 @@ class PressCycleController:
         #              active bend angle interpolates from 0 deg to target_angle_deg
         # ------------------------------------------------------------------
         if self.phase == CyclePhase.BENDING:
-            bid = self.active_bend_id
             target = self.target_angle_deg
             sign = 1.0 if target >= 0.0 else -1.0
             target_mag = abs(target)
@@ -902,7 +957,7 @@ class PressCycleController:
 
             if target_mag <= ANGLE_EPS or next_mag >= target_mag - ANGLE_EPS:
                 # Exact target angle reached -> transition to BOTTOM
-                self.sequence.fold_state.set_angle(bid, target)
+                self._set_stroke_angle(target)
                 stroke = (
                     self.coupled_kinematics.stroke_for_angle(target_mag)
                     if self.coupled_kinematics is not None
@@ -915,7 +970,7 @@ class PressCycleController:
                 return True
 
             # Advance angle and punch stroke coupled
-            self.sequence.fold_state.set_angle(bid, sign * next_mag)
+            self._set_stroke_angle(sign * next_mag)
             stroke = (
                 self.coupled_kinematics.stroke_for_angle(next_mag)
                 if self.coupled_kinematics is not None
@@ -959,11 +1014,11 @@ class PressCycleController:
             # remains formed and the subsequent FINISH starts from it.
             if getattr(self.sequence, "has_stages", False):
                 self.sequence.mark_operation_completed()
-            if self.sequence.active_index + 1 < self.sequence.total_steps:
+            if self._next_stroke_index() < self.sequence.total_steps:
                 if self.animate_workpiece_transfer:
                     self._begin_workpiece_transfer()
                     return True
-                self.sequence.active_index += 1
+                self.sequence.active_index = self._next_stroke_index()
                 self._sync_bounds_and_orientation_for_active_bend(reposition_tools=True)
                 self.phase = CyclePhase.APPROACH
                 return True
@@ -979,7 +1034,7 @@ class PressCycleController:
                 1.0, self.transfer_progress + effective_dt/self.transfer_duration_s
             )
             if self.transfer_progress >= 1.0:
-                self.sequence.active_index += 1
+                self.sequence.active_index = self._next_stroke_index()
                 self.transfer_progress = 0.0
                 self.transfer_3d = None
                 # Machine tooling remains stationary. The sheet is transported
@@ -1074,6 +1129,7 @@ class PressCycleController:
                 getattr(self.sequence, "active_index", 0)
             ),
         )
+        pose = self.center_stroke_pose(pose, midpoint_xm=float(desired_midpoint_xm))
         if self.phase == CyclePhase.LOAD_TO_GAUGE:
             # Machine s = -Y_m. Positive machine Y translates the entire
             # sheet left towards the operator, then feeds it to the right.

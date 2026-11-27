@@ -76,3 +76,56 @@ def propose_shared_strokes(operations, bends, orientations):
         else:
             groups.append([operation])
     return tuple(tuple(op.operation_id for op in group) for group in groups)
+
+
+def stroke_axis(group, bends):
+    """Return the extreme endpoints of the collinear sections."""
+    start, end = bends[group[0]].axis_xyz
+    direction = tuple(b - a for a, b in zip(start, end))
+    points = [point for bid in group for point in bends[bid].axis_xyz]
+    def position(point):
+        return sum((p - a) * d for p, a, d in zip(point, start, direction))
+    return min(points, key=position), max(points, key=position)
+
+
+def spans_cover_interval(spans, start, end):
+    """Require continuous coverage, including both outer endpoints."""
+    cursor = start
+    for lo, hi in sorted(spans):
+        if lo > cursor + 1e-6:
+            break
+        cursor = max(cursor, hi)
+        if cursor >= end - 1e-6:
+            return True
+    return False
+
+
+def continuous_strokes(operations, bends, orientations):
+    """Split groups if a continuous tool would straddle another bend line."""
+    result = []
+    by_operation = {op.operation_id: op.bend_id for op in operations}
+    for operations_group in propose_shared_strokes(operations, bends, orientations):
+        group = tuple(by_operation[op] for op in operations_group)
+        if len(group) == 1:
+            result.append(group)
+            continue
+        a, b = stroke_axis(group, bends)
+        length = dist(a, b)
+        direction = tuple((q - p) / length for p, q in zip(a, b))
+        blocked = False
+        for bid, bend in bends.items():
+            if bid in group:
+                continue
+            offsets = [tuple(p - q for p, q in zip(point, a)) for point in bend.axis_xyz]
+            stations = [sum(x * d for x, d in zip(offset, direction)) for offset in offsets]
+            if (max(stations) > LINE_TOLERANCE_MM
+                    and min(stations) < length - LINE_TOLERANCE_MM
+                    and all(dist(offset, tuple(x * s for x in direction)) <= LINE_TOLERANCE_MM
+                            for offset, s in zip(offsets, stations))):
+                blocked = True
+                break
+        if blocked:
+            result.extend((bid,) for bid in group)
+        else:
+            result.append(group)
+    return tuple(result)

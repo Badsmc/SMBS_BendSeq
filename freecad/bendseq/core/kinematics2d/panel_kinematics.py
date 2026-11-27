@@ -100,12 +100,17 @@ class FoldState:
         Recomputes transforms from flat state so repeated updates never drift.
         If validation or transform computation fails, state remains unchanged.
         """
-        if bend_id not in self.bends:
-            raise KinematicsError("Unknown bend: " + str(bend_id))
-        if not isfinite(angle_deg):
-            raise KinematicsError("Nonfinite angle")
+        self.set_angles({bend_id: angle_deg})
+
+    def set_angles(self, updates):
+        """Apply all angles in one transform update, or leave the state intact."""
         candidate_angles = dict(self.angles)
-        candidate_angles[bend_id] = 0.0 if abs(float(angle_deg)) < 1e-12 else float(angle_deg)
+        for bend_id, angle_deg in updates.items():
+            if bend_id not in self.bends:
+                raise KinematicsError("Unknown bend: " + str(bend_id))
+            if not isfinite(angle_deg):
+                raise KinematicsError("Nonfinite angle")
+            candidate_angles[bend_id] = 0.0 if abs(angle_deg) < 1e-12 else float(angle_deg)
         candidate_transforms = self._compute_transforms(candidate_angles)
         self.angles = candidate_angles
         self.transforms = candidate_transforms

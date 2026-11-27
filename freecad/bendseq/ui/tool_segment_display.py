@@ -40,7 +40,7 @@ def section_boundary_edges(span, triangles):
     return tuple(edge for edge, count in counts.items() if count == 1)
 
 
-def suggested_sections(workspace, bend_length):
+def suggested_sections(workspace, bend_length, *, full_coverage=False):
     """Cache the stock planner's visual proposal; never apply a physical assembly."""
     from pathlib import Path
     from freecad.bendseq.core.kinematics2d.segment_assembly_planner import plan_pair_for_bend
@@ -67,13 +67,18 @@ def suggested_sections(workspace, bend_length):
         cache = (key, {})
         workspace._segment_display_cache = cache
     plans = cache[1]
-    if bend_length not in plans:
+    plan_key = (bend_length, full_coverage)
+    if plan_key not in plans:
         try:
             from dataclasses import replace
             punch, die, config = workspace._tool_assembly_inputs(require_pair=False)
             if not config.centres_mm and clamp_spans:
                 config = replace(config, positions_mm=tuple((a+b)/2 for a,b in clamp_spans))
-            plan = plan_pair_for_bend(punch, die, bend_length, config)
+            plan = plan_pair_for_bend(punch, die, bend_length, config, full_coverage=full_coverage)
+            if full_coverage and (plan["status"] != "ASSEMBLY_CANDIDATE_UNVERIFIED"
+                                  or plan["clamps"]["proposed_reposition"]):
+                plans[plan_key] = None
+                return None
             punch_plan = plan.get('punch_preview', plan)
             sections = {}
             for kind, source in (('punch', punch_plan), ('die', plan)):
@@ -81,7 +86,7 @@ def suggested_sections(workspace, bend_length):
                               for item in source.get(kind + '_segments', ()))
                 if spans:
                     sections[kind] = spans
-            plans[bend_length] = sections or None
+            plans[plan_key] = sections or None
         except (OSError, ValueError, RuntimeError, ClampValidatorError):
-            plans[bend_length] = None
-    return plans[bend_length]
+            plans[plan_key] = None
+    return plans[plan_key]

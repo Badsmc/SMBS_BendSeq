@@ -1092,6 +1092,6 @@
   "flange_dimensions_unknown": "Flange dimension unavailable for: {bends}. Compatibility is unverified.",
   "shared_strokes_preview": "Preview shared strokes",
   "shared_strokes_count": "{bends} operations could take {strokes} strokes. Candidate groups:",
-  "shared_strokes_limits": "Preliminary suggestions for the current order. Check tooling coverage, clearance in the gaps, backgauge and simultaneous movement separately. Simulation and exports still show the individual bends.",
+  "shared_strokes_limits": "The simulation and segment planner combine eligible consecutive sections when both tools cover the full span. An intervening bend line or insufficient coverage keeps the sections separate. Shared strokes are kinematic previews. Mesh, OCC and PDF still use individual bends.",
   "shared_strokes_none": "No compatible consecutive bend sections were found in the current order."
 }
