@@ -12,7 +12,7 @@ Development preview integrated into develop.
 - Runtime startup and installed interface fingerprints, PDF export and lifecycle diagnostics.
 - Regression tests and Windows FreeCAD 1.1.3 smoke checks.
 
-The public main branch remains at 0.1.0. macOS acceptance, clean Addon Manager installation, CAD redistribution review and manufacturing validation remain pending. Sampled collision checks are not continuous safety certification.
+The public main branch remains at 0.1.0. macOS acceptance, clean Addon Manager installation and manufacturing validation remain pending. Sampled collision checks are not continuous safety certification.
 
 ## 0.1.0 — 2026-11-25
 
@@ -36,6 +36,10 @@ manufacturing certification and official Addon Manager listing are pending.
 Licensing: LGPL-2.1-or-later for original code and CC-BY-SA-4.0 for original assets, with full license texts and a separate CAD provenance review.
 
 ## Development updates (not yet released)
+
+- Confirm maintainer authorship and CC-BY-SA-4.0 licensing for all 20 bundled CAD models and active fixture settings.
+- Add DXF, Bend and PDF demonstration media to the README.
+- Consolidate documentation, correct resource links, and remove obsolete test transcripts, unused historical fixture settings and the completed one-off media publishing workflow.
 
 - Parametric punch and die editor with live dimensioned drawing, DXF and FCStd export, centered punch tip and shank with adjustable body offset.
 - Coin3D machine frame: fixed lh/rh/down/up bodies; moving z layer and clamps follow the existing ram trajectory.

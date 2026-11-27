@@ -2,25 +2,15 @@
 
 These models are geometry examples, not certified manufacturing plans. Names containing `expected-blocked` preserve historical collision examples; results depend on the selected tooling and setup. `alternate-punch` identifies a model originally used with another punch.
 
-| File | Previous filename |
+| Example | Files in `parts/` |
 | --- | --- |
-| `angle-135.FCStd` | `135-(ok).FCStd` |
-| `four-bend-sequence.FCStd` | `2-1-3-4-(ok).FCStd` |
-| `l-profile.FCStd` | `L-(ok).FCStd` |
-| `l-profile-30-6-expected-blocked.FCStd` | `L-30-6-(false).FCStd` |
-| `square-inward-200-25-10.FCStd` | `SQin.200-25-10-(ok).FCStd` |
-| `square-outward-200-25-10.FCStd` | `SQout.200-25-10-(ok).FCStd` |
-| `u-profile-10-10-20-expected-blocked.FCStd` | `U-10-10-20-(false).FCStd` |
-| `u-profile-10-15-10-alternate-punch.FCStd` | `U-10-15-10-(punch2-OK).FCStd` |
-| `u-profile-10-30-10.FCStd` | `U-10-30-10-(OK).FCStd` |
-| `u-profile-60deg-30deg.FCStd` | `U-60deg-30deg-(ok).FCStd` |
-| `u-profile-90deg-90deg.FCStd` | `U-90deg-90deg-(ok).FCStd` |
-| `z-profile.FCStd` | `Z-(ok).FCStd` |
-| `z-profile-10-20-10-expected-blocked.FCStd` | `Z-10-20-10-(false).FCStd` |
-| `z-profile-10-20-10.FCStd` | `Z-10-20-10-(ok).FCStd` |
-| `box-100-inward-50-outward-expected-blocked.FCStd` | `box.100in-50out-(false).FCStd` |
-| `box-100-outward-50-inward.FCStd` | `box.100out-50in-(ok).FCStd` |
+| L profiles | `l-profile.FCStd`, `l-profile-30-6-expected-blocked.FCStd` |
+| U profiles | `u-profile-10-10-20-expected-blocked.FCStd`, `u-profile-10-15-10-alternate-punch.FCStd`, `u-profile-10-30-10.FCStd`, `u-profile-60deg-30deg.FCStd`, `u-profile-90deg-90deg.FCStd` |
+| Z profiles | `z-profile.FCStd`, `z-profile-10-20-10.FCStd`, `z-profile-10-20-10-expected-blocked.FCStd` |
+| Square profiles | `square-inward-200-25-10.FCStd`, `square-outward-200-25-10.FCStd` |
+| Box profiles | `box-100-inward-50-outward-expected-blocked.FCStd`, `box-100-outward-50-inward.FCStd` |
+| Angle and sequence | `angle-135.FCStd`, `four-bend-sequence.FCStd` |
 
-## Historical reference data
+Open an example in FreeCAD, select or generate your own punch and die, then inspect the operation order and run the desired checks. Punch and die models are not bundled.
 
-Historical bend-sequence JSON and diagnostic scenes were removed from all published branch and tag histories together with punch/die CAD files and tooling sets. The demo sheet-metal parts remain available. `legacy-tooling/` contains only remaining fixture metadata, not punches or dies.
+All 16 examples were created by maintainer Badsmc and are distributed under CC-BY-SA-4.0. See [CAD provenance](../docs/ASSET_PROVENANCE.md).

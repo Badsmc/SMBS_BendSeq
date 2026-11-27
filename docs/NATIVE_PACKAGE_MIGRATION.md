@@ -1,23 +1,14 @@
 # Native package migration
 
-## Baseline
-- Source: develop, commit 67a9482 (2026-11-26), version 0.2.0.
-- Branch: refactor/native-package-layout. Never merge without user confirmation.
-- 70 unittest headless tests pass; addon_preflight passes. Full output: native-package-baseline-tests.txt.
-- No FreeCAD GUI validation has been performed in this environment.
+## Current status
 
-## References and decisions
-- https://freecad.github.io/Addon-Academy/Topics/Structuring/
-- https://freecad.github.io/Addon-Academy/Demos/Minimal-Workbench/
-- https://github.com/FreeCAD/FreeCAD (startup source to audit)
-- https://github.com/FreeCAD/FreeCAD-addons (legacy index; modern index is FreeCAD/Addons)
-- All implementation moves into freecad.bendseq; shared freecad namespace stays open.
-- Preserve SMBSWorkbench, command IDs, ParamGet keys, session schema and calculations.
-- Keep release at 0.2.0 until manual acceptance; target 0.3.0.
-- Keep root entrypoints until actual FreeCAD 1.1 GUI verification, as requested.
+The namespace migration is integrated into `develop` (0.2.0). The package requires FreeCAD 1.1.3+ and Python 3.11+. Root entrypoints remain as compatibility wrappers pending clean installation and namespace-only startup checks.
 
-## Progress
-Baseline captured. Migration in progress.
+The migration baseline was commit `67a9482`; `scripts/check_core_migration.py` preserves the historical AST comparison. Current check commands are documented in [Development and releases](DEVELOPMENT.md).
+
+## Earlier Windows runtime evidence
+
+User-provided Windows FreeCAD 1.1.3 journals from 2026-11-26 recorded successful DXF import with Cyrillic layer names, FCStd restoration, FAST search, staged bend editing, Mesh and PDF operations, and minimize/restore interactions. A later session observed both legacy and namespace entrypoints. These observations predate the full package relocation and do not establish acceptance of the current layout; the checklist below remains open.
 
 ## Implemented architecture
 - `freecad/bendseq` owns commands, UI, integration, workbench, startup and resources.
@@ -55,17 +46,9 @@ Sources: this installation's `toollibrary`, `config`, `templates`, `sequences`, 
 - On copy/hash errors migration raises visibly rather than presenting an incomplete library as successful.
 - Do not delete conflict snapshots or the journal while documents still refer to old paths.
 
-## Automated verification (2026-11-26)
-- Baseline: 70 tests pass.
-- Final: 80 tests pass (Python 3.12 in this environment).
-- All 82 core modules import headlessly without Qt, FreeCADGui or Pivy.
-- Mocked legacy/native/repeated GUI imports register exactly one workbench and preserve 16 command IDs. This is an API contract test, not a GUI test.
-- `scripts/check_core_migration.py`: all 82 core ASTs identical to baseline after module-name updates and three explicit storage/path substitutions. FAST, Mesh, OCC, placement, weights, tolerances and mathematical code are unchanged.
-- Same guard confirms session schema/serialization/decoder AST unchanged except an added verified historical tool-reference matcher.
-- `compileall`: all runtime, scripts and tests pass.
-- `addon_preflight.py`: metadata, dependencies, resources, licenses and no runtime sys.path mutations pass.
-- `build_qt_translations.py --check --compile --lrelease /usr/bin/lrelease`: 1086 translations; generated QM unchanged.
-- CI now targets refactor branches, checks source equivalence with full Git history, syntax, preflight, translations and headless tests on Python 3.11/3.12.
+## Automated verification
+
+On 2026-11-27, the repository preflight and all 105 headless tests passed. CI also checks translations, syntax and the historical migration guard. Mocked startup and headless tests do not verify GUI behavior or physical validity. Run the [documented checks](DEVELOPMENT.md) against each release candidate.
 
 ## Manual acceptance required before 0.3.0
 Use copies of documents and tooling for acceptance. Do not overwrite original projects.
@@ -95,7 +78,7 @@ Use copies of documents and tooling for acceptance. Do not overwrite original pr
 4. Start FreeCAD 1.1.3+, open tooling, inspect `BendSeq/migration-v1.json` under FreeCAD user data; resolve conflicts explicitly if needed. Check copied hashes and segment counts against the source.
 5. Execute the manual acceptance table using copied documents. Record platform, FreeCAD version and outcomes in this file.
 6. Roll back by closing FreeCAD and restoring the backed-up 0.2.0 installation. Original installation data/documents are untouched by migration. New edits in the separate BendSeq user directory remain available; back them up before choosing any older tool version.
-7. After manual acceptance, remove root entrypoints if verified safe, update core/package/README/CHANGELOG together to 0.3.0 and rerun all checks. Do not merge develop/main without explicit user confirmation.
+7. After manual acceptance, remove root entrypoints if verified safe, update core/package/README/CHANGELOG together to 0.3.0 and rerun all checks. Promote the tested release using the [release workflow](DEVELOPMENT.md).
 
 ## Known limits / continuation
 The branch is an architecture migration preview, not a validated 0.3.0 manufacturing release. Actual UI, host geometry and old-session acceptance remain pending. No real customer session fixtures were available; AST equivalence and headless tests do not establish complete FCStd compatibility or physical validity. Existing documents and user configuration are never rewritten by the migration itself. On filesystems without hard-link support the migration fails safely and leaves completion false; test the actual user data filesystem. No new runtime dependencies or pip installs were introduced.

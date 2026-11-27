@@ -85,7 +85,7 @@ Open **Tools → Addon Manager**. If SMBS BendSeq is available in your configure
 3. **Set the bend order.** Select bend lines or reorder operations in **Simulation**. To search for candidates, run **FAST**, select a sequence, and review the part orientation at each bend.
 4. **Check and document the sequence.** Run **Mesh 3D**. Open **Information** to review the bend table or export it to TechDraw.
 
-Sample models are available in [`demo/parts/`](demo/parts); see the [demo index](demo/README.md) for names and historical collision examples.
+Sample models are available in [`demo/parts/`](demo/parts); see the [demo index](demo/README.md) for descriptions and collision examples.
 
 ## Collision checks
 
@@ -111,11 +111,15 @@ To investigate an error, enable **Log SMBS activity and FreeCAD crashes** in SMB
 
 See the [tooling library notes](freecad/bendseq/resources/default_toollibrary/README.md) for local tooling setup.
 
-## Development and licensing
+## Documentation and development
 
-`main` is the public release branch and `develop` is the active development branch. The public preview on `main` remains 0.1.0; `develop` is now 0.2.0. See [branch architecture](BRANCH_ARCHITECTURE.md) and [changelog](CHANGELOG.md). Historical experiment code is preserved in rewritten Git archive tags. Bundled punch/die assets and historical diagnostic data were removed from published branch and tag histories; demo sheet-metal parts remain under `demo/`. Existing Git clones must be replaced with fresh clones to avoid reintroducing old history.
+See the [documentation index](docs/README.md) for tooling, PDF export, staged bends, project persistence and development guides.
 
-Original source code is licensed under [LGPL-2.1-or-later](LICENSE-Code) and original non-code resources under [CC-BY-SA-4.0](LICENSE-Assets). See [licensing and attribution](LICENSE.md). Bundled CAD models and accompanying fixture settings were confirmed as original creations by maintainer Badsmc; see [asset provenance](docs/ASSET_PROVENANCE.md). Official Addon Manager listing and full runtime acceptance remain pending.
+`main` contains the public 0.1.0 preview; `develop` contains the 0.2.0 development preview. See [development and releases](docs/DEVELOPMENT.md) and the [changelog](CHANGELOG.md).
+
+Original code is licensed under [LGPL-2.1-or-later](LICENSE-Code); original non-code resources under [CC-BY-SA-4.0](LICENSE-Assets). Bundled CAD authorship is confirmed by maintainer Badsmc. See [licensing](LICENSE.md) and [CAD provenance](docs/ASSET_PROVENANCE.md).
+
+Official Addon Manager listing and full runtime acceptance remain pending.
 
 ## Dependencies and privacy
 
@@ -123,23 +127,10 @@ Use FreeCAD's own Python environment. Part, the FreeCAD-provided Qt wrapper and 
 
 To test through Addon Manager before official indexing, add `https://github.com/Badsmc/SMBS_BendSeq` with branch `main` as a custom repository in Addon Manager preferences. Remove other SMBS installations first. Restart FreeCAD after installation.
 
-Development tooling editor: [guide](docs/PARAMETRIC_TOOL_GENERATOR.md). Create original demonstration punches and dies with a live dimensioned preview. The updated machine frame keeps the fixed bodies stationary and moves the z layer with the clamps.
+## Native package and user data
 
+The current development package requires FreeCAD 1.1.3+ and Python 3.11+. Install it into a single addon folder with FreeCAD closed and remove duplicate enabled installations.
 
-## Native package migration preview
+Writable tooling, segment inventories, configs, templates and saved sequences are stored under `FreeCAD.getUserAppDataDir()/BendSeq/`. Existing installation data is copied and SHA-256 verified on first library access; original files and existing destination files are preserved. Conflicts are retained for review.
 
-The native package layout is integrated into `develop` and targets FreeCAD 1.1.3+ and Python 3.11+.
-Install the [develop ZIP](https://github.com/Badsmc/SMBS_BendSeq/archive/refs/heads/develop.zip)
-into a single addon folder with FreeCAD closed. Remove duplicate enabled
-installations. Keep a copy of your previous installation and FCStd documents.
-The release version stays 0.2.0 until the 0.3.0 acceptance checks succeed.
-
-Writable tooling, segment inventories, configs, templates and saved sequences
-are stored under `FreeCAD.getUserAppDataDir()/BendSeq/`, outside the addon.
-On first library access, existing installation data is copied and SHA-256 verified.
-Sources and existing destination files are preserved. Conflicts are retained as
-complete source snapshots under `migration-conflicts/`; see `migration-v1.json`.
-Previously referenced external files and the existing `~/.smbs` recipe catalog
-remain accessible. ParamGet keys and the FCStd session schema are unchanged.
-
-See [migration status, manual acceptance and rollback](docs/NATIVE_PACKAGE_MIGRATION.md).
+See [data migration, acceptance and rollback](docs/NATIVE_PACKAGE_MIGRATION.md).

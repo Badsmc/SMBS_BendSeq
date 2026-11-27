@@ -36,9 +36,8 @@ The previously pending authorship review for these files is resolved by this con
 - `freecad/bendseq/resources/default_toollibrary/Backgauge/Backgauge.tooling.json`
 - `freecad/bendseq/resources/default_toollibrary/Clamp/Clamp.tooling.json`
 - `freecad/bendseq/resources/default_toollibrary/machine_frame/machine_frame.tooling.json`
-- `demo/legacy-tooling/Backgauge/Backgauge.tooling.json`
-- `demo/legacy-tooling/Clamp/Clamp.tooling.json`
-- `demo/legacy-tooling/machine_frame/machine_frame.tooling.json`
+
+The unused historical copies of fixture settings in `demo/legacy-tooling/` were removed during repository cleanup on 2026-11-27. The active settings listed above remain bundled.
 
 ## Distribution scope
 
