@@ -82,3 +82,26 @@ FCStd restore accepts the alternate orientation only if the exact saved profile
 fingerprint matches; other profile changes still fail closed. Log orientation
 request, actual/default values, result and retry orientation under the same
 run_id, and restore separately. Native FreeCAD acceptance remains pending.
+
+## Material and preliminary force screening
+
+The Auto Tool Selection task has a user-editable material library (name/grade,
+Rm in MPa and required source), explicitly saved in FreeCAD preferences. No
+material strength is guessed. Optional nominal machine force is entered in kN.
+Thickness and target bend angles come from the bend model. The reference
+formula F[kN] = 1.42 Rm t^2 L / (1000 V) is from
+https://www.harsle.com/bending-force-calculator/ (air bending, 90 degrees).
+Only 90-degree single strokes are screened against declared ratings;
+non-90 and staged operations are reference-only. Shared stroke force is the
+sum of actually bent lengths, not the outer span including gaps. No force is
+inferred from tool length. Optional sidecar metadata keys:
+`max_load_kn_per_m` (positive numeric kN/m) and `load_rating_source` (nonempty
+manufacturer reference); ambiguous legacy maximum_load is ignored. Unknown
+ratings remain warnings. A reference estimate above a declared rating rejects
+that candidate, not the tool for every possible job. This is not a press/tool
+load certificate: mounting, concentrated/off-center loading, tool geometry,
+actual radius, springback, other bending methods remain unverified.
+AUTO_TOOL_TECHNOLOGY_PAIR and AUTO_TOOL_TECHNOLOGY_FAST_STROKES record full
+inputs, formula, ratings, warnings, estimates and reasons. Material save
+and validation errors are recorded too. Per-project technology persistence,
+tool rating editor and PDF integration are pending.

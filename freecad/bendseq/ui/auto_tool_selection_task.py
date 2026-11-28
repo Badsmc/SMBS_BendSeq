@@ -11,6 +11,8 @@ from freecad.bendseq.core.geometry_backend.io.tooling_library import ToolingLibr
 from freecad.bendseq.core.kinematics2d.auto_tool_selection import BendRequirement, shortlist
 from freecad.bendseq.core.kinematics2d.auto_tool_fast_review import review_pair, PairFastReview
 from freecad.bendseq.core.kinematics2d.auto_tool_apply import pinned_orientations, verify_candidate_layout
+from freecad.bendseq.core.kinematics2d.bending_technology import Material, TechnologyInputs, assess_technology
+from freecad.bendseq.ui.native_preferences import NativePreferences
 from freecad.bendseq.core.kinematics2d.auto_tool_orientation import (variant_key, orientation_variants, oriented_punch)
 from freecad.bendseq.core.kinematics2d.auto_tool_retry import (attempt_order, mesh_outcome, next_action, TOTAL_MESH_BUDGET_S)
 from freecad.bendseq.core.kinematics2d.developer_debug_log import debug_event
@@ -23,7 +25,9 @@ def _snapshot(workspace):
     session = workspace.session
     bends = session.fold_state.bends
     requirements = tuple(BendRequirement(bid, dist(*bends[bid].axis_xyz),
-                         session.local_bend_dimensions_mm.get(bid))
+                         session.local_bend_dimensions_mm.get(bid),
+                         getattr(bends[bid].bend_zone, "thickness_mm", None),
+                         bends[bid].angle_deg)
                          for bid in session.canonical_order)
     if session.controller.has_stages:
         # Separate pre-bend/finish operations share their physical bend length.
@@ -63,6 +67,71 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
     note = widgets.QLabel(tr("auto_tool_note"))
     note.setWordWrap(True)
     layout.addWidget(note)
+    material_box = widgets.QGroupBox(tr("auto_tool_materials"))
+    form = widgets.QFormLayout(material_box)
+    preferences = NativePreferences(QtCore)
+    materials = {}
+    for row in preferences.value("materials/Profiles", [], type=list):
+        try:
+            item = Material(**row)
+            materials[item.name] = item
+        except (TypeError, ValueError) as exc:
+            debug_event("AUTO_TOOL_MATERIAL_INVALID", error=str(exc), record=row)
+    material = widgets.QComboBox()
+    material.addItem(tr("auto_tool_material_unknown"), None)
+    for name in sorted(materials):
+        material.addItem(name, name)
+    name_edit = widgets.QLineEdit()
+    source_edit = widgets.QLineEdit()
+    tensile = widgets.QDoubleSpinBox()
+    tensile.setRange(0, 10000)
+    tensile.setDecimals(1)
+    tensile.setSuffix(" MPa")
+    machine = widgets.QDoubleSpinBox()
+    machine.setRange(0, 1000000)
+    machine.setDecimals(1)
+    machine.setSuffix(" kN")
+    machine.setSpecialValueText(tr("auto_tool_material_unknown"))
+    save_material = widgets.QPushButton(tr("auto_tool_save_material"))
+    form.addRow(tr("auto_tool_materials"), material)
+    form.addRow(tr("auto_tool_material_name"), name_edit)
+    form.addRow(tr("auto_tool_tensile"), tensile)
+    form.addRow(tr("auto_tool_data_source"), source_edit)
+    form.addRow(save_material)
+    form.addRow(tr("auto_tool_machine_limit"), machine)
+    layout.addWidget(material_box)
+
+    def pick_material(*_):
+        item = materials.get(material.currentData())
+        name_edit.setText(item.name if item else "")
+        source_edit.setText(item.source if item else "")
+        tensile.setValue(item.tensile_mpa if item else 0)
+
+    def read_technology():
+        name, source, strength = name_edit.text().strip(), source_edit.text().strip(), tensile.value()
+        selected_material = Material(name, strength, source) if (name or source or strength) else None
+        return TechnologyInputs(selected_material, machine.value() or None)
+
+    def store_material(*_):
+        try:
+            item = read_technology().material
+            if item is None:
+                raise ValueError("Material requires name, tensile strength and source")
+            updated = dict(materials, **{item.name: item})
+            preferences.setValue("materials/Profiles", [asdict(v) for v in updated.values()])
+            materials[item.name] = item
+            index = material.findData(item.name)
+            if index < 0:
+                material.addItem(item.name, item.name)
+                index = material.count()-1
+            material.setCurrentIndex(index)
+            debug_event("AUTO_TOOL_MATERIAL_SAVED", material=asdict(item))
+        except Exception as exc:
+            debug_event("AUTO_TOOL_MATERIAL_SAVE_ERROR", error=str(exc), traceback=traceback.format_exc())
+            widgets.QMessageBox.warning(dialog, tr("error"), str(exc))
+
+    material.currentIndexChanged.connect(pick_material)
+    save_material.clicked.connect(store_material)
     search = widgets.QPushButton(tr("auto_tool_search"))
     stop = widgets.QPushButton(tr("auto_tool_stop"))
     stop.setEnabled(False)
@@ -91,7 +160,7 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
     state = {"snapshot": None, "result": None, "cancel": None, "queue": None,
              "run": None, "reviews": {}, "rows": [], "pending": [],
              "reviewing": False, "closed": False, "started": 0.0,
-             "variants": [], "both_orientations": False}
+             "variants": [], "both_orientations": False, "technology": None, "technology_reports": {}}
 
     def log(event, **data):
         debug_event("AUTO_TOOL_" + event, run_id=state["run"], **data)
@@ -136,6 +205,14 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
                  tr("auto_tool_complete") if result.complete else tr("auto_tool_limited")]
         if candidate is not None:
             lines += [candidate.status, mode_label(candidate), *candidate.warnings]
+            tech = state["technology_reports"].get(key(candidate), candidate.technology)
+            if tech is not None:
+                lines.append(tr("auto_tool_force_reference") + ": " + tech["status"])
+                for stroke in tech["strokes"]:
+                    force = stroke["total_reference_kn"]
+                    lines.append(", ".join(b["bend_id"] for b in stroke["bends"]) + ": "
+                                 + ("?" if force is None else f"{force:.1f} kN"))
+                lines.extend(tech["blocked"])
             for kind in ("punch", "die"):
                 segments = candidate.plan[kind + "_segments"]
                 lines.append(tr(kind) + ": " + " + ".join(
@@ -154,6 +231,7 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
         state["reviewing"] = False
         search.setEnabled(True)
         both_orientations.setEnabled(True)
+        material_box.setEnabled(True)
         stop.setEnabled(False)
         rows = sorted(state["variants"],
                       key=lambda c: (state["reviews"].get(key(c), PairFastReview("NOT_CHECKED")).rank(),
@@ -223,6 +301,19 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
                     strokes = verify_candidate_layout(review.candidate, operations,
                                                      snap[0].fold_state.bends, assembly, pinned)
                     pair_log("FAST_LAYOUT_COVERAGE", strokes=strokes)
+                    punch_meta = next(t.metadata for t in snap[3].punches if t.tool_id == c.punch_id)
+                    die_meta = next(t.metadata for t in snap[3].dies if t.tool_id == c.die_id)
+                    # Staged bend force is not estimated from a final 90-degree
+                    # target as if it were a single forming stroke.
+                    requirements = snap[1]
+                    if any(op.kind != "SINGLE" for op in operations):
+                        requirements = tuple(replace(b, angle_deg=None) for b in requirements)
+                    technology_report = assess_technology(requirements, c.opening_mm, punch_meta, die_meta,
+                        state["technology"], groups=[g for g, _ in strokes])
+                    state["technology_reports"][pair] = technology_report
+                    pair_log("TECHNOLOGY_FAST_STROKES", report=technology_report)
+                    if technology_report["blocked"]:
+                        raise ValueError("; ".join(technology_report["blocked"]))
                 except ValueError as exc:
                     pair_log("FAST_LAYOUT_REJECTED", error=str(exc), candidate=review.candidate.to_dict())
                     review = PairFastReview("ERROR", fast_report=review.fast_report,
@@ -247,6 +338,7 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
         if failure:
             search.setEnabled(True)
             both_orientations.setEnabled(True)
+            material_box.setEnabled(True)
             stop.setEnabled(False)
             details.setPlainText(failure)
             return
@@ -265,13 +357,14 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
     def start(*_):
         if busy():
             return
-        state.update(result=None, reviews={}, rows=[], pending=[], variants=[], run=uuid4().hex,
+        state.update(result=None, reviews={}, rows=[], pending=[], variants=[], technology_reports={}, run=uuid4().hex,
                      both_orientations=both_orientations.isChecked(),
                      started=monotonic())
         choices.clear()
         apply.setEnabled(False)
         try:
             snap = _snapshot(workspace)
+            state["technology"] = read_technology()
             if not snap[4].centres_mm:
                 raise ValueError(tr("set_clamp_centres_or_their_count_in_the_clamps"))
             if not snap[0].can_reorder():
@@ -282,7 +375,7 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
                 tools=[dict(id=t.tool_id, kind=t.kind, path=str(t.fcstd_path), metadata=t.metadata)
                        for t in snap[3].all_tools()], weights=dict(snap[10]),
                 fast_pair_limit=5, total_budget_s=40,
-                both_punch_orientations=state["both_orientations"])
+                both_punch_orientations=state["both_orientations"], technology=asdict(state["technology"]))
         except Exception as exc:
             error("START_ERROR", exc)
             details.setPlainText(str(exc))
@@ -292,18 +385,22 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
         state["cancel"], state["queue"] = cancel, queue
         run_id = state["run"]
         _, bends, span, catalog, clamps = snap[:5]
+        technology = state["technology"]
+        if any(op.kind != "SINGLE" for op in snap[6]):
+            bends = tuple(replace(b, angle_deg=None) for b in bends)
         def worker():
             def trace(event, **data):
                 debug_event("AUTO_TOOL_" + event, run_id=run_id, **data)
             try:
                 result = shortlist(catalog, bends, clamps, required_span_mm=span,
-                                   cancelled=cancel.is_set, trace=trace)
+                                   cancelled=cancel.is_set, trace=trace, technology_inputs=technology)
                 queue.put((result, None))
             except Exception as exc:
                 trace("INVENTORY_ERROR", error=str(exc), traceback=traceback.format_exc())
                 queue.put((None, str(exc)))
         search.setEnabled(False)
         both_orientations.setEnabled(False)
+        material_box.setEnabled(False)
         stop.setEnabled(True)
         details.setPlainText(tr("auto_tool_searching"))
         timer.start()
@@ -327,6 +424,8 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
             return
         try:
             snap = valid_snapshot()
+            if read_technology() != state["technology"]:
+                raise ValueError(tr("auto_tool_stale"))
         except Exception as exc:
             error("APPLY_ERROR", exc)
             details.appendPlainText(str(exc))
@@ -342,6 +441,7 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
         log("APPLY_REQUESTED", punch=c.punch_id, die=c.die_id,
             candidate=candidate.to_dict(), mesh_requested=check_mesh,
             retry_enabled=retry, punch_reversed=c.punch_reversed,
+            technology=state["technology_reports"].get(key(c), c.technology),
             attempts=[variant_key(x) for x, _ in attempts])
         dialog.accept()
         # Follow native FAST lifecycle: never mutate the CAD scene from a

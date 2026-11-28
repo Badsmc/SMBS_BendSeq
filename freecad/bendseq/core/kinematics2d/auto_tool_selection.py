@@ -4,6 +4,7 @@ from math import isfinite
 from time import monotonic
 from .segment_assembly_planner import validate_inventory, plan_pair_for_bend, AssemblyPlanningError
 from .flange_die_check import positive_mm
+from .bending_technology import TechnologyInputs, assess_technology
 
 
 @dataclass(frozen=True)
@@ -11,6 +12,8 @@ class BendRequirement:
     bend_id: str
     length_mm: float
     flange_mm: float | None = None
+    thickness_mm: float | None = None
+    angle_deg: float | None = None
 
     def __post_init__(self):
         if not self.bend_id or positive_mm(self.length_mm) is None:
@@ -27,6 +30,7 @@ class ToolCandidate:
     score: tuple
     status: str = "CANDIDATE_UNVERIFIED"
     punch_reversed: bool | None = None
+    technology: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -38,7 +42,8 @@ class SelectionResult:
 
 
 def shortlist(catalog, bends, clamps, *, required_span_mm=None, allowance_mm=15.0,
-              max_results=20, max_pairs=500, budget_s=10.0, cancelled=lambda: False, trace=lambda *a, **k: None):
+              max_results=20, max_pairs=500, budget_s=10.0, cancelled=lambda: False, trace=lambda *a, **k: None,
+              technology_inputs=None):
     """Rank common full-coverage segment plans, not bend feasibility.
 
     A successful plan only proves a candidate inventory/clamp layout. All
@@ -94,6 +99,14 @@ def shortlist(catalog, bends, clamps, *, required_span_mm=None, allowance_mm=15.
             if opening is None:
                 opening = positive_mm(die.metadata.get("v_opening_mm"))
             warnings = ["TECHNOLOGY_AND_COLLISIONS_NOT_CHECKED"]
+            technology = None
+            if technology_inputs is not None:
+                technology = assess_technology(bends, opening, punch.metadata, die.metadata, technology_inputs)
+                trace("TECHNOLOGY_PAIR", punch=punch.tool_id, die=die.tool_id, report=technology)
+                warnings.extend(technology["warnings"])
+                if technology["blocked"]:
+                    rejected.append((punch.tool_id, die.tool_id, "; ".join(technology["blocked"])))
+                    continue
             if opening is None:
                 warnings.append("V_OPENING_UNKNOWN")
             for bend in bends:
@@ -118,7 +131,7 @@ def shortlist(catalog, bends, clamps, *, required_span_mm=None, allowance_mm=15.
                      plan["punch_total_mm"] + plan["die_total_mm"] - 2 * required,
                      punch.tool_id, die.tool_id)
             candidates.append(ToolCandidate(punch.tool_id, die.tool_id, opening, plan,
-                                            tuple(warnings), score))
+                                            tuple(warnings), score, technology=technology))
         if not complete:
             break
     trace('INVENTORY_FINISHED', complete=complete, examined=count, rejected=rejected, candidate_count=len(candidates), elapsed_s=monotonic()-start)

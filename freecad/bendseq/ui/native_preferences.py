@@ -16,6 +16,7 @@ _GROUPS = {
     "operation_weights": "OperationWeights",
     "sequence_catalog": "SequenceCatalog",
     "pdf": "PDF",
+    "materials": "Materials",
 }
 _KEYS = {
     "enabled": "Enabled",
