@@ -40,6 +40,7 @@ def _snapshot(workspace):
         return (str(path), info.st_size, info.st_mtime_ns)
     files = tuple((stamp(tool.fcstd_path), stamp(tool.sidecar_path))
                   for tool in catalog.all_tools())
+    from freecad.bendseq.ui.mesh_preferences import mesh_defaults
     return (session, requirements, span, catalog, workspace._current_clamp_config(),
             tuple(session.bend_order), tuple(session.controller.operation_steps),
             tuple(sorted(workspace._manual_operation_orientation_overrides.items())),
@@ -48,7 +49,7 @@ def _snapshot(workspace):
             tuple(sorted(workspace._selected_operation_weights().to_dict().items())),
             repr(workspace.backgauge_model), files, repr(workspace.cycle_config),
             bool(workspace.tooling_setup.allow_end_zone_collision),
-            float(workspace.tooling_setup.end_zone_length_mm))
+            float(workspace.tooling_setup.end_zone_length_mm), tuple(mesh_defaults()))
 
 
 def show_auto_tool_selection(workspace, qt, embed, tool_kind):
