@@ -343,9 +343,19 @@ Note: Select tools in Tooling for full production verification.</source>
       <translation>Поиск по складу завершён</translation>
     </message>
     <message>
+      <source>Material data source</source>
+      <comment>auto_tool_data_source</comment>
+      <translation>Источник данных материала</translation>
+    </message>
+    <message>
       <source>Candidate pairs examined</source>
       <comment>auto_tool_examined</comment>
       <translation>Проверено комплектов</translation>
+    </message>
+    <message>
+      <source>90° air-bending reference estimate</source>
+      <comment>auto_tool_force_reference</comment>
+      <translation>Оценка усилия воздушной гибки 90°</translation>
     </message>
     <message>
       <source>Library orientation</source>
@@ -356,6 +366,26 @@ Note: Select tools in Tooling for full production verification.</source>
       <source>Inventory search limited or cancelled</source>
       <comment>auto_tool_limited</comment>
       <translation>Поиск по складу ограничен или отменён</translation>
+    </message>
+    <message>
+      <source>Machine rated force (optional)</source>
+      <comment>auto_tool_machine_limit</comment>
+      <translation>Номинальное усилие станка (необязательно)</translation>
+    </message>
+    <message>
+      <source>Material name / grade</source>
+      <comment>auto_tool_material_name</comment>
+      <translation>Название / марка материала</translation>
+    </message>
+    <message>
+      <source>Not specified</source>
+      <comment>auto_tool_material_unknown</comment>
+      <translation>Не задано</translation>
+    </message>
+    <message>
+      <source>Material</source>
+      <comment>auto_tool_materials</comment>
+      <translation>Материал</translation>
     </message>
     <message>
       <source>Normal</source>
@@ -393,6 +423,11 @@ Note: Select tools in Tooling for full production verification.</source>
       <translation>Проверено комплектов FAST / 2D</translation>
     </message>
     <message>
+      <source>Save material to library</source>
+      <comment>auto_tool_save_material</comment>
+      <translation>Сохранить материал в библиотеку</translation>
+    </message>
+    <message>
       <source>Search</source>
       <comment>auto_tool_search</comment>
       <translation>Поиск</translation>
@@ -411,6 +446,11 @@ Note: Select tools in Tooling for full production verification.</source>
       <source>Stop</source>
       <comment>auto_tool_stop</comment>
       <translation>Стоп</translation>
+    </message>
+    <message>
+      <source>Tensile strength Rm</source>
+      <comment>auto_tool_tensile</comment>
+      <translation>Предел прочности Rm</translation>
     </message>
     <message>
       <source>Auto Tool Selection</source>
