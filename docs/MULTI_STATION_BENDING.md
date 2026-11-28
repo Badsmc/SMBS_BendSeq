@@ -31,7 +31,7 @@ The project version stays 0.2.0.
 | --- | --- | --- |
 | A | Architecture, station and operation-assignment contracts | Implemented and covered by headless regression tests |
 | B | Manual tooling, inventory, layout, assignment UI | Layout, stock and session draft editor implemented; native FreeCAD acceptance pending |
-| C | Coin3D, station-specific machine pose, transfers and gauge | Pending |
+| C | Coin3D, station-specific machine pose, transfers and gauge | Machine Pose adapter tested; viewer, transfers and gauge integration pending |
 | D | Shared-ram motion and all installed component checks | Pending |
 | E | Bounded FAST search with station transitions and cached feasibility | Pending |
 | F | FCStd snapshots, templates and PDF | Pending |
@@ -75,3 +75,18 @@ motion clearance are not checked by the layout editor.
 The Qt editor was exercised offscreen with two stations, synthetic stock,
 duplicating and removing a station, assigning a stage, and auto layout.
 The full headless suite passed with 119 tests.
+
+### Machine Pose adapter
+
+`resolve_station_poses` uses the assigned station's usable X intervals and the
+existing midpoint generator. It resolves one authoritative Machine Pose frame,
+then places the full span at each candidate X coordinate. No candidate is
+returned if coverage is insufficient or interrupted. A shared stroke requires
+the same enabled station, equal current angles and the existing geometrical
+shared-stroke rules. PREBEND and FINISH can resolve independently at different
+positions. The returned frame is only a rigid placement. It has no native
+contact, gauge or collision verdict.
+
+Three new headless tests cover fixed station coordinates, grouped alignment in
+both loading orientations, insufficient coverage across a gap and independent
+stage positions. The full suite passed with 122 tests.
