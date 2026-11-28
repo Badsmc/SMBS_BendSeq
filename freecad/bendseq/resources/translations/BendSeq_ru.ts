@@ -318,6 +318,31 @@ Note: Select tools in Tooling for full production verification.</source>
       <translation>AUTO PLAY остановлен: {status}</translation>
     </message>
     <message>
+      <source>Draft: {count} stations. Collisions and full machine compatibility unverified.</source>
+      <comment>auto_station_draft_result</comment>
+      <translation>Проект: станций — {count}. Коллизии и полная совместимость станка не проверены.</translation>
+    </message>
+    <message>
+      <source>Maximum stations</source>
+      <comment>auto_station_max</comment>
+      <translation>Максимум станций</translation>
+    </message>
+    <message>
+      <source>Replace the current station draft if a new layout is found?</source>
+      <comment>auto_station_replace</comment>
+      <translation>Заменить текущий проект станций, если найдена новая раскладка?</translation>
+    </message>
+    <message>
+      <source>Automatic station selection (draft)</source>
+      <comment>auto_station_search</comment>
+      <translation>Автоматический подбор станций (проект)</translation>
+    </message>
+    <message>
+      <source>A station draft is present. Use Tooling → Stations for automatic station selection, or remove the draft before single-pair search.</source>
+      <comment>auto_station_single_blocked</comment>
+      <translation>Есть проект станций. Используйте Оснастка → Станции для автоматического подбора станций либо удалите проект перед поиском одного комплекта.</translation>
+    </message>
+    <message>
       <source>Pair and layout applied. Sequence not applied; run FAST and Mesh to verify.</source>
       <comment>auto_tool_applied</comment>
       <translation>Комплект и раскладка применены. Последовательность не применена; запустите FAST и Mesh для проверки.</translation>
