@@ -991,7 +991,7 @@ def activate_task_dialog(workspace, key):
 # These pages contain data or callbacks tied to a particular source part.
 _PART_TASK_KEYS = (
     "fast_results", "bend_information", "pdf_export", "mesh",
-    "tool_assembly", "backgauge", "cycle_config", "catalog", "prebend",
+    "tool_assembly", "backgauge", "cycle_config", "catalog", "prebend", "auto_tool_selection",
 )
 
 
@@ -2675,6 +2675,9 @@ class _PreviewPanel:
                 )
                 tool_main_layout.addRow(tr("punch"), self.select_punch_combo)
                 tool_main_layout.addRow(tr("die"), self.select_die_combo)
+                self.auto_tool_selection_btn = style_action(QtWidgets.QPushButton(tr("Auto Tool Selection")), compact=True)
+                self.auto_tool_selection_btn.clicked.connect(self._show_auto_tool_selection)
+                tool_main_layout.addRow(self.auto_tool_selection_btn)
                 # Keep diagnostics in the shared task status area, not
                 # as an extra paragraph below the two selectors.
                 self.tooling_status.setParent(self)
@@ -3801,6 +3804,17 @@ class _PreviewPanel:
                 self._on_tool_inventory_changed()
                 if self.session is not None:
                     self._update_3d_preview(force=True)
+
+            def _show_auto_tool_selection(self):
+                from freecad.bendseq.ui.auto_tool_selection_task import show_auto_tool_selection
+                if self.session is None or self._task_progress_busy or self.timer.isActive() or self.playing:
+                    self.status.setText(tr("load_a_part_before_calculating_a_layout") if self.session is None
+                                        else tr("stop_the_simulation_or_wait_for_the_check_to"))
+                    return
+                if activate_task_dialog(self, "auto_tool_selection"):
+                    return
+                if self._apply_typed_manual_order():
+                    show_auto_tool_selection(self, _qt, embed_task_dialog, ToolKind)
 
             def _show_manual_tooling_assembly(self):
                 """Show per-bend proposals and an explicit common layout for native OCC."""
