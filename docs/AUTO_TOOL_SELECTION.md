@@ -18,3 +18,20 @@ Next increments: material and machine limits with sourced parameters, robust
 profile/datum screening, shared-station layout and inventory allocation,
 FAST and Mesh integration, orientation alternatives, persistent results and PDF.
 Test in native FreeCAD before release. No version bump.
+
+## FAST integration and diagnostics
+
+Review up to five inventory candidates with independent FoldState, real selected
+profiles and a common physical assembly. Each review uses the existing FAST
+(4 s) and sampled Stage B (2 s); ranking preserves uncertain and obstructed
+candidates. The 40 s overall target is cooperative, not a hard deadline.
+Only the pair and its verified source-CAD layout are applied, not the FAST
+sequence. The operator can rerun the normal FAST workflow before Mesh.
+Native Qt/CAD work is performed on the GUI thread between event-loop turns;
+Stop takes effect between pairs. Inventory work runs off the GUI thread.
+
+Existing Desktop journal, when enabled: AUTO_TOOL_START*, INVENTORY_FILTER,
+PAIR_STARTED, PAIR_LAYOUT, PAIR_ERROR, SHORTLIST, REVIEW_STARTED, PROFILE_LOADED,
+FAST_STARTED/RESULT, 2D_STARTED/RESULT, REVIEW_RESULT/ERROR, FINISHED,
+CANCEL_REQUESTED, STALE and APPLY_*; one run_id connects the events. Reports
+include rejected pairs, timings, tracebacks, stock and machine inputs. No upload.

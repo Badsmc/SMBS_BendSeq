@@ -37,7 +37,7 @@ class SelectionResult:
 
 
 def shortlist(catalog, bends, clamps, *, required_span_mm=None, allowance_mm=15.0,
-              max_results=20, max_pairs=500, budget_s=10.0, cancelled=lambda: False):
+              max_results=20, max_pairs=500, budget_s=10.0, cancelled=lambda: False, trace=lambda *a, **k: None):
     """Rank common full-coverage segment plans, not bend feasibility.
 
     A successful plan only proves a candidate inventory/clamp layout. All
@@ -72,6 +72,7 @@ def shortlist(catalog, bends, clamps, *, required_span_mm=None, allowance_mm=15.
         except (AssemblyPlanningError, TypeError, ValueError) as exc:
             rejected.append((tool.tool_id if tool.kind == "punch" else "",
                              tool.tool_id if tool.kind == "die" else "", str(exc)))
+    trace('INVENTORY_FILTER', rejected=tuple(rejected), accepted=tuple(stock), required_mm=required)
     count = 0
     complete = True
     for punch in catalog.punches:
@@ -86,6 +87,8 @@ def shortlist(catalog, bends, clamps, *, required_span_mm=None, allowance_mm=15.
                 complete = False
                 break
             count += 1
+            pair_started = monotonic()
+            trace('PAIR_STARTED', punch=punch.tool_id, die=die.tool_id, required_mm=required)
             opening = positive_mm(die.metadata.get("v_width_mm"))
             if opening is None:
                 opening = positive_mm(die.metadata.get("v_opening_mm"))
@@ -104,7 +107,9 @@ def shortlist(catalog, bends, clamps, *, required_span_mm=None, allowance_mm=15.
                                           allowance_mm=allowance_mm, full_coverage=True)
             except (AssemblyPlanningError, ValueError) as exc:
                 rejected.append((punch.tool_id, die.tool_id, str(exc)))
+                trace('PAIR_ERROR', punch=punch.tool_id, die=die.tool_id, error=str(exc), elapsed_s=monotonic()-pair_started)
                 continue
+            trace('PAIR_LAYOUT', punch=punch.tool_id, die=die.tool_id, plan=plan, warnings=warnings, elapsed_s=monotonic()-pair_started)
             if plan.get("status") != "ASSEMBLY_CANDIDATE_UNVERIFIED":
                 rejected.append((punch.tool_id, die.tool_id, plan.get("status", "UNKNOWN")))
                 continue
@@ -115,5 +120,6 @@ def shortlist(catalog, bends, clamps, *, required_span_mm=None, allowance_mm=15.
                                             tuple(warnings), score))
         if not complete:
             break
+    trace('INVENTORY_FINISHED', complete=complete, examined=count, rejected=rejected, candidate_count=len(candidates), elapsed_s=monotonic()-start)
     return SelectionResult(tuple(sorted(candidates, key=lambda c: c.score)[:max_results]),
                            tuple(rejected), complete, count)

@@ -2675,7 +2675,7 @@ class _PreviewPanel:
                 )
                 tool_main_layout.addRow(tr("punch"), self.select_punch_combo)
                 tool_main_layout.addRow(tr("die"), self.select_die_combo)
-                self.auto_tool_selection_btn = style_action(QtWidgets.QPushButton(tr("Auto Tool Selection")), compact=True)
+                self.auto_tool_selection_btn = style_action(QtWidgets.QPushButton(tr("auto_tool_title")), compact=True)
                 self.auto_tool_selection_btn.clicked.connect(self._show_auto_tool_selection)
                 tool_main_layout.addRow(self.auto_tool_selection_btn)
                 # Keep diagnostics in the shared task status area, not
