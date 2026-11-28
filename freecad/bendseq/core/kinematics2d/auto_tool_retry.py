@@ -3,6 +3,8 @@
 Never infer clearance from an empty, failed, conditional or incomplete report.
 A collision rejects this sequence/pose, not every use of the physical tool.
 """
+from .auto_tool_orientation import variant_key
+
 MAX_ATTEMPTS = 3
 TOTAL_MESH_BUDGET_S = 120.0
 
@@ -12,10 +14,10 @@ def attempt_order(selected, ranked, *, retry=False):
     if not retry:
         return (selected,)
     result = [selected]
-    seen = {(selected[0].punch_id, selected[0].die_id)}
+    seen = {variant_key(selected[0])}
     for entry in ranked:
         tool, candidate = entry
-        key = tool.punch_id, tool.die_id
+        key = variant_key(tool)
         if key not in seen and candidate is not None:
             result.append(entry)
             seen.add(key)

@@ -11,6 +11,7 @@ from freecad.bendseq.core.geometry_backend.io.tooling_library import ToolingLibr
 from freecad.bendseq.core.kinematics2d.auto_tool_selection import BendRequirement, shortlist
 from freecad.bendseq.core.kinematics2d.auto_tool_fast_review import review_pair, PairFastReview
 from freecad.bendseq.core.kinematics2d.auto_tool_apply import pinned_orientations, verify_candidate_layout
+from freecad.bendseq.core.kinematics2d.auto_tool_orientation import (variant_key, orientation_variants, oriented_punch)
 from freecad.bendseq.core.kinematics2d.auto_tool_retry import (attempt_order, mesh_outcome, next_action, TOTAL_MESH_BUDGET_S)
 from freecad.bendseq.core.kinematics2d.developer_debug_log import debug_event
 from freecad.bendseq.core.kinematics2d.shared_strokes import stroke_axis
@@ -38,7 +39,10 @@ def _snapshot(workspace):
             return None
         info = path.stat()
         return (str(path), info.st_size, info.st_mtime_ns)
-    files = tuple((stamp(tool.fcstd_path), stamp(tool.sidecar_path))
+    def profile_stamp(tool):
+        path = workspace.tool_library.profile_path(tool.tool_id, tool.kind)
+        return stamp(path) if path.is_file() else (str(path), None, None)
+    files = tuple((stamp(tool.fcstd_path), stamp(tool.sidecar_path), profile_stamp(tool))
                   for tool in catalog.all_tools())
     from freecad.bendseq.ui.mesh_preferences import mesh_defaults
     return (session, requirements, span, catalog, workspace._current_clamp_config(),
@@ -64,6 +68,9 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
     stop.setEnabled(False)
     layout.addWidget(search)
     layout.addWidget(stop)
+    both_orientations = widgets.QCheckBox(tr("auto_tool_both_orientations"))
+    both_orientations.setChecked(False)
+    layout.addWidget(both_orientations)
     choices = widgets.QComboBox()
     layout.addWidget(choices)
     details = widgets.QPlainTextEdit()
@@ -83,7 +90,8 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
     timer.setInterval(100)
     state = {"snapshot": None, "result": None, "cancel": None, "queue": None,
              "run": None, "reviews": {}, "rows": [], "pending": [],
-             "reviewing": False, "closed": False, "started": 0.0}
+             "reviewing": False, "closed": False, "started": 0.0,
+             "variants": [], "both_orientations": False}
 
     def log(event, **data):
         debug_event("AUTO_TOOL_" + event, run_id=state["run"], **data)
@@ -97,7 +105,12 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
         return state["rows"][index] if 0 <= index < len(state["rows"]) else None
 
     def key(c):
-        return c.punch_id, c.die_id
+        return variant_key(c)
+
+    def mode_label(c):
+        if c.punch_reversed is None:
+            return tr("auto_tool_library_orientation")
+        return tr("auto_tool_reversed") if c.punch_reversed else tr("auto_tool_normal")
 
     def busy():
         return timer.isActive() or state["reviewing"]
@@ -122,7 +135,7 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
         lines = [tr("auto_tool_examined") + ": " + str(result.examined),
                  tr("auto_tool_complete") if result.complete else tr("auto_tool_limited")]
         if candidate is not None:
-            lines += [candidate.status, *candidate.warnings]
+            lines += [candidate.status, mode_label(candidate), *candidate.warnings]
             for kind in ("punch", "die"):
                 segments = candidate.plan[kind + "_segments"]
                 lines.append(tr(kind) + ": " + " + ".join(
@@ -140,8 +153,9 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
     def finish_reviews(reason):
         state["reviewing"] = False
         search.setEnabled(True)
+        both_orientations.setEnabled(True)
         stop.setEnabled(False)
-        rows = sorted(state["result"].candidates,
+        rows = sorted(state["variants"],
                       key=lambda c: (state["reviews"].get(key(c), PairFastReview("NOT_CHECKED")).rank(),
                                      c.score))
         state["rows"] = rows
@@ -150,10 +164,10 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
             opening = "?" if c.opening_mm is None else f"{c.opening_mm:g}"
             review = state["reviews"].get(key(c))
             choices.addItem(f"{c.punch_id} / {c.die_id} | V {opening} mm | "
-                            + (review.status if review else "NOT_CHECKED"))
+                            + mode_label(c) + " | " + (review.status if review else "NOT_CHECKED"))
         log("FINISHED", reason=reason, elapsed_s=monotonic()-state["started"],
             reviewed=len(state["reviews"]), total_candidates=len(rows),
-            ranking=[dict(punch=c.punch_id, die=c.die_id,
+            ranking=[dict(punch=c.punch_id, die=c.die_id, punch_reversed=c.punch_reversed,
                           status=state["reviews"][key(c)].status if key(c) in state["reviews"] else "NOT_CHECKED")
                      for c in rows])
         refresh()
@@ -175,13 +189,16 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
         c = state["pending"].pop(0)
         pair = key(c)
         started = monotonic()
-        log("REVIEW_STARTED", punch=pair[0], die=pair[1], plan=c.plan, warnings=c.warnings)
+        log("REVIEW_STARTED", punch=pair[0], die=pair[1], orientation_requested=pair[2], plan=c.plan, warnings=c.warnings)
         def pair_log(event, **data):
-            log(event, punch=pair[0], die=pair[1], **data)
+            log(event, punch=pair[0], die=pair[1], orientation_requested=pair[2], **data)
         try:
             pair_log("PROFILE_LOAD_STARTED")
-            punch = workspace.tool_library.load_tool(c.punch_id, tool_kind.PUNCH)
-            die = workspace.tool_library.load_tool(c.die_id, tool_kind.DIE)
+            library_punch = workspace.tool_library.load_tool(c.punch_id, tool_kind.PUNCH, use_cache=False)
+            punch = oriented_punch(library_punch, c.punch_reversed)
+            die = workspace.tool_library.load_tool(c.die_id, tool_kind.DIE, use_cache=False)
+            pair_log("ORIENTATION_PROFILE", library_default=library_punch.punch_reversed,
+                     actual=punch.punch_reversed, library_written=False)
             setup = replace(workspace.tooling_setup, tool_assembly=None,
                             match_active_bend_length=False, punch_section_offsets_xm=(),
                             die_section_offsets_xm=())
@@ -229,11 +246,17 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
         timer.stop()
         if failure:
             search.setEnabled(True)
+            both_orientations.setEnabled(True)
             stop.setEnabled(False)
             details.setPlainText(failure)
             return
         state["result"] = result
-        state["pending"] = list(result.candidates[:5])
+        variants = orientation_variants(result.candidates[:5],
+                        state["snapshot"][3].punches,
+                        enabled=state["both_orientations"], trace=log)
+        # Preserve unreviewed inventory rows without mislabelling their orientation.
+        state["variants"] = list(variants) + list(result.candidates[5:])
+        state["pending"] = list(variants)
         state["reviewing"] = True
         log("SHORTLIST", candidates=[asdict(c) for c in result.candidates],
             rejected=result.rejected, complete=result.complete, examined=result.examined)
@@ -242,7 +265,8 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
     def start(*_):
         if busy():
             return
-        state.update(result=None, reviews={}, rows=[], pending=[], run=uuid4().hex,
+        state.update(result=None, reviews={}, rows=[], pending=[], variants=[], run=uuid4().hex,
+                     both_orientations=both_orientations.isChecked(),
                      started=monotonic())
         choices.clear()
         apply.setEnabled(False)
@@ -257,7 +281,8 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
                 clamps=asdict(snap[4]), tool_count=len(snap[3].all_tools()),
                 tools=[dict(id=t.tool_id, kind=t.kind, path=str(t.fcstd_path), metadata=t.metadata)
                        for t in snap[3].all_tools()], weights=dict(snap[10]),
-                fast_pair_limit=5, total_budget_s=40)
+                fast_pair_limit=5, total_budget_s=40,
+                both_punch_orientations=state["both_orientations"])
         except Exception as exc:
             error("START_ERROR", exc)
             details.setPlainText(str(exc))
@@ -278,6 +303,7 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
                 trace("INVENTORY_ERROR", error=str(exc), traceback=traceback.format_exc())
                 queue.put((None, str(exc)))
         search.setEnabled(False)
+        both_orientations.setEnabled(False)
         stop.setEnabled(True)
         details.setPlainText(tr("auto_tool_searching"))
         timer.start()
@@ -315,7 +341,8 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
         attempts = attempt_order((c, candidate), ranked, retry=retry)
         log("APPLY_REQUESTED", punch=c.punch_id, die=c.die_id,
             candidate=candidate.to_dict(), mesh_requested=check_mesh,
-            retry_enabled=retry, attempts=[(x.punch_id, x.die_id) for x, _ in attempts])
+            retry_enabled=retry, punch_reversed=c.punch_reversed,
+            attempts=[variant_key(x) for x, _ in attempts])
         dialog.accept()
         # Follow native FAST lifecycle: never mutate the CAD scene from a
         # contextual dialog's completion callback.
@@ -355,8 +382,11 @@ def _apply_selection(workspace, tool_kind, snap, c, candidate, run_id, check_mes
                                          assembly, pinned)
         log("APPLY_STARTED", punch=c.punch_id, die=c.die_id, candidate=candidate.to_dict(),
             strokes=strokes, mesh_requested=check_mesh)
-        punch = workspace.tool_library.load_tool(c.punch_id, tool_kind.PUNCH)
-        die = workspace.tool_library.load_tool(c.die_id, tool_kind.DIE)
+        library_punch = workspace.tool_library.load_tool(c.punch_id, tool_kind.PUNCH, use_cache=False)
+        punch = oriented_punch(library_punch, c.punch_reversed)
+        die = workspace.tool_library.load_tool(c.die_id, tool_kind.DIE, use_cache=False)
+        log("APPLY_ORIENTATION", punch=c.punch_id, library_default=library_punch.punch_reversed,
+            actual=punch.punch_reversed, library_written=False)
         from freecad.bendseq.core.kinematics2d.verified_tool_spans import verified_fixed_tool_spans
         setup = replace(workspace.tooling_setup, tool_assembly=None,
                         match_active_bend_length=False, punch_section_offsets_xm=(),
@@ -372,7 +402,8 @@ def _apply_selection(workspace, tool_kind, snap, c, candidate, run_id, check_mes
         workspace.select_punch(punch)
         workspace.select_die(die)
         if (getattr(workspace.tooling_setup.punch, "tool_id", None) != c.punch_id
-                or getattr(workspace.tooling_setup.die, "tool_id", None) != c.die_id):
+                or getattr(workspace.tooling_setup.die, "tool_id", None) != c.die_id
+                or workspace.tooling_setup.punch.punch_reversed != punch.punch_reversed):
             raise ValueError(tr("auto_tool_apply_error"))
         log("APPLY_LAYOUT_STARTED", assembly=asdict(assembly))
         workspace._apply_tool_assembly(assembly)
@@ -389,10 +420,12 @@ def _apply_selection(workspace, tool_kind, snap, c, candidate, run_id, check_mes
         actual_orientations = workspace._effective_operation_orientation_map()
         if (actual != tuple(candidate.operation_ids)
                 or any(actual_orientations.get(k) != v for k, v in candidate.orientations().items())
-                or workspace.tooling_setup.tool_assembly != assembly):
+                or workspace.tooling_setup.tool_assembly != assembly
+                or workspace.tooling_setup.punch.punch_reversed != punch.punch_reversed):
             raise RuntimeError("Applied order, orientation or layout differs from FAST candidate")
         log("APPLY_RESULT", punch=c.punch_id, die=c.die_id, order=actual,
             orientations=actual_orientations, assembly=asdict(assembly),
+            punch_reversed=punch.punch_reversed,
             evidence="APPLIED_UNVERIFIED_3D", mesh_requested=check_mesh)
         return workspace._mesh_preview_identity(), _snapshot(workspace)
     except Exception as exc:
@@ -460,7 +493,8 @@ def _start_attempts(workspace, tool_kind, snap, attempts, run_id, check_mesh, re
                 return
             tool, candidate = attempts[index]
             record = dict(attempt=index+1, punch=tool.punch_id, die=tool.die_id,
-                          order=list(candidate.operation_ids))
+                          order=list(candidate.operation_ids),
+                          punch_reversed=getattr(tool, "punch_reversed", None))
             history.append(record)
             log("RETRY_ATTEMPT_STARTED", **record, remaining_budget_s=remaining if retry else None)
             applied = _apply_selection(workspace, tool_kind, current, tool, candidate, run_id, check_mesh)

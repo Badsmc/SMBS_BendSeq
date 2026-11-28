@@ -26,6 +26,7 @@ class ToolCandidate:
     warnings: tuple[str, ...]
     score: tuple
     status: str = "CANDIDATE_UNVERIFIED"
+    punch_reversed: bool | None = None
 
 
 @dataclass(frozen=True)

@@ -68,3 +68,17 @@ The existing Mesh result and collision display are used for the last attempt.
 All attempts are correlated with the same run_id and attempt index, including
 RETRY_ATTEMPT_STARTED, RETRY_DECISION, RETRY_FINISHED and RETRY_ERROR.
 Runtime UI validation remains required; no continuous safety certificate.
+
+## Punch orientation alternatives
+
+Opt in to both normal and reversed 180-degree variants. The top five physical
+pairs share the existing cooperative 40 s search budget; not all variants may
+be reviewed. Each orientation is an independent FAST/2D result and Mesh retry
+identity. Inventory/segment layout is shared; the same physical punch is not
+duplicated. Explicit sidecar metadata allow_reverse_punch=false preserves the
+library default only. Mounting/force compatibility is not established by this
+option. Use session-local profile copies, never save orientation to the library.
+FCStd restore accepts the alternate orientation only if the exact saved profile
+fingerprint matches; other profile changes still fail closed. Log orientation
+request, actual/default values, result and retry orientation under the same
+run_id, and restore separately. Native FreeCAD acceptance remains pending.

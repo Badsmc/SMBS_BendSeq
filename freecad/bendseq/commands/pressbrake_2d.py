@@ -3556,7 +3556,9 @@ class _PreviewPanel:
                 self.select_punch_combo.clear()
                 self.select_punch_combo.addItem(tr("none_selected_cb3ce06b"), None)
                 for idx, p in enumerate(punches, 1):
-                    self.select_punch_combo.addItem(f"{p.name} ({p.validation_status.value})", p.tool_id)
+                    active = self.tooling_setup.punch if cur_p == p.tool_id else p
+                    orientation_label = " | " + tr("auto_tool_reversed") if active.punch_reversed else ""
+                    self.select_punch_combo.addItem(f"{p.name} ({p.validation_status.value})" + orientation_label, p.tool_id)
                     if cur_p == p.tool_id:
                         self.select_punch_combo.setCurrentIndex(idx)
                 self.select_punch_combo.blockSignals(False)
@@ -7238,7 +7240,14 @@ class _PreviewPanel:
                             profile = self.tool_library.load_tool(
                                 ref["id"], kind, use_cache=False
                             )
-                            if not matches_tool_reference(profile, ref):
+                            if key == "punch":
+                                from freecad.bendseq.core.kinematics2d.auto_tool_orientation import restore_matching_punch
+                                default_orientation = profile.punch_reversed
+                                profile = restore_matching_punch(profile, ref, matches_tool_reference)
+                                _desktop_debug_event("AUTO_TOOL_RESTORE_PUNCH_ORIENTATION",
+                                    punch=profile.tool_id, library_default=default_orientation,
+                                    restored=profile.punch_reversed)
+                            elif not matches_tool_reference(profile, ref):
                                 raise EmbeddedSessionError(
                                     "Tool library profile changed: " + ref["id"]
                                 )
