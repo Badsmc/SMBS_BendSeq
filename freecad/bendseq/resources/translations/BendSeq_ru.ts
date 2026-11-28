@@ -4773,6 +4773,96 @@ Solids: {solids} | Faces: {faces}
       <translation> | Состояние зафиксировано; Reset или смена режима для повторного запуска.</translation>
     </message>
     <message>
+      <source>Add station</source>
+      <comment>stations_add</comment>
+      <translation>Добавить станцию</translation>
+    </message>
+    <message>
+      <source>Assign operation</source>
+      <comment>stations_assign</comment>
+      <translation>Назначить операцию</translation>
+    </message>
+    <message>
+      <source>Auto layout</source>
+      <comment>stations_auto_layout</comment>
+      <translation>Автоматическая раскладка</translation>
+    </message>
+    <message>
+      <source>Calculate segments and apply settings</source>
+      <comment>stations_calculate</comment>
+      <translation>Рассчитать сегменты и применить настройки</translation>
+    </message>
+    <message>
+      <source>Select a punch and a die from the tool library.</source>
+      <comment>stations_choose_tools</comment>
+      <translation>Выберите пуансон и матрицу из библиотеки оснастки.</translation>
+    </message>
+    <message>
+      <source>Layout draft for this session. Assignments here serve preparation only. Simulation, FAST, collision checks and export still use the single tool pair.</source>
+      <comment>stations_draft_notice</comment>
+      <translation>Черновик раскладки для текущей сессии. Назначения в этом разделе служат для подготовки. Симуляция, FAST, проверка коллизий и экспорт пока используют одну пару инструментов.</translation>
+    </message>
+    <message>
+      <source>Duplicate station at X</source>
+      <comment>stations_duplicate</comment>
+      <translation>Дублировать станцию в позиции X</translation>
+    </message>
+    <message>
+      <source>Layout draft updated for the current session.</source>
+      <comment>stations_layout_saved</comment>
+      <translation>Черновик раскладки обновлён для текущей сессии.</translation>
+    </message>
+    <message>
+      <source>Machine left limit X (mm)</source>
+      <comment>stations_machine_left</comment>
+      <translation>Левая граница станка X (мм)</translation>
+    </message>
+    <message>
+      <source>Machine right limit X (mm)</source>
+      <comment>stations_machine_right</comment>
+      <translation>Правая граница станка X (мм)</translation>
+    </message>
+    <message>
+      <source>Minimum station gap (mm)</source>
+      <comment>stations_min_gap</comment>
+      <translation>Минимальный зазор между станциями (мм)</translation>
+    </message>
+    <message>
+      <source>Move station to X</source>
+      <comment>stations_move</comment>
+      <translation>Переместить станцию в позицию X</translation>
+    </message>
+    <message>
+      <source>Reverse punch</source>
+      <comment>stations_reverse_punch</comment>
+      <translation>Развернуть пуансон</translation>
+    </message>
+    <message>
+      <source>Required tool span (mm)</source>
+      <comment>stations_span</comment>
+      <translation>Требуемый пролёт инструмента (мм)</translation>
+    </message>
+    <message>
+      <source>The operation list changed. Reopen Stations.</source>
+      <comment>stations_stale_operation</comment>
+      <translation>Список операций изменился. Откройте раздел «Станции» заново.</translation>
+    </message>
+    <message>
+      <source>Station</source>
+      <comment>stations_station</comment>
+      <translation>Станция</translation>
+    </message>
+    <message>
+      <source>Stations</source>
+      <comment>stations_title</comment>
+      <translation>Станции</translation>
+    </message>
+    <message>
+      <source>Station X (mm)</source>
+      <comment>stations_x</comment>
+      <translation>Координата станции X (мм)</translation>
+    </message>
+    <message>
       <source>Status</source>
       <comment>status</comment>
       <translation>Статус</translation>

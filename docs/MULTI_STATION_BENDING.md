@@ -30,7 +30,7 @@ The project version stays 0.2.0.
 | Phase | Scope | Status |
 | --- | --- | --- |
 | A | Architecture, station and operation-assignment contracts | Implemented and covered by headless regression tests |
-| B | Manual tooling, inventory, layout, assignment UI | Layout and stock backend tested; UI pending |
+| B | Manual tooling, inventory, layout, assignment UI | Layout, stock and session draft editor implemented; native FreeCAD acceptance pending |
 | C | Coin3D, station-specific machine pose, transfers and gauge | Pending |
 | D | Shared-ram motion and all installed component checks | Pending |
 | E | Bounded FAST search with station transitions and cached feasibility | Pending |
@@ -54,3 +54,24 @@ this layout order, not proof that no arrangement exists. Height compatibility,
 tool mounting datums and workpiece clearance require further integration.
 
 Phase A passed 115 headless tests. The Phase B layout backend passed 119.
+
+### Preparing a layout
+
+Load a part, then open **Tooling → Stations**. Enter the press limits in
+machine X, the minimum gap and the required span of each pair. Choose tools
+from the existing library. **Calculate segments** uses the inventory sidecars
+and actual configured clamps. Set X numerically or drag a colored span to a
+different location. **Duplicate station at X** reserves a second copy of the
+segments, and requires a distinct valid mounting position. Use the operation
+selector to assign each step, including staged bends, independently.
+
+The result is an explicitly labeled session draft. The operation table shows
+the proposed assignments. The current simulation, checks and export continue
+using the existing single pair until the machine and verification adapters are
+integrated. The draft is not persisted in FCStd at this stage. Installed clamp
+geometry is used for longitudinal mounting checks; height, mating datums, and
+motion clearance are not checked by the layout editor.
+
+The Qt editor was exercised offscreen with two stations, synthetic stock,
+duplicating and removing a station, assigning a stage, and auto layout.
+The full headless suite passed with 119 tests.

@@ -363,6 +363,7 @@ class LoadedPartSession:
     active_bend_index: int = 0
     local_bend_dimensions_mm: dict = field(default_factory=dict)
     controller: BendSequenceController = field(init=False)
+    station_draft: object = None
 
     def __post_init__(self) -> None:
         self.controller = StagedBendSequenceController(self.fold_state)
@@ -991,7 +992,7 @@ def activate_task_dialog(workspace, key):
 # These pages contain data or callbacks tied to a particular source part.
 _PART_TASK_KEYS = (
     "fast_results", "bend_information", "pdf_export", "mesh",
-    "tool_assembly", "backgauge", "cycle_config", "catalog", "prebend",
+    "tool_assembly", "backgauge", "cycle_config", "catalog", "prebend", "station_editor",
 )
 
 
@@ -2018,8 +2019,9 @@ class _PreviewPanel:
                 self.operations.stage_drop_owner = self
                 self.operations.setHeaderLabels([
                     tr("step_ee899dd5"), tr("bend"), "180°", tr("target"), tr("current_angle"), tr("before_bend_mm"),
-                    tr("gauge_s_mm"), tr("status"), tr("retract"), tr("prebend"),
+                    tr("gauge_s_mm"), tr("status"), tr("retract"), tr("prebend"), tr("stations_station"),
                 ])
+                self.operations.setColumnHidden(10, True)
                 self.operations.setDragDropMode(QtWidgets.QAbstractItemView.InternalMove)
                 self.operations.setDefaultDropAction(QtCore.Qt.MoveAction)
                 self.operations.setDropIndicatorShown(True)
@@ -2686,6 +2688,9 @@ class _PreviewPanel:
                 import_row.addStretch(1)
                 import_row.addWidget(self.import_tooling_btn)
                 tooling_body.addLayout(import_row)
+                station_button = QtWidgets.QPushButton(tr("stations_title"))
+                station_button.clicked.connect(self._show_station_editor)
+                tooling_body.addWidget(station_button)
                 self.tool_library_btn.hide()
                 td_layout.addWidget(tooling_card)
                 td_layout.setAlignment(QtCore.Qt.AlignTop)
@@ -6133,6 +6138,14 @@ class _PreviewPanel:
                     _warn(msg)
                     self.status.setText(msg)
 
+            def _show_station_editor(self):
+                from freecad.bendseq.ui.station_editor import show_station_editor
+
+                existing = getattr(self, "_task_dialogs", {}).get("station_editor")
+                if existing is not None:
+                    existing.reject()
+                show_station_editor(self, embed_task_dialog)
+
             def open_full_tooling_library(self):
                 """Open the single canonical library with segment inventory."""
                 from freecad.bendseq.core.geometry_backend.io.tooling_library import (
@@ -9131,6 +9144,7 @@ class _PreviewPanel:
                         for _bend in self.session.ordered_bends:
                             self.operations.addTopLevelItem(QtWidgets.QTreeWidgetItem())
                         self._update_operations_visual_state()
+                        self._update_station_assignment_column()
                         if self._playback_alive() and self._qt_is_valid(self.operations):
                             self.operations.setDragEnabled(
                                 self.session.controller.has_stages
@@ -9138,6 +9152,21 @@ class _PreviewPanel:
                 finally:
                     if self._qt_is_valid(self.operations):
                         self.operations.blockSignals(signals_were_blocked)
+
+            def _update_station_assignment_column(self):
+                if not self._playback_alive() or not self._qt_is_valid(self.operations):
+                    return
+                draft = self.session.station_draft if self.session is not None else None
+                self.operations.setColumnHidden(10, draft is None)
+                if draft is None:
+                    return
+                for index, step in enumerate(self.session.controller.operation_steps):
+                    item = self.operations.topLevelItem(index)
+                    if item is None:
+                        break
+                    station = draft.assigned_station(step.operation_id)
+                    item.setText(10, station.name if station else "—")
+                    item.setToolTip(10, tr("stations_draft_notice"))
 
             def _update_operations_visual_state(self):
                 if (self.session is None or self._closing
