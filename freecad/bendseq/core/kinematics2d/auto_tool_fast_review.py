@@ -18,7 +18,7 @@ class PairFastReview:
             "PARTIAL_UNVERIFIED": 2, "STAGED_UNSUPPORTED": 3,
             "BUDGET_EXCEEDED": 3, "NOT_CHECKED": 3,
             "POTENTIAL_2D_INTERFERENCE": 4, "STATIC_TOOLING_BLOCK": 5,
-            "NO_FAST_CANDIDATE": 6, "ERROR": 7,
+            "NO_FAST_CANDIDATE": 6, "ESTIMATED_LIMIT_EXCEEDED": 7, "ERROR": 7,
         }
         return (order.get(self.status, 3),
                 getattr(self.candidate, "estimated_cost", float("inf")))

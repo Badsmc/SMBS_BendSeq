@@ -313,7 +313,10 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
                     state["technology_reports"][pair] = technology_report
                     pair_log("TECHNOLOGY_FAST_STROKES", report=technology_report)
                     if technology_report["blocked"]:
-                        raise ValueError("; ".join(technology_report["blocked"]))
+                        pair_log("TECHNOLOGY_REJECTED", reasons=technology_report["blocked"],
+                                 candidate=review.candidate.to_dict())
+                        review = PairFastReview("ESTIMATED_LIMIT_EXCEEDED", fast_report=review.fast_report,
+                                                screen_report=review.screen_report)
                 except ValueError as exc:
                     pair_log("FAST_LAYOUT_REJECTED", error=str(exc), candidate=review.candidate.to_dict())
                     review = PairFastReview("ERROR", fast_report=review.fast_report,
@@ -438,6 +441,10 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
                   for row in state["rows"] if key(row) in state["reviews"]
                   and state["reviews"][key(row)].candidate is not None]
         attempts = attempt_order((c, candidate), ranked, retry=retry)
+        # Carry the precise material/rating/actual-stroke assessment into
+        # every retry, rather than only logging the originally selected pair.
+        attempts = tuple((replace(row, technology=state["technology_reports"].get(key(row), row.technology)), seq)
+                         for row, seq in attempts)
         log("APPLY_REQUESTED", punch=c.punch_id, die=c.die_id,
             candidate=candidate.to_dict(), mesh_requested=check_mesh,
             retry_enabled=retry, punch_reversed=c.punch_reversed,
@@ -480,8 +487,21 @@ def _apply_selection(workspace, tool_kind, snap, c, candidate, run_id, check_mes
         assembly = ToolAssembly.from_plan(c.plan)
         strokes = verify_candidate_layout(candidate, operations, snap[0].fold_state.bends,
                                          assembly, pinned)
+        if c.technology is not None:
+            saved = c.technology
+            material = Material(**saved["material"]) if saved["material"] is not None else None
+            requirements = snap[1]
+            if any(op.kind != "SINGLE" for op in operations):
+                requirements = tuple(replace(b, angle_deg=None) for b in requirements)
+            punch_meta = next(t.metadata for t in snap[3].punches if t.tool_id == c.punch_id)
+            die_meta = next(t.metadata for t in snap[3].dies if t.tool_id == c.die_id)
+            current_technology = assess_technology(requirements, c.opening_mm, punch_meta, die_meta,
+                TechnologyInputs(material, saved["machine_limit_kn"]), groups=[g for g, _ in strokes])
+            log("TECHNOLOGY_APPLY_RECHECK", report=current_technology)
+            if current_technology != saved or current_technology["blocked"]:
+                raise ValueError("Technology assessment changed or estimated load limit exceeded")
         log("APPLY_STARTED", punch=c.punch_id, die=c.die_id, candidate=candidate.to_dict(),
-            strokes=strokes, mesh_requested=check_mesh)
+            strokes=strokes, mesh_requested=check_mesh, technology=c.technology)
         library_punch = workspace.tool_library.load_tool(c.punch_id, tool_kind.PUNCH, use_cache=False)
         punch = oriented_punch(library_punch, c.punch_reversed)
         die = workspace.tool_library.load_tool(c.die_id, tool_kind.DIE, use_cache=False)

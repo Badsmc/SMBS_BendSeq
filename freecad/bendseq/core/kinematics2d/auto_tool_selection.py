@@ -98,7 +98,7 @@ def shortlist(catalog, bends, clamps, *, required_span_mm=None, allowance_mm=15.
             opening = positive_mm(die.metadata.get("v_width_mm"))
             if opening is None:
                 opening = positive_mm(die.metadata.get("v_opening_mm"))
-            warnings = ["TECHNOLOGY_AND_COLLISIONS_NOT_CHECKED"]
+            warnings = ["TECHNOLOGY_AND_COLLISIONS_NOT_CHECKED" if technology_inputs is None else "COLLISIONS_NOT_CHECKED"]
             technology = None
             if technology_inputs is not None:
                 technology = assess_technology(bends, opening, punch.metadata, die.metadata, technology_inputs)
