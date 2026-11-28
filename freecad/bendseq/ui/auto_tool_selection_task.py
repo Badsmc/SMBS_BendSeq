@@ -10,6 +10,7 @@ import traceback
 from freecad.bendseq.core.geometry_backend.io.tooling_library import ToolingLibrary
 from freecad.bendseq.core.kinematics2d.auto_tool_selection import BendRequirement, shortlist
 from freecad.bendseq.core.kinematics2d.auto_tool_fast_review import review_pair, PairFastReview
+from freecad.bendseq.core.kinematics2d.auto_tool_apply import pinned_orientations, verify_candidate_layout
 from freecad.bendseq.core.kinematics2d.developer_debug_log import debug_event
 from freecad.bendseq.core.kinematics2d.shared_strokes import stroke_axis
 from freecad.bendseq.core.kinematics2d.tooling_assembly import ToolAssembly
@@ -55,9 +56,12 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
     details = widgets.QPlainTextEdit()
     details.setReadOnly(True)
     layout.addWidget(details)
-    apply = widgets.QPushButton(tr("auto_tool_apply"))
+    apply = widgets.QPushButton(tr("auto_tool_apply") + " + " + tr("apply_unverified_sequence"))
     apply.setEnabled(False)
     layout.addWidget(apply)
+    run_mesh = widgets.QCheckBox(tr("run_mesh"))
+    run_mesh.setChecked(True)
+    layout.addWidget(run_mesh)
     timer = QtCore.QTimer(dialog)
     timer.setInterval(100)
     state = {"snapshot": None, "result": None, "cancel": None, "queue": None,
@@ -176,17 +180,19 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
                      punch_validation=str(punch.validation_status), die_validation=str(die.validation_status),
                      assembly=asdict(assembly))
             operations = snap[6]
-            operation_pins, bend_pins, advisory = dict(snap[7]), dict(snap[8]), set(snap[9])
-            pinned = {}
-            for step in operations:
-                if step.operation_id not in advisory:
-                    if step.operation_id in operation_pins:
-                        pinned[step.operation_id] = operation_pins[step.operation_id]
-                    elif step.bend_id in bend_pins:
-                        pinned[step.operation_id] = bend_pins[step.bend_id]
+            pinned = pinned_orientations(operations, dict(snap[7]), dict(snap[8]), set(snap[9]))
             review = review_pair(snap[0].fold_state, operations, snap[0].panel_vertices_xy,
                                  setup, pinned=pinned, weights=dict(snap[10]),
                                  backgauge_model=workspace.backgauge_model, trace=pair_log)
+            if review.candidate is not None:
+                try:
+                    strokes = verify_candidate_layout(review.candidate, operations,
+                                                     snap[0].fold_state.bends, assembly, pinned)
+                    pair_log("FAST_LAYOUT_COVERAGE", strokes=strokes)
+                except ValueError as exc:
+                    pair_log("FAST_LAYOUT_REJECTED", error=str(exc), candidate=review.candidate.to_dict())
+                    review = PairFastReview("ERROR", fast_report=review.fast_report,
+                                            screen_report=review.screen_report)
             state["reviews"][pair] = review
             pair_log("REVIEW_RESULT", status=review.status,
                      candidate=review.candidate.to_dict() if review.candidate else None,
@@ -273,36 +279,25 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
         c = selected()
         if c is None or busy():
             return
-        log("APPLY_STARTED", punch=c.punch_id, die=c.die_id)
+        review = state["reviews"].get(key(c))
+        if review is None or review.candidate is None:
+            return
         try:
-            valid_snapshot()
-            punch = workspace.tool_library.load_tool(c.punch_id, tool_kind.PUNCH)
-            die = workspace.tool_library.load_tool(c.die_id, tool_kind.DIE)
-            assembly = ToolAssembly.from_plan(c.plan)
-            # Validate source CAD sections before touching the live tooling.
-            from freecad.bendseq.core.kinematics2d.verified_tool_spans import verified_fixed_tool_spans
-            setup = replace(workspace.tooling_setup, tool_assembly=None,
-                            match_active_bend_length=False, punch_section_offsets_xm=(),
-                            die_section_offsets_xm=())
-            setup.select_punch(punch)
-            setup.select_die(die)
-            setup.set_tool_assembly(assembly)
-            log("APPLY_SOURCE_CAD_VERIFY_STARTED", assembly=asdict(assembly))
-            verified = verified_fixed_tool_spans(setup)
-            log("APPLY_SOURCE_CAD_VERIFY_RESULT", report=verified.to_dict())
-            workspace.select_punch(punch)
-            workspace.select_die(die)
-            if (getattr(workspace.tooling_setup.punch, "tool_id", None) != c.punch_id
-                    or getattr(workspace.tooling_setup.die, "tool_id", None) != c.die_id):
-                raise ValueError(tr("auto_tool_apply_error"))
-            log("APPLY_LAYOUT_STARTED", assembly=asdict(assembly))
-            workspace._apply_tool_assembly(assembly)
-            log("APPLY_RESULT", punch=c.punch_id, die=c.die_id, assembly=asdict(assembly),
-                evidence="PAIR_AND_LAYOUT_APPLIED_SEQUENCE_NOT_APPLIED")
-            details.appendPlainText(tr("auto_tool_applied"))
+            snap = valid_snapshot()
         except Exception as exc:
             error("APPLY_ERROR", exc)
             details.appendPlainText(str(exc))
+            return
+        candidate = review.candidate
+        check_mesh = run_mesh.isChecked()
+        run_id = state["run"]
+        log("APPLY_REQUESTED", punch=c.punch_id, die=c.die_id,
+            candidate=candidate.to_dict(), mesh_requested=check_mesh)
+        dialog.accept()
+        # Follow native FAST lifecycle: never mutate the CAD scene from a
+        # contextual dialog's completion callback.
+        QtCore.QTimer.singleShot(0, lambda: _apply_selection(
+            workspace, tool_kind, snap, c, candidate, run_id, check_mesh, QtCore))
 
     timer.timeout.connect(poll)
     search.clicked.connect(start)
@@ -312,3 +307,108 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
     dialog.finished.connect(close)
     dialog.destroyed.connect(close)
     embed(workspace, dialog, tr("auto_tool_title"), "auto_tool_selection")
+
+
+def _apply_selection(workspace, tool_kind, snap, c, candidate, run_id, check_mesh, QtCore):
+    def log(event, **data):
+        debug_event("AUTO_TOOL_" + event, run_id=run_id, **data)
+
+    old_setup = None
+    changed = False
+    sequence_applied = False
+    try:
+        if not workspace._playback_alive():
+            log("APPLY_SKIPPED", reason="workspace_destroyed")
+            return
+        current = _snapshot(workspace)
+        if (current[0] is not snap[0] or current[1:] != snap[1:]
+                or not workspace.session.can_reorder() or workspace._task_progress_busy
+                or workspace.timer.isActive() or workspace.playing):
+            raise ValueError(tr("auto_tool_stale"))
+        operations = snap[6]
+        pinned = pinned_orientations(operations, dict(snap[7]), dict(snap[8]), set(snap[9]))
+        assembly = ToolAssembly.from_plan(c.plan)
+        strokes = verify_candidate_layout(candidate, operations, snap[0].fold_state.bends,
+                                         assembly, pinned)
+        log("APPLY_STARTED", punch=c.punch_id, die=c.die_id, candidate=candidate.to_dict(),
+            strokes=strokes, mesh_requested=check_mesh)
+        punch = workspace.tool_library.load_tool(c.punch_id, tool_kind.PUNCH)
+        die = workspace.tool_library.load_tool(c.die_id, tool_kind.DIE)
+        from freecad.bendseq.core.kinematics2d.verified_tool_spans import verified_fixed_tool_spans
+        setup = replace(workspace.tooling_setup, tool_assembly=None,
+                        match_active_bend_length=False, punch_section_offsets_xm=(),
+                        die_section_offsets_xm=())
+        setup.select_punch(punch)
+        setup.select_die(die)
+        setup.set_tool_assembly(assembly)
+        log("APPLY_SOURCE_CAD_VERIFY_STARTED", assembly=asdict(assembly))
+        verified = verified_fixed_tool_spans(setup)
+        log("APPLY_SOURCE_CAD_VERIFY_RESULT", report=verified.to_dict())
+        old_setup = replace(workspace.tooling_setup)
+        changed = True
+        workspace.select_punch(punch)
+        workspace.select_die(die)
+        if (getattr(workspace.tooling_setup.punch, "tool_id", None) != c.punch_id
+                or getattr(workspace.tooling_setup.die, "tool_id", None) != c.die_id):
+            raise ValueError(tr("auto_tool_apply_error"))
+        log("APPLY_LAYOUT_STARTED", assembly=asdict(assembly))
+        workspace._apply_tool_assembly(assembly)
+        if workspace.tooling_setup.tool_assembly != assembly:
+            raise RuntimeError("Selected assembly was not applied")
+        log("APPLY_SEQUENCE_STARTED", candidate=candidate.to_dict(), pinned=pinned)
+        # Use the same code path as the normal FAST result dialog.
+        workspace._set_task_result("FAST", "running", tr("apply_unverified_sequence"))
+        if workspace._apply_fast_sequence_candidate(candidate, snap[0].controller,
+                                                     operations, pinned, 0) is not True:
+            raise RuntimeError("Existing FAST sequence application did not complete")
+        sequence_applied = True
+        actual = tuple(op.operation_id for op in workspace.session.controller.operation_steps)
+        actual_orientations = workspace._effective_operation_orientation_map()
+        if (actual != tuple(candidate.operation_ids)
+                or any(actual_orientations.get(k) != v for k, v in candidate.orientations().items())
+                or workspace.tooling_setup.tool_assembly != assembly):
+            raise RuntimeError("Applied order, orientation or layout differs from FAST candidate")
+        log("APPLY_RESULT", punch=c.punch_id, die=c.die_id, order=actual,
+            orientations=actual_orientations, assembly=asdict(assembly),
+            evidence="APPLIED_UNVERIFIED_3D", mesh_requested=check_mesh)
+        if check_mesh:
+            expected_identity = workspace._mesh_preview_identity()
+            QtCore.QTimer.singleShot(0, lambda: _run_selected_mesh(
+                workspace, expected_identity, run_id))
+    except Exception as exc:
+        log("APPLY_ERROR", error=str(exc), traceback=traceback.format_exc(),
+            changed_tooling=changed, sequence_applied=sequence_applied)
+        if changed and not sequence_applied and old_setup is not None and workspace._playback_alive():
+            try:
+                # Preserve object identity; the press-cycle controller may refer to it.
+                workspace.tooling_setup.__dict__.update(old_setup.__dict__)
+                blocked = workspace.virtual_tool_len_checkbox.blockSignals(True)
+                try:
+                    workspace.virtual_tool_len_checkbox.setChecked(old_setup.match_active_bend_length)
+                finally:
+                    workspace.virtual_tool_len_checkbox.blockSignals(blocked)
+                workspace.press_cycle = None
+                workspace._refresh_tooling_combos()
+                workspace._update_tooling_status_label()
+                workspace.draw()
+                log("APPLY_TOOLING_ROLLBACK")
+            except Exception as rollback:
+                log("APPLY_ROLLBACK_ERROR", error=str(rollback), traceback=traceback.format_exc())
+        if workspace._playback_alive():
+            workspace.status.setText("Auto Tool Selection: " + str(exc))
+
+
+def _run_selected_mesh(workspace, identity, run_id):
+    try:
+        if (not workspace._playback_alive() or workspace.session is None
+                or workspace._task_progress_busy or workspace.timer.isActive() or workspace.playing
+                or workspace._mesh_preview_identity() != identity):
+            debug_event("AUTO_TOOL_MESH_SKIPPED", run_id=run_id, reason="setup_changed_or_busy")
+            return
+        report = workspace._run_mesh_sequence_check(auto_tool_run_id=run_id)
+        debug_event("AUTO_TOOL_MESH_FINISHED", run_id=run_id,
+                    returned_report=report is not None,
+                    evidence="SAMPLED_ONLY_NOT_CONTINUOUS_CERTIFICATION")
+    except Exception as exc:
+        debug_event("AUTO_TOOL_MESH_ERROR", run_id=run_id, error=str(exc),
+                    traceback=traceback.format_exc())

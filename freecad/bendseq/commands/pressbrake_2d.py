@@ -5226,6 +5226,7 @@ class _PreviewPanel:
                         selected=selected.to_dict(),
                         evidence="UNVERIFIED_3D_NOT_CHECKED",
                     )
+                    return True
                 except Exception as exc:
                     if not self._playback_alive():
                         # FreeCAD/Qt has destroyed the host: NEVER touch
@@ -5255,6 +5256,7 @@ class _PreviewPanel:
                         )
                     self._set_task_result("FAST", "error", tr("sequence_could_not_be_applied"), str(exc))
                     _error("FAST apply failed: " + traceback.format_exc())
+                    return False
 
             def open_sequence_catalog_dialog(self):
                 from freecad.bendseq.commands.sequence_catalog_dialog import show_sequence_catalog
@@ -7541,8 +7543,8 @@ class _PreviewPanel:
                     App.closeDocument(doc.Name)
                     QtWidgets.QMessageBox.warning(self, tr("error"), tr_message(exc))
 
-            def _run_mesh_sequence_check(self):
-                if self.session is None or self.timer.isActive():
+            def _run_mesh_sequence_check(self, *, auto_tool_run_id=None):
+                if self.session is None or self.timer.isActive() or self.playing:
                     self.status.setText(tr("mesh_load_a_part_and_stop_the_simulation"))
                     return
                 from freecad.bendseq.core.kinematics2d.mesh_sequence_screen import screen_mesh_sequence
@@ -7559,12 +7561,20 @@ class _PreviewPanel:
                         operations = operations[:len(prefix)]
 
                     def progress(index, count, operation):
+                        if auto_tool_run_id:
+                            _desktop_debug_event("AUTO_TOOL_MESH_OPERATION", run_id=auto_tool_run_id,
+                                                 index=index, count=count, operation=operation)
                         self.status.setText(f"Mesh: {index + 1}/{count} · {operation}")
                         QtWidgets.QApplication.processEvents(QtCore.QEventLoop.ExcludeUserInputEvents)
 
                     from freecad.bendseq.ui.mesh_preferences import mesh_defaults
                     default_budget, default_overlap = mesh_defaults()
                     latest_collision = None
+                    if auto_tool_run_id:
+                        _desktop_debug_event("AUTO_TOOL_MESH_STARTED", run_id=auto_tool_run_id,
+                            identity=self._mesh_preview_identity(),
+                            operations=[step.operation_id for step in operations],
+                            budget_s=default_budget, min_overlap_mm3=default_overlap)
 
                     def capture_collision(hit, component, tool, common):
                         nonlocal latest_collision
@@ -7579,6 +7589,9 @@ class _PreviewPanel:
                     )
                     self._latest_mesh_collision = latest_collision
                     _desktop_debug_event("MESH_SEQUENCE_RESULT", **report)
+                    if auto_tool_run_id:
+                        _desktop_debug_event("AUTO_TOOL_MESH_RESULT", run_id=auto_tool_run_id,
+                                             report=report)
                     if self._mesh_collision_index is not None:
                         self._collision_display_active = False
                     self._mesh_collision_index = None
@@ -7633,9 +7646,14 @@ class _PreviewPanel:
                     message = f"Mesh · {summary} {details}"
                     self.status.setText(message)
                     self.manual_check_summary.setText(message)
+                    return report
                 except (ValueError, RuntimeError, AttributeError) as exc:
+                    if auto_tool_run_id:
+                        _desktop_debug_event("AUTO_TOOL_MESH_ERROR", run_id=auto_tool_run_id,
+                                             error=str(exc), traceback=traceback.format_exc())
                     self._set_task_result("Mesh", "error", tr("check_failed"), str(exc))
                     self.status.setText("Mesh: " + tr_message(exc))
+                    return None
                 finally:
                     self._set_task_busy(False)
 

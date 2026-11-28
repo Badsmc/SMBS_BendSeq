@@ -37,3 +37,18 @@ CANCEL_REQUESTED, STALE and APPLY_*; one run_id connects the events. Reports
 include rejected pairs, timings, tracebacks, stock and machine inputs. No upload.
 
 Native span verification and application are logged before and after the CAD load and layout change. Staged bends use physical bend lengths, not synthetic operation IDs. UI acceptance is pending.
+
+## Apply complete candidate and optional Mesh
+
+The selected candidate's operation IDs, locked orientations and actual shared
+stroke coverage are checked against its own sequence, not the original order.
+Apply commits the tool pair, source-CAD-verified physical layout, and exact
+FAST operation order/orientations via the normal FAST application path after
+the contextual page closes. Mesh (checked by default, user can disable) starts
+only if the same identity is still active. The standard Mesh budget and overlap
+preferences are reused. Mesh reports remain sampled and may be incomplete.
+No automatic substitution of another pair after a collision; the user can
+rerun selection. AUTO_TOOL_APPLY_REQUESTED/STARTED/SEQUENCE_STARTED/RESULT,
+FAST_LAYOUT_COVERAGE/REJECTED, APPLY_ERROR/TOOLING_ROLLBACK/ROLLBACK_ERROR and
+MESH_STARTED/OPERATION/RESULT/FINISHED/SKIPPED/ERROR share the same run_id.
+Earlier description of pair-only application is superseded by this increment.
