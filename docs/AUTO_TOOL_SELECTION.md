@@ -35,3 +35,5 @@ PAIR_STARTED, PAIR_LAYOUT, PAIR_ERROR, SHORTLIST, REVIEW_STARTED, PROFILE_LOADED
 FAST_STARTED/RESULT, 2D_STARTED/RESULT, REVIEW_RESULT/ERROR, FINISHED,
 CANCEL_REQUESTED, STALE and APPLY_*; one run_id connects the events. Reports
 include rejected pairs, timings, tracebacks, stock and machine inputs. No upload.
+
+Native span verification and application are logged before and after the CAD load and layout change. Staged bends use physical bend lengths, not synthetic operation IDs. UI acceptance is pending.

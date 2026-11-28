@@ -22,8 +22,12 @@ def _snapshot(workspace):
     requirements = tuple(BendRequirement(bid, dist(*bends[bid].axis_xyz),
                          session.local_bend_dimensions_mm.get(bid))
                          for bid in session.canonical_order)
-    strokes = workspace._continuous_tool_strokes(workspace._tool_assembly_order())
-    span = max(dist(*stroke_axis(group, bends)) for group in strokes)
+    if session.controller.has_stages:
+        # Separate pre-bend/finish operations share their physical bend length.
+        span = max(b.length_mm for b in requirements)
+    else:
+        strokes = workspace._continuous_tool_strokes(workspace._tool_assembly_order())
+        span = max(dist(*stroke_axis(group, bends)) for group in strokes)
     catalog = ToolingLibrary(workspace.tool_library.library_root).list_tools()
     return (session, requirements, span, catalog, workspace._current_clamp_config(),
             tuple(session.bend_order), tuple(session.controller.operation_steps),
@@ -154,6 +158,7 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
         def pair_log(event, **data):
             log(event, punch=pair[0], die=pair[1], **data)
         try:
+            pair_log("PROFILE_LOAD_STARTED")
             punch = workspace.tool_library.load_tool(c.punch_id, tool_kind.PUNCH)
             die = workspace.tool_library.load_tool(c.die_id, tool_kind.DIE)
             setup = replace(workspace.tooling_setup, tool_assembly=None,
@@ -282,12 +287,15 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
             setup.select_punch(punch)
             setup.select_die(die)
             setup.set_tool_assembly(assembly)
-            verified_fixed_tool_spans(setup)
+            log("APPLY_SOURCE_CAD_VERIFY_STARTED", assembly=asdict(assembly))
+            verified = verified_fixed_tool_spans(setup)
+            log("APPLY_SOURCE_CAD_VERIFY_RESULT", report=verified.to_dict())
             workspace.select_punch(punch)
             workspace.select_die(die)
             if (getattr(workspace.tooling_setup.punch, "tool_id", None) != c.punch_id
                     or getattr(workspace.tooling_setup.die, "tool_id", None) != c.die_id):
                 raise ValueError(tr("auto_tool_apply_error"))
+            log("APPLY_LAYOUT_STARTED", assembly=asdict(assembly))
             workspace._apply_tool_assembly(assembly)
             log("APPLY_RESULT", punch=c.punch_id, die=c.die_id, assembly=asdict(assembly),
                 evidence="PAIR_AND_LAYOUT_APPLIED_SEQUENCE_NOT_APPLIED")
