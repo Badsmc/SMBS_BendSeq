@@ -4938,6 +4938,16 @@ Solids: {solids} | Faces: {faces}
       <translation> | Состояние зафиксировано; Reset или смена режима для повторного запуска.</translation>
     </message>
     <message>
+      <source>Check all mounted station tools (Mesh)</source>
+      <comment>station_mesh_check</comment>
+      <translation>Проверить оснастку всех станций (Mesh)</translation>
+    </message>
+    <message>
+      <source>Sampled approach, forming and retract only. Transfers, grouped forming, clamps, gauge, machine body and continuous motion are not verified.</source>
+      <comment>station_mesh_scope</comment>
+      <translation>Только выборочные положения подхода, гибки и отвода. Переходы, групповые гибы, зажимы, упор, корпус и непрерывное движение не проверены.</translation>
+    </message>
+    <message>
       <source>Add station</source>
       <comment>stations_add</comment>
       <translation>Добавить станцию</translation>
