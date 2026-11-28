@@ -30,7 +30,7 @@ The project version stays 0.2.0.
 | Phase | Scope | Status |
 | --- | --- | --- |
 | A | Architecture, station and operation-assignment contracts | Implemented and covered by headless regression tests |
-| B | Manual tooling, inventory, layout, assignment UI | Pending |
+| B | Manual tooling, inventory, layout, assignment UI | Layout and stock backend tested; UI pending |
 | C | Coin3D, station-specific machine pose, transfers and gauge | Pending |
 | D | Shared-ram motion and all installed component checks | Pending |
 | E | Bounded FAST search with station transitions and cached feasibility | Pending |
@@ -41,3 +41,16 @@ Geometry, mounting data, permitted ram stroke and load evidence must be checked
 before reporting compatibility. Missing evidence stays unresolved. Sampled states
 and unchecked motion intervals must stay distinct. The 30–60 s search target
 has not been measured for multi-station search.
+
+### Longitudinal layout
+
+The existing segment planner selects stocked, clamp-supported chains. The
+station layer reserves the mounted segments of all other stations before
+replanning one pair and requires full coverage for the requested span. Manual
+validation rejects an out-of-bounds station, insufficient inventory, insufficient
+spacing or an unsupported punch. Auto layout searches fixed-clamp event
+positions from left to right in station order. A failed search is evidence about
+this layout order, not proof that no arrangement exists. Height compatibility,
+tool mounting datums and workpiece clearance require further integration.
+
+Phase A passed 115 headless tests. The Phase B layout backend passed 119.
