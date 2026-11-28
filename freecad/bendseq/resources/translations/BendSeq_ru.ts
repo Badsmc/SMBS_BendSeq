@@ -333,6 +333,11 @@ Note: Select tools in Tooling for full production verification.</source>
       <translation>Не удалось выбрать комплект. Проверьте активную оснастку.</translation>
     </message>
     <message>
+      <source>Allow both punch orientations (check mounting compatibility)</source>
+      <comment>auto_tool_both_orientations</comment>
+      <translation>Разрешить обе ориентации пуансона (проверьте совместимость крепления)</translation>
+    </message>
+    <message>
       <source>Inventory search complete</source>
       <comment>auto_tool_complete</comment>
       <translation>Поиск по складу завершён</translation>
@@ -343,9 +348,19 @@ Note: Select tools in Tooling for full production verification.</source>
       <translation>Проверено комплектов</translation>
     </message>
     <message>
+      <source>Library orientation</source>
+      <comment>auto_tool_library_orientation</comment>
+      <translation>Ориентация из библиотеки</translation>
+    </message>
+    <message>
       <source>Inventory search limited or cancelled</source>
       <comment>auto_tool_limited</comment>
       <translation>Поиск по складу ограничен или отменён</translation>
+    </message>
+    <message>
+      <source>Normal</source>
+      <comment>auto_tool_normal</comment>
+      <translation>Обычная</translation>
     </message>
     <message>
       <source>Preliminary inventory and FAST / sampled 2D review. Run Mesh after applying a pair.</source>
@@ -366,6 +381,11 @@ Note: Select tools in Tooling for full production verification.</source>
       <source>Auto Tool Selection: {outcome}; attempts: {count}. See Mesh and Debug Log.</source>
       <comment>auto_tool_retry_summary</comment>
       <translation>Автоматический подбор оснастки: {outcome}; попыток: {count}. См. Mesh и Debug Log.</translation>
+    </message>
+    <message>
+      <source>Reversed 180°</source>
+      <comment>auto_tool_reversed</comment>
+      <translation>Развёрнут на 180°</translation>
     </message>
     <message>
       <source>FAST / 2D pairs reviewed</source>
