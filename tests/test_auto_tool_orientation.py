@@ -45,3 +45,26 @@ class AutoToolOrientationTests(unittest.TestCase):
         self.assertFalse(profile.punch_reversed)
         with self.assertRaisesRegex(ValueError, "profile changed"):
             restore_matching_punch(profile, ("P", True, "changed"), matches)
+
+
+    def test_real_asymmetric_profile_and_native_loader_share_orientation(self):
+        from freecad.bendseq.core.kinematics2d.tooling_25d import (
+            ToolProfile, ToolKind, ProfileGeometry2D, Contour2D, LineSegment2D)
+        from freecad.bendseq.core.kinematics2d.tooling_assembly import native_section_options
+        from freecad.bendseq.integration.fcstd_session_store import tool_reference, matches_tool_reference
+        points = ((0, 0), (4, 10), (-1, 10), (0, 0))
+        geometry = ProfileGeometry2D(Contour2D(tuple(
+            LineSegment2D(a, b) for a, b in zip(points, points[1:]))))
+        normal = ToolProfile("P", "Asymmetric", ToolKind.PUNCH, "FCSTD",
+                             "P.FCStd", "mm", geometry)
+        before, _ = normal.local_polygons()
+        reversed_profile = oriented_punch(normal, True)
+        after, _ = reversed_profile.local_polygons()
+        self.assertEqual(set(after), {(-s, z) for s, z in before})
+        self.assertNotEqual(set(before), set(after))
+        self.assertEqual(normal.local_polygons()[0], before)
+        self.assertFalse(native_section_options(NS(punch=normal), "punch")["reverse_punch"])
+        self.assertTrue(native_section_options(NS(punch=reversed_profile), "punch")["reverse_punch"])
+        restored = restore_matching_punch(normal, tool_reference(reversed_profile), matches_tool_reference)
+        self.assertTrue(restored.punch_reversed)
+        self.assertEqual(tool_reference(restored), tool_reference(reversed_profile))
