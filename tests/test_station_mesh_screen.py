@@ -19,7 +19,7 @@ class StationMeshTests(unittest.TestCase):
         cycle = Mock(active_bend_id="B", current_angle_deg=0, target_angle_deg=90,
                      upper_z_mm=10,contact_z_mm=2,bottom_z_mm=-2,
                      coupled_kinematics=NS(stroke_for_angle=lambda a:a/30))
-        cycle.current_workpiece_placement_3d.return_value = NS(rotation=(),translation=())
+        cycle.current_workpiece_placement_3d.return_value = Mock(rotation=(),translation=())
         active = NS(machine_shape="active")
         neighbor = NS(machine_shape="neighbor")
         mounted = [("S1","punch",active,(triangle,)),("S1","die",active,(triangle,)),
