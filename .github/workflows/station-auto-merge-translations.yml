@@ -1,0 +1,22 @@
+name: Regenerate merged station translations
+on:
+  push:
+    branches: [feature/auto-tool-selection]
+    paths: ['.github/workflows/station-auto-merge-translations.yml']
+permissions:
+  contents: write
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y qt6-l10n-tools
+      - run: |
+          set -e
+          python scripts/build_qt_translations.py --compile --lrelease /usr/lib/qt6/bin/lrelease
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add freecad/bendseq/resources/translations/BendSeq_ru.ts freecad/bendseq/resources/translations/BendSeq_ru.qm
+          git rm .github/workflows/station-auto-merge-translations.yml
+          git commit -m 'Regenerate merged native translation catalogs'
+          git push origin HEAD:refs/heads/feature/auto-tool-selection

@@ -164,6 +164,7 @@ class ClampPreviewTest(unittest.TestCase):
         tree = ast.parse((root/"commands/pressbrake_2d.py").read_text(encoding="utf-8"))
         calls = [n for n in ast.walk(tree) if isinstance(n,ast.Call)
                  and isinstance(n.func,ast.Attribute) and n.func.attr=="update_machine"]
-        self.assertEqual(len(calls),1)
-        keyword=next(k for k in calls[0].keywords if k.arg=="project_clamp_config")
-        self.assertEqual(ast.unparse(keyword.value),"self._project_clamp_config")
+        self.assertTrue(calls)
+        for call in calls:
+            keyword = next(k for k in call.keywords if k.arg == "project_clamp_config")
+            self.assertEqual(ast.unparse(keyword.value), "self._project_clamp_config")

@@ -338,7 +338,7 @@ class CoinMachineScene:
                        if self.punch_top is not None else self.bed_z + self.rest_z)
         self.ram_motion.translation.setValue(0.0, 0.0, self.beam_z)
 
-    def update_frame(self, library_root, tooling, ram_z, visible):
+    def update_frame(self, library_root, tooling, ram_z, visible, *, mount_planes=None):
         source_key = _frame_file_key(library_root)
         if self.frame_key != source_key:
             self.frame.removeAllChildren()
@@ -361,16 +361,19 @@ class CoinMachineScene:
         self.frame.whichChild.setValue(self.coin.SO_SWITCH_ALL if visible and not self.frame_error
                                       else self.coin.SO_SWITCH_NONE)
         key = (id(tooling.punch), id(tooling.die), tooling.aligned,
-               tooling.die_machine_transform.to_matrix_tuple())
+               tooling.die_machine_transform.to_matrix_tuple(), mount_planes)
         if key != self.mount_key:
-            die_polygons = tooling.die_polygons_machine()
-            punch_polygons = tooling.punch_polygons_machine() if tooling.punch is not None else None
-            die_outline = die_polygons[0] if die_polygons else ()
-            punch_outline = punch_polygons[0] if punch_polygons else ()
-            self.bed_z = min((z for _, z in die_outline), default=0.0)
+            if mount_planes is None:
+                die_polygons = tooling.die_polygons_machine()
+                punch_polygons = tooling.punch_polygons_machine() if tooling.punch is not None else None
+                die_outline = die_polygons[0] if die_polygons else ()
+                punch_outline = punch_polygons[0] if punch_polygons else ()
+                self.bed_z = min((z for _, z in die_outline), default=0.0)
+                self.punch_top = (max(z for _, z in punch_outline) - tooling.ram_z_mm
+                                  if punch_outline else None)
+            else:
+                self.punch_top, self.bed_z = mount_planes
             self.frame_mount.translation.setValue(0.0, 0.0, self.bed_z)
-            self.punch_top = (max(z for _, z in punch_outline) - tooling.ram_z_mm
-                              if punch_outline else None)
             self.mount_key = key
         self.last_ram_z = float(ram_z)
         self._position_ram()
@@ -396,6 +399,7 @@ class CoinMachineScene:
             else:
                 self.gauge_error = ""
         if self.gauge_error:
+            self.gauges.whichChild.setValue(self.coin.SO_SWITCH_NONE)
             return self.gauge_error
         if len(self.stations) != len(stations):
             self.gauges.removeAllChildren()

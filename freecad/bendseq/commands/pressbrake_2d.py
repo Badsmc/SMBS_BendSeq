@@ -363,6 +363,7 @@ class LoadedPartSession:
     active_bend_index: int = 0
     local_bend_dimensions_mm: dict = field(default_factory=dict)
     controller: BendSequenceController = field(init=False)
+    station_draft: object = None
 
     def __post_init__(self) -> None:
         self.controller = StagedBendSequenceController(self.fold_state)
@@ -991,7 +992,7 @@ def activate_task_dialog(workspace, key):
 # These pages contain data or callbacks tied to a particular source part.
 _PART_TASK_KEYS = (
     "fast_results", "bend_information", "pdf_export", "mesh",
-    "tool_assembly", "backgauge", "cycle_config", "catalog", "prebend", "auto_tool_selection",
+    "tool_assembly", "backgauge", "cycle_config", "catalog", "prebend", "auto_tool_selection", "station_editor",
 )
 
 
@@ -2018,8 +2019,9 @@ class _PreviewPanel:
                 self.operations.stage_drop_owner = self
                 self.operations.setHeaderLabels([
                     tr("step_ee899dd5"), tr("bend"), "180°", tr("target"), tr("current_angle"), tr("before_bend_mm"),
-                    tr("gauge_s_mm"), tr("status"), tr("retract"), tr("prebend"),
+                    tr("gauge_s_mm"), tr("status"), tr("retract"), tr("prebend"), tr("stations_station"),
                 ])
+                self.operations.setColumnHidden(10, True)
                 self.operations.setDragDropMode(QtWidgets.QAbstractItemView.InternalMove)
                 self.operations.setDefaultDropAction(QtCore.Qt.MoveAction)
                 self.operations.setDropIndicatorShown(True)
@@ -2689,6 +2691,9 @@ class _PreviewPanel:
                 import_row.addStretch(1)
                 import_row.addWidget(self.import_tooling_btn)
                 tooling_body.addLayout(import_row)
+                station_button = QtWidgets.QPushButton(tr("stations_title"))
+                station_button.clicked.connect(self._show_station_editor)
+                tooling_body.addWidget(station_button)
                 self.tool_library_btn.hide()
                 td_layout.addWidget(tooling_card)
                 td_layout.setAlignment(QtCore.Qt.AlignTop)
@@ -3287,6 +3292,9 @@ class _PreviewPanel:
                 """Send the shared FoldState, tooling and OCC pose to Coin3D."""
                 if not self._playback_alive():
                     return False
+                transfer_timer = getattr(self, "_station_transfer_timer", None)
+                if transfer_timer is not None:
+                    transfer_timer.stop()
                 viewer = self._preview_3d
                 if self.session is None:
                     viewer.clear_preview()
@@ -6150,6 +6158,338 @@ class _PreviewPanel:
                     msg = tr("tool_import_failed", error=exc)
                     _warn(msg)
                     self.status.setText(msg)
+
+            def _station_backgauge_target(self, setup, operation, faces, meshes):
+                from freecad.bendseq.core.kinematics2d.station_backgauge import (
+                    die_envelopes_for_gauge, resolve_station_backgauge,
+                )
+                from freecad.bendseq.ui.coin3d_machine import load_gauge_envelope
+
+                model = self.backgauge_model
+                station = setup.assigned_station(operation.operation_id)
+                if model is None or not model.cad_geometry_enabled:
+                    return (), None, ""
+                if not model.automatic and model.part_label and model.part_label != self.session.part_label:
+                    note = tr("stations_gauge_manual_no_contact")
+                    _desktop_debug_event("STATION_GAUGE_REJECTED", operation_id=operation.operation_id,
+                                         station_id=station.station_id, reason="manual_target_part_mismatch")
+                    return (), None, note
+                try:
+                    bounds, face_span = load_gauge_envelope(self.tool_library.library_root)
+                    result = resolve_station_backgauge(
+                        model, operation.bend_id, faces, setup.machine_x_mm,
+                        gauge_bounds=bounds, face_z_span=face_span,
+                        die_obstacles=die_envelopes_for_gauge(meshes),
+                    )
+                except (OSError, ValueError, RuntimeError, AttributeError, TypeError) as exc:
+                    _desktop_debug_event("STATION_GAUGE_REJECTED", operation_id=operation.operation_id,
+                                         station_id=station.station_id, error=str(exc))
+                    return (), None, tr("gauge_limit_geometry_unavailable", error=str(exc))
+                _desktop_debug_event(
+                    "STATION_GAUGE_RESOLVED" if result.contact else "STATION_GAUGE_REJECTED",
+                    operation_id=operation.operation_id, station_id=station.station_id,
+                    stations_xm=result.stations, contact_sz=result.contact,
+                    requested_z_mm=result.requested_z_mm, reason=result.reason,
+                    evidence="STATIC_CAD_ENVELOPE_ONLY",
+                )
+                return result.stations, result.contact, tr(result.reason) if result.reason else ""
+
+            def _show_installed_station_preview(self, operation_id, *, transfer_timer=None, cycle_timer=None):
+                from freecad.bendseq.core.kinematics2d.machine_pose_solver import loading_fold_state
+                from freecad.bendseq.core.kinematics2d.mounted_station_preview import mounted_station_meshes
+                from freecad.bendseq.core.kinematics2d.physical_validation_25d import _source_path
+                from freecad.bendseq.core.kinematics2d.station_pose import build_station_transfer, resolve_station_poses
+                from freecad.bendseq.core.kinematics2d.station_layout import validate_station_layout
+                from freecad.bendseq.core.kinematics2d.segment_assembly_planner import read_inventory
+
+                session = self.session
+                if session is None or self.playing or self._task_progress_busy:
+                    raise ValueError(tr("stop_the_simulation_or_wait_for_the_check_to"))
+                setup = session.station_draft
+                if setup is None or not setup.stations:
+                    raise ValueError(tr("stations_preview_requires_layout"))
+                viewer = self._preview_3d
+                if not viewer._available:
+                    raise ValueError(tr("coin3d_unavailable_check_pivy_coin_in_freecad_python"))
+                station = setup.assigned_station(operation_id)
+                existing_timer = getattr(self, "_station_transfer_timer", None)
+                if existing_timer is not None:
+                    existing_timer.stop()
+                animation = None
+                station_cycle = None
+                _desktop_debug_event("STATION_PREVIEW_START", operation_id=operation_id,
+                                     station_id=station.station_id if station else None,
+                                     stations=[s.station_id for s in setup.stations])
+                try:
+                    profiles = {}
+                    stamps = {}
+                    stock = {}
+                    for item in setup.stations:
+                        for kind, tool_id in (("punch", item.punch_id), ("die", item.die_id)):
+                            key = kind, tool_id
+                            if key in profiles:
+                                continue
+                            profile = self.tool_library.load_tool(tool_id, kind.upper())
+                            path = _source_path(profile)
+                            if path is None:
+                                raise ValueError(tr("stations_preview_requires_cad", tool=tool_id))
+                            sidecar = path.with_suffix(".tooling.json")
+                            stamps[key] = (str(path), path.stat().st_mtime_ns,
+                                           sidecar.stat().st_mtime_ns if sidecar.exists() else None)
+                            profiles[key] = profile
+                            stock[key] = read_inventory(path)
+                    validate_station_layout(setup, stock, self._current_clamp_config())
+                    cache_key = setup.stations, tuple(sorted(stamps.items()))
+                    cached = getattr(self, "_installed_station_mesh_cache", None)
+                    if cached is None or cached[0] != cache_key:
+                        cached = cache_key, mounted_station_meshes(setup.stations, profiles)
+                        self._installed_station_mesh_cache = cached
+                    meshes = cached[1]
+                    planes = {kind: (tool.machine_shape.BoundBox.ZMax if kind == "punch"
+                                     else tool.machine_shape.BoundBox.ZMin)
+                              for _, kind, tool, _ in meshes}
+                    faces = ()
+                    ram_z = self.cycle_config.initial_clearance_mm
+                    steps = tuple(session.controller.operation_steps)
+                    if transfer_timer is not None and station is None:
+                        raise ValueError(tr("stations_transfer_assign_both"))
+                    if cycle_timer is not None:
+                        from freecad.bendseq.core.kinematics2d.station_cycle import build_station_cycle
+
+                        station_cycle, cycle_station_ids = build_station_cycle(
+                            setup, session.controller, profiles, self._effective_operation_orientation_map(),
+                            session.panel_vertices_xy, self.cycle_config,
+                        )
+                        station_cycle.play_all()
+                        step = steps[0]
+                        station = setup.assigned_station(step.operation_id)
+                        ram_z = station_cycle.ram_z_mm
+                        state = station_cycle.sequence.fold_state
+                        faces = build_sheet_preview_faces(
+                            state, session.panel_vertices_xy, step.bend_id, WorkpiecePose2D(),
+                            machine_placement=station_cycle.current_workpiece_placement_3d(),
+                            panel_meshes=getattr(session.unfold_data, "panel_meshes", None),
+                        )
+                    elif station is not None:
+                        index = next(i for i, step in enumerate(steps) if step.operation_id == operation_id)
+                        step = steps[index]
+                        orientations = self._effective_operation_orientation_map()
+                        orientations = {
+                            op.operation_id: orientations.get(op.operation_id, orientations.get(op.bend_id))
+                            for op in steps
+                        }
+                        if transfer_timer is not None:
+                            if index + 1 == len(steps) or setup.assigned_station(steps[index + 1].operation_id) is None:
+                                raise ValueError(tr("stations_transfer_assign_both"))
+                            state, first, destination, path = build_station_transfer(
+                                setup, steps, index, orientations, session.fold_state,
+                                session.panel_vertices_xy,
+                            )
+                            animation = destination, path
+                            placement = first.frame.placement
+                        else:
+                            state = loading_fold_state(session.fold_state, steps, (1 << index) - 1)
+                            bend = state.bends[step.bend_id]
+                            if bend.bend_zone is None:
+                                raise ValueError(tr("stations_preview_missing_geometry"))
+                            poses = resolve_station_poses(
+                                setup, (step,), orientations, state, phase="APPROACH",
+                                support_plane_zm=bend.bend_zone.outer_radius_mm,
+                                rear_panel_vertices_xy=session.panel_vertices_xy,
+                            )
+                            if not poses:
+                                raise ValueError(tr("stations_preview_insufficient_span"))
+                            placement = poses[0].frame.placement
+                        local_faces = build_sheet_preview_faces(
+                            state, session.panel_vertices_xy, step.bend_id,
+                            WorkpiecePose2D(), machine_placement=IDENTITY_PLACEMENT,
+                            panel_meshes=getattr(session.unfold_data, "panel_meshes", None),
+                        )
+                        faces = transform_preview_faces(local_faces, placement)
+                        ram_z += state.bends[step.bend_id].bend_zone.thickness_mm
+                    gauge_stations, gauge_contact, gauge_note = (), None, ""
+                    if station is not None and animation is None:
+                        gauge_stations, gauge_contact, gauge_note = self._station_backgauge_target(
+                            setup, step, faces, meshes,
+                        )
+                    if not viewer._native:
+                        self._viewer_tabs.setCurrentWidget(viewer)
+                    viewer.attach_document(self._smbs_document_name)
+                    # Do not reuse the legacy backgauge or collision overlays
+                    # under a different tooling/placement contract.
+                    viewer.set_collision_boxes(())
+                    messages = viewer.update_machine(
+                        self.tool_library.library_root, self.tooling_setup, ram_z,
+                        frame_visible=self.machine_preview_checkbox.isChecked(),
+                        gauge_stations=gauge_stations, gauge_contact=gauge_contact,
+                        project_clamp_config=self._project_clamp_config,
+                        mount_planes=(planes["punch"], planes["die"]),
+                    )
+                    viewer.update_tools(
+                        self.tooling_setup, ram_z, installed_meshes=meshes,
+                        installed_key=cache_key,
+                        active_station=station.station_id if station else None,
+                    )
+                    viewer.set_sheet_faces(faces)
+                    viewer.show_view()
+                    note = tr("stations_preview_unverified")
+                    if station_cycle is not None:
+                        note = tr("stations_cycle_unverified")
+                        self._start_station_cycle_preview(
+                            cycle_timer, station_cycle, cycle_station_ids, session, setup,
+                            meshes, cache_key, planes, note,
+                        )
+                    elif animation is not None:
+                        note = tr("stations_transfer_unverified")
+                        destination, path = animation
+                        started = time.monotonic()
+                        self._station_transfer_timer = transfer_timer
+                        _desktop_debug_event("STATION_TRANSFER_START", operation_id=operation_id,
+                                             station_from=station.station_id, station_to=destination.station_id,
+                                             duration_s=path.duration_s, distance_mm=path.translation_distance_mm,
+                                             collision_validated=False)
+
+                        def frame():
+                            if (not self._playback_alive() or self.session is not session
+                                    or session.station_draft is not setup or self.playing):
+                                transfer_timer.stop()
+                                return
+                            elapsed = time.monotonic() - started
+                            try:
+                                frame_faces = transform_preview_faces(local_faces, path.pose_at(elapsed))
+                                viewer.set_sheet_faces(frame_faces)
+                                if elapsed >= path.duration_s:
+                                    transfer_timer.stop()
+                                    viewer.update_tools(
+                                        self.tooling_setup, ram_z, installed_meshes=meshes,
+                                        installed_key=cache_key, active_station=destination.station_id,
+                                    )
+                                    next_stations, next_contact, next_note = self._station_backgauge_target(
+                                        setup, steps[index + 1], frame_faces, meshes,
+                                    )
+                                    gauge_error = viewer.update_backgauge(
+                                        self.tool_library.library_root, next_stations, next_contact,
+                                    )
+                                    if gauge_error:
+                                        _desktop_debug_event("STATION_GAUGE_RENDER_FAILED",
+                                                             station_id=destination.station_id, error=gauge_error)
+                                    self._coin_frame_status.setText(" · ".join(
+                                        filter(None, (note, next_note, gauge_error, *messages))
+                                    ))
+                                    _desktop_debug_event("STATION_TRANSFER_END", station_id=destination.station_id,
+                                                         collision_validated=False)
+                            except Exception as exc:
+                                transfer_timer.stop()
+                                self._coin_frame_status.setText(str(exc))
+                                _desktop_debug_event("STATION_TRANSFER_ERROR", operation_id=operation_id,
+                                                     error=str(exc), traceback=traceback.format_exc())
+
+                        old_frame = getattr(transfer_timer, "_smbs_frame", None)
+                        if old_frame is not None:
+                            transfer_timer.timeout.disconnect(old_frame)
+                        transfer_timer._smbs_frame = frame
+                        transfer_timer.timeout.connect(frame)
+                        transfer_timer.start(33)
+
+                    self._coin_frame_status.setText(" · ".join(filter(None, (note, gauge_note, *messages))))
+                    note = " · ".join(filter(None, (note, gauge_note)))
+                    _desktop_debug_event("STATION_PREVIEW_READY", operation_id=operation_id,
+                                         station_id=station.station_id if station else None,
+                                         tool_count=len(meshes), machine_messages=messages)
+                except Exception as exc:
+                    if cycle_timer is not None:
+                        _desktop_debug_event("STATION_CYCLE_REJECTED", error=str(exc))
+                    _desktop_debug_event("STATION_PREVIEW_FAILED", operation_id=operation_id,
+                                         station_id=station.station_id if station else None,
+                                         error=str(exc), traceback=traceback.format_exc())
+                    raise
+                return note
+
+            def _start_station_cycle_preview(self, timer, cycle, station_ids, session, setup,
+                                             meshes, cache_key, planes, notice):
+                viewer = self._preview_3d
+                steps = cycle.sequence.operation_steps
+                initial_order = session.controller.operation_steps
+                tick_at = time.monotonic()
+                last_phase = None
+                last_index = None
+                gauge_stations, gauge_contact, gauge_note = (), None, ""
+                self._station_transfer_timer = timer
+                _desktop_debug_event("STATION_CYCLE_START", operations=[
+                    (step.operation_id, station_id) for step, station_id in zip(steps, station_ids)
+                ], collision_validated=False)
+
+                def frame():
+                    nonlocal tick_at, last_phase, last_index, gauge_stations, gauge_contact, gauge_note
+                    if (not self._playback_alive() or self.session is not session
+                            or session.station_draft is not setup
+                            or session.controller.operation_steps != initial_order or self.playing):
+                        timer.stop()
+                        _desktop_debug_event("STATION_CYCLE_INTERRUPTED", reason="preview_context_changed")
+                        return
+                    now = time.monotonic()
+                    try:
+                        cycle.advance_time(now - tick_at)
+                        tick_at = now
+                        index = cycle.active_index
+                        op = steps[index]
+                        phase = cycle.phase
+                        faces = build_sheet_preview_faces(
+                            cycle.sequence.fold_state, session.panel_vertices_xy, op.bend_id,
+                            WorkpiecePose2D(), machine_placement=cycle.current_workpiece_placement_3d(),
+                            panel_meshes=getattr(session.unfold_data, "panel_meshes", None),
+                        )
+                        if (index, phase) != (last_index, last_phase):
+                            gauge_stations, gauge_contact, gauge_note = (), None, ""
+                            if phase in (CyclePhase.APPROACH, CyclePhase.CONTACT):
+                                gauge_stations, gauge_contact, gauge_note = self._station_backgauge_target(
+                                    setup, op, faces, meshes,
+                                )
+                            _desktop_debug_event(
+                                "STATION_CYCLE_PHASE", operation_id=op.operation_id,
+                                station_id=station_ids[index], phase=phase.value,
+                                angle_deg=cycle.current_angle_deg, ram_z_mm=cycle.ram_z_mm,
+                            )
+                            last_index, last_phase = index, phase
+                        messages = viewer.update_machine(
+                            self.tool_library.library_root, cycle.tooling, cycle.ram_z_mm,
+                            frame_visible=self.machine_preview_checkbox.isChecked(),
+                            gauge_stations=gauge_stations, gauge_contact=gauge_contact,
+                            project_clamp_config=self._project_clamp_config,
+                            mount_planes=(planes["punch"], planes["die"]),
+                        )
+                        viewer.update_tools(
+                            cycle.tooling, cycle.ram_z_mm, installed_meshes=meshes,
+                            installed_key=cache_key, active_station=station_ids[index],
+                        )
+                        viewer.set_sheet_faces(faces)
+                        station = setup.assigned_station(op.operation_id)
+                        self._coin_frame_status.setText(" · ".join(filter(None, (
+                            notice, op.operation_id, station.name, phase.value, gauge_note, *messages,
+                        ))))
+                        if phase == CyclePhase.COMPLETED:
+                            timer.stop()
+                            _desktop_debug_event("STATION_CYCLE_END", collision_validated=False)
+                    except Exception as exc:
+                        timer.stop()
+                        self._coin_frame_status.setText(str(exc))
+                        _desktop_debug_event("STATION_CYCLE_ERROR", operation_id=steps[cycle.active_index].operation_id,
+                                             error=str(exc), traceback=traceback.format_exc())
+
+                old_frame = getattr(timer, "_smbs_frame", None)
+                if old_frame is not None:
+                    timer.timeout.disconnect(old_frame)
+                timer._smbs_frame = frame
+                timer.timeout.connect(frame)
+                timer.start(33)
+
+            def _show_station_editor(self):
+                from freecad.bendseq.ui.station_editor import show_station_editor
+
+                existing = getattr(self, "_task_dialogs", {}).get("station_editor")
+                if existing is not None:
+                    existing.reject()
+                show_station_editor(self, embed_task_dialog)
 
             def open_full_tooling_library(self):
                 """Open the single canonical library with segment inventory."""
@@ -9176,6 +9516,7 @@ class _PreviewPanel:
                         for _bend in self.session.ordered_bends:
                             self.operations.addTopLevelItem(QtWidgets.QTreeWidgetItem())
                         self._update_operations_visual_state()
+                        self._update_station_assignment_column()
                         if self._playback_alive() and self._qt_is_valid(self.operations):
                             self.operations.setDragEnabled(
                                 self.session.controller.has_stages
@@ -9183,6 +9524,21 @@ class _PreviewPanel:
                 finally:
                     if self._qt_is_valid(self.operations):
                         self.operations.blockSignals(signals_were_blocked)
+
+            def _update_station_assignment_column(self):
+                if not self._playback_alive() or not self._qt_is_valid(self.operations):
+                    return
+                draft = self.session.station_draft if self.session is not None else None
+                self.operations.setColumnHidden(10, draft is None)
+                if draft is None:
+                    return
+                for index, step in enumerate(self.session.controller.operation_steps):
+                    item = self.operations.topLevelItem(index)
+                    if item is None:
+                        break
+                    station = draft.assigned_station(step.operation_id)
+                    item.setText(10, station.name if station else "—")
+                    item.setToolTip(10, tr("stations_draft_notice"))
 
             def _update_operations_visual_state(self):
                 if (self.session is None or self._closing
