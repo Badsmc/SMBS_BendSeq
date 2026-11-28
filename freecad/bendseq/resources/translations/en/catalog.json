@@ -1117,5 +1117,8 @@
   "stations_preview_requires_cad": "Verified FCStd geometry is required for {tool}.",
   "stations_preview_missing_geometry": "The operation has no bend-zone geometry.",
   "stations_preview_insufficient_span": "The assigned station does not cover the bend span.",
-  "stations_preview_unverified": "Station layout preview. No motion, gauge or collision check."
+  "stations_preview_unverified": "Station layout preview. No motion, gauge or collision check.",
+  "stations_transfer_preview": "Preview transfer to next operation",
+  "stations_transfer_assign_both": "Assign a station to this operation and to the next operation.",
+  "stations_transfer_unverified": "Transfer preview. The path, gauge and clearances are unchecked."
 }

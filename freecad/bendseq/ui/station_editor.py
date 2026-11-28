@@ -287,18 +287,32 @@ def show_station_editor(workspace, embed):
         button = qt.QPushButton(tr(key))
         button.clicked.connect(lambda _checked=False, action=action: save(action))
         layout.addWidget(button)
-    def preview():
+    transfer_timer = core.QTimer(dialog)
+
+    def stop_transfer(*_args):
+        transfer_timer.stop()
+        if getattr(workspace, "_station_transfer_timer", None) is transfer_timer:
+            workspace._station_transfer_timer = None
+
+    dialog.finished.connect(stop_transfer)
+
+    def preview(animate=False):
         if workspace.session is not session:
             dialog.reject()
             return
         try:
-            feedback.setText(workspace._show_installed_station_preview(operation.currentData()))
+            feedback.setText(workspace._show_installed_station_preview(
+                operation.currentData(), transfer_timer=transfer_timer if animate else None,
+            ))
         except Exception as exc:
             feedback.setText(str(exc))
 
     preview_button = qt.QPushButton(tr("stations_preview"))
-    preview_button.clicked.connect(preview)
+    preview_button.clicked.connect(lambda: preview())
     layout.addWidget(preview_button)
+    transfer_button = qt.QPushButton(tr("stations_transfer_preview"))
+    transfer_button.clicked.connect(lambda: preview(True))
+    layout.addWidget(transfer_button)
     selected.currentIndexChanged.connect(load_fields)
     operation.currentIndexChanged.connect(refresh_assignment)
     if saved is not None:

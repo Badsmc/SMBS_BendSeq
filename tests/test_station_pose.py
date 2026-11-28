@@ -58,3 +58,20 @@ class StationPoseTests(unittest.TestCase):
             for op in stages
         ]
         self.assertEqual(locations, [-100, 100])
+
+    def test_transfer_reuses_station_frames_on_unchanged_completed_geometry(self):
+        from freecad.bendseq.core.kinematics2d.station_pose import build_station_transfer
+
+        outlines = {"base": ((0, -20), (50, -20), (50, -3), (0, -3))}
+        state, first, second, transfer = build_station_transfer(
+            self.setup, self.steps, 0, {"A": False, "B": True}, self.state, outlines,
+        )
+        self.assertEqual((first.station_id, second.station_id), ("S1", "S2"))
+        self.assertEqual((first.midpoint_xm, second.midpoint_xm), (-100, 100))
+        self.assertEqual(state.angles, {"A": 90, "B": 0})
+        self.assertEqual(self.state.angles, {"A": 0, "B": 0})
+        self.assertEqual(transfer.pose_at(0), first.frame.placement)
+        self.assertEqual(transfer.pose_at(transfer.duration_s), second.frame.placement)
+        self.assertFalse(transfer.collision_validated)
+        with self.assertRaisesRegex(ValueError, "No next operation"):
+            build_station_transfer(self.setup, self.steps, 1, {}, self.state, outlines)

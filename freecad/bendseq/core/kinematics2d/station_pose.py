@@ -69,3 +69,33 @@ def resolve_station_poses(
         span = tuple(x + delta for x in sorted(base_x))
         results.append(StationPose(station.station_id, operation_ids, midpoint, span, frame))
     return tuple(results)
+
+
+def build_station_transfer(setup, steps, index, orientations, fold_state, panel_vertices, *,
+                           max_linear_mm_s=150.0, max_angular_deg_s=90.0):
+    """Build an unchecked handling preview on the completed operation's geometry."""
+    from .machine_pose_solver import loading_fold_state
+    from .workpiece_transfer_3d import build_transfer_3d
+
+    if not 0 <= index < len(steps) - 1:
+        raise ValueError("No next operation for station transfer")
+    current, following = steps[index:index + 2]
+    state = loading_fold_state(fold_state, steps, (1 << (index + 1)) - 1)
+    frames = []
+    for step, phase in ((current, "RETRACT"), (following, "APPROACH")):
+        bend = state.bends[step.bend_id]
+        if bend.bend_zone is None:
+            raise ValueError(f"{step.operation_id}: missing bend zone")
+        poses = resolve_station_poses(
+            setup, (step,), orientations, state, phase=phase,
+            support_plane_zm=bend.bend_zone.outer_radius_mm,
+            rear_panel_vertices_xy=panel_vertices,
+        )
+        if not poses:
+            raise ValueError(f"{step.operation_id}: assigned station does not cover bend span")
+        frames.append(poses[0])
+    path = build_transfer_3d(
+        frames[0].frame.placement, frames[1].frame.placement,
+        max_linear_mm_s=max_linear_mm_s, max_angular_deg_s=max_angular_deg_s,
+    )
+    return state, frames[0], frames[1], path

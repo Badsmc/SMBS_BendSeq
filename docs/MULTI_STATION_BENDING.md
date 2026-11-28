@@ -31,7 +31,7 @@ The project version stays 0.2.0.
 | --- | --- | --- |
 | A | Architecture, station and operation-assignment contracts | Implemented and covered by headless regression tests |
 | B | Manual tooling, inventory, layout, assignment UI | Layout, stock and session draft editor implemented; native FreeCAD acceptance pending |
-| C | Coin3D, station-specific machine pose, transfers and gauge | Machine Pose and static native station preview tested; cycle, transfers and gauge pending |
+| C | Coin3D, station-specific machine pose, transfers and gauge | Machine Pose, native station preview and explicit transfer preview implemented; forming cycle and gauge pending |
 | D | Shared-ram motion and all installed component checks | Pending |
 | E | Bounded FAST search with station transitions and cached feasibility | Pending |
 | F | FCStd snapshots, templates and PDF | Pending |
@@ -116,3 +116,19 @@ available FreeCAD 1.0 runtime. The smoke test changed ram Z without rebuilding
 the tool nodes and switched back to the single-pair viewer path. Native CAD
 loading for an actual multi-station job and full FreeCAD 1.1 GUI acceptance
 remain pending.
+
+### Previewing a transfer
+
+Assign stations to two consecutive operations. In **Tooling → Stations**,
+select the first and click **Preview transfer to next operation**. The preview
+uses a copy of the fold state after the selected operation and reuses the two
+Machine Pose frames. The existing rigid-transfer interpolation moves the sheet
+between those frames while the mounted tools stay parked. The destination is
+highlighted on arrival. Closing the editor, redrawing the normal scene or
+changing the draft stops the preview.
+
+The interpolated path is unchecked and may pass through tooling or machine
+components. Grouped strokes, the automatic forming cycle and gauge positioning
+are not integrated into this preview. Debug events record the source,
+destination, duration and explicitly unchecked status. The headless suite
+passed 125 tests, including transfer endpoint and fold-state checks.

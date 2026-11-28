@@ -3289,6 +3289,9 @@ class _PreviewPanel:
                 """Send the shared FoldState, tooling and OCC pose to Coin3D."""
                 if not self._playback_alive():
                     return False
+                transfer_timer = getattr(self, "_station_transfer_timer", None)
+                if transfer_timer is not None:
+                    transfer_timer.stop()
                 viewer = self._preview_3d
                 if self.session is None:
                     viewer.clear_preview()
@@ -6138,11 +6141,11 @@ class _PreviewPanel:
                     _warn(msg)
                     self.status.setText(msg)
 
-            def _show_installed_station_preview(self, operation_id):
+            def _show_installed_station_preview(self, operation_id, *, transfer_timer=None):
                 from freecad.bendseq.core.kinematics2d.machine_pose_solver import loading_fold_state
                 from freecad.bendseq.core.kinematics2d.mounted_station_preview import mounted_station_meshes
                 from freecad.bendseq.core.kinematics2d.physical_validation_25d import _source_path
-                from freecad.bendseq.core.kinematics2d.station_pose import resolve_station_poses
+                from freecad.bendseq.core.kinematics2d.station_pose import build_station_transfer, resolve_station_poses
                 from freecad.bendseq.core.kinematics2d.station_layout import validate_station_layout
                 from freecad.bendseq.core.kinematics2d.segment_assembly_planner import read_inventory
 
@@ -6156,6 +6159,10 @@ class _PreviewPanel:
                 if not viewer._available:
                     raise ValueError(tr("coin3d_unavailable_check_pivy_coin_in_freecad_python"))
                 station = setup.assigned_station(operation_id)
+                existing_timer = getattr(self, "_station_transfer_timer", None)
+                if existing_timer is not None:
+                    existing_timer.stop()
+                animation = None
                 _desktop_debug_event("STATION_PREVIEW_START", operation_id=operation_id,
                                      station_id=station.station_id if station else None,
                                      stations=[s.station_id for s in setup.stations])
@@ -6190,30 +6197,45 @@ class _PreviewPanel:
                     faces = ()
                     ram_z = self.cycle_config.initial_clearance_mm
                     steps = tuple(session.controller.operation_steps)
+                    if transfer_timer is not None and station is None:
+                        raise ValueError(tr("stations_transfer_assign_both"))
                     if station is not None:
                         index = next(i for i, step in enumerate(steps) if step.operation_id == operation_id)
                         step = steps[index]
-                        state = loading_fold_state(session.fold_state, steps, (1 << index) - 1)
-                        bend = state.bends[step.bend_id]
-                        if bend.bend_zone is None:
-                            raise ValueError(tr("stations_preview_missing_geometry"))
                         orientations = self._effective_operation_orientation_map()
-                        if operation_id not in orientations and step.bend_id in orientations:
-                            orientations = {operation_id: orientations[step.bend_id]}
-                        poses = resolve_station_poses(
-                            setup, (step,), orientations, state,
-                            phase="APPROACH", support_plane_zm=bend.bend_zone.outer_radius_mm,
-                            rear_panel_vertices_xy=session.panel_vertices_xy,
-                        )
-                        if not poses:
-                            raise ValueError(tr("stations_preview_insufficient_span"))
-                        pose = poses[0]
-                        faces = build_sheet_preview_faces(
+                        orientations = {
+                            op.operation_id: orientations.get(op.operation_id, orientations.get(op.bend_id))
+                            for op in steps
+                        }
+                        if transfer_timer is not None:
+                            if index + 1 == len(steps) or setup.assigned_station(steps[index + 1].operation_id) is None:
+                                raise ValueError(tr("stations_transfer_assign_both"))
+                            state, first, destination, path = build_station_transfer(
+                                setup, steps, index, orientations, session.fold_state,
+                                session.panel_vertices_xy,
+                            )
+                            animation = destination, path
+                            placement = first.frame.placement
+                        else:
+                            state = loading_fold_state(session.fold_state, steps, (1 << index) - 1)
+                            bend = state.bends[step.bend_id]
+                            if bend.bend_zone is None:
+                                raise ValueError(tr("stations_preview_missing_geometry"))
+                            poses = resolve_station_poses(
+                                setup, (step,), orientations, state, phase="APPROACH",
+                                support_plane_zm=bend.bend_zone.outer_radius_mm,
+                                rear_panel_vertices_xy=session.panel_vertices_xy,
+                            )
+                            if not poses:
+                                raise ValueError(tr("stations_preview_insufficient_span"))
+                            placement = poses[0].frame.placement
+                        local_faces = build_sheet_preview_faces(
                             state, session.panel_vertices_xy, step.bend_id,
-                            WorkpiecePose2D(), machine_placement=pose.frame.placement,
+                            WorkpiecePose2D(), machine_placement=IDENTITY_PLACEMENT,
                             panel_meshes=getattr(session.unfold_data, "panel_meshes", None),
                         )
-                        ram_z += bend.bend_zone.thickness_mm
+                        faces = transform_preview_faces(local_faces, placement)
+                        ram_z += state.bends[step.bend_id].bend_zone.thickness_mm
                     if not viewer._native:
                         self._viewer_tabs.setCurrentWidget(viewer)
                     viewer.attach_document(self._smbs_document_name)
@@ -6235,6 +6257,45 @@ class _PreviewPanel:
                     viewer.set_sheet_faces(faces)
                     viewer.show_view()
                     note = tr("stations_preview_unverified")
+                    if animation is not None:
+                        note = tr("stations_transfer_unverified")
+                        destination, path = animation
+                        started = time.monotonic()
+                        self._station_transfer_timer = transfer_timer
+                        _desktop_debug_event("STATION_TRANSFER_START", operation_id=operation_id,
+                                             station_from=station.station_id, station_to=destination.station_id,
+                                             duration_s=path.duration_s, distance_mm=path.translation_distance_mm,
+                                             collision_validated=False)
+
+                        def frame():
+                            if (not self._playback_alive() or self.session is not session
+                                    or session.station_draft is not setup or self.playing):
+                                transfer_timer.stop()
+                                return
+                            elapsed = time.monotonic() - started
+                            try:
+                                viewer.set_sheet_faces(transform_preview_faces(local_faces, path.pose_at(elapsed)))
+                                if elapsed >= path.duration_s:
+                                    transfer_timer.stop()
+                                    viewer.update_tools(
+                                        self.tooling_setup, ram_z, installed_meshes=meshes,
+                                        installed_key=cache_key, active_station=destination.station_id,
+                                    )
+                                    _desktop_debug_event("STATION_TRANSFER_END", station_id=destination.station_id,
+                                                         collision_validated=False)
+                            except Exception as exc:
+                                transfer_timer.stop()
+                                self._coin_frame_status.setText(str(exc))
+                                _desktop_debug_event("STATION_TRANSFER_ERROR", operation_id=operation_id,
+                                                     error=str(exc), traceback=traceback.format_exc())
+
+                        old_frame = getattr(transfer_timer, "_smbs_frame", None)
+                        if old_frame is not None:
+                            transfer_timer.timeout.disconnect(old_frame)
+                        transfer_timer._smbs_frame = frame
+                        transfer_timer.timeout.connect(frame)
+                        transfer_timer.start(33)
+
                     self._coin_frame_status.setText(" · ".join((note, *messages)))
                     _desktop_debug_event("STATION_PREVIEW_READY", operation_id=operation_id,
                                          station_id=station.station_id if station else None,

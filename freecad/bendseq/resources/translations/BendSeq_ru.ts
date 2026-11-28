@@ -4888,6 +4888,21 @@ Solids: {solids} | Faces: {faces}
       <translation>Станции</translation>
     </message>
     <message>
+      <source>Assign a station to this operation and to the next operation.</source>
+      <comment>stations_transfer_assign_both</comment>
+      <translation>Назначьте станцию для текущей и следующей операции.</translation>
+    </message>
+    <message>
+      <source>Preview transfer to next operation</source>
+      <comment>stations_transfer_preview</comment>
+      <translation>Показать переход к следующей операции</translation>
+    </message>
+    <message>
+      <source>Transfer preview. The path, gauge and clearances are unchecked.</source>
+      <comment>stations_transfer_unverified</comment>
+      <translation>Предпросмотр перехода. Траектория, задний упор и зазоры не проверены.</translation>
+    </message>
+    <message>
       <source>Station X (mm)</source>
       <comment>stations_x</comment>
       <translation>Координата станции X (мм)</translation>

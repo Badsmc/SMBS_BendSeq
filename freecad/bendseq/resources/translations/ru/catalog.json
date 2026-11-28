@@ -1117,5 +1117,8 @@
   "stations_preview_requires_cad": "Для {tool} нужна проверенная геометрия FCStd.",
   "stations_preview_missing_geometry": "У операции нет геометрии зоны гиба.",
   "stations_preview_insufficient_span": "Назначенная станция не покрывает пролёт гиба.",
-  "stations_preview_unverified": "Предпросмотр станций. Движение, упор и коллизии не проверены."
+  "stations_preview_unverified": "Предпросмотр станций. Движение, упор и коллизии не проверены.",
+  "stations_transfer_preview": "Показать переход к следующей операции",
+  "stations_transfer_assign_both": "Назначьте станцию для текущей и следующей операции.",
+  "stations_transfer_unverified": "Предпросмотр перехода. Траектория, задний упор и зазоры не проверены."
 }
