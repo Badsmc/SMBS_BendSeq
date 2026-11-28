@@ -31,7 +31,7 @@ The project version stays 0.2.0.
 | --- | --- | --- |
 | A | Architecture, station and operation-assignment contracts | Implemented and covered by headless regression tests |
 | B | Manual tooling, inventory, layout, assignment UI | Layout, stock and session draft editor implemented; native FreeCAD acceptance pending |
-| C | Coin3D, station-specific machine pose, transfers and gauge | Machine Pose, native station preview and explicit transfer preview implemented; forming cycle and gauge pending |
+| C | Coin3D, station-specific machine pose, transfers and gauge | Machine Pose, native station preview and explicit transfer preview implemented; static backgauge implemented; automatic forming cycle pending |
 | D | Shared-ram motion and all installed component checks | Pending |
 | E | Bounded FAST search with station transitions and cached feasibility | Pending |
 | F | FCStd snapshots, templates and PDF | Pending |
@@ -107,7 +107,7 @@ The preview rechecks stock and clamp positions and requires verified native
 FCStd geometry. For now, it rejects different punch top or die base heights
 measured from the native meshes. This restriction supports a common visual
 mount plane. It does not validate mounting datums, force or ram travel.
-Station-specific gauge and collision overlays are omitted. Failures and
+Station-specific collision overlays remain pending. Failures and
 preview results are logged as `STATION_LAYOUT_REJECTED` and
 `STATION_PREVIEW_*` in the existing debug journal when enabled.
 
@@ -128,7 +128,20 @@ highlighted on arrival. Closing the editor, redrawing the normal scene or
 changing the draft stops the preview.
 
 The interpolated path is unchecked and may pass through tooling or machine
-components. Grouped strokes, the automatic forming cycle and gauge positioning
-are not integrated into this preview. Debug events record the source,
+components. Grouped strokes and the automatic forming cycle are not integrated
+into this preview. The gauge only appears at the destination. Debug events record the source,
 destination, duration and explicitly unchecked status. The headless suite
 passed 125 tests, including transfer endpoint and fold-state checks.
+
+### Backgauge at a station
+
+The static station preview uses the transformed sheet faces to resolve the
+rear edge. In automatic mode the existing finger placement follows the edge
+in machine X. Manual X remains absolute. The entire finger envelope must fit
+inside the layout X bounds, which are not calibrated finger travel limits.
+The shared depth and height must reach both edges. Native CAD envelope checks
+apply the configured Z travel and test all installed dies independently,
+including disabled stations. Results and rejections go into the debug log.
+During transfer the fingers remain hidden and appear at the destination only
+if the static calculation succeeds. This does not check swept motion, actual
+finger travel in X/S, punch, beam, or collisions with all other components.

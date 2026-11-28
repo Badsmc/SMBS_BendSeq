@@ -4808,6 +4808,31 @@ Solids: {solids} | Faces: {faces}
       <translation>Дублировать станцию в позиции X</translation>
     </message>
     <message>
+      <source>Rear edges need different depths. The fingers share one depth axis.</source>
+      <comment>stations_gauge_different_depths</comment>
+      <translation>Задние кромки требуют разной глубины. Пальцы используют общую ось глубины.</translation>
+    </message>
+    <message>
+      <source>The backgauge fingers overlap along X.</source>
+      <comment>stations_gauge_fingers_overlap</comment>
+      <translation>Пальцы заднего упора пересекаются по X.</translation>
+    </message>
+    <message>
+      <source>The configured manual backgauge target does not match this part pose.</source>
+      <comment>stations_gauge_manual_no_contact</comment>
+      <translation>Ручная настройка заднего упора не соответствует этому положению детали.</translation>
+    </message>
+    <message>
+      <source>A backgauge finger has no rear sheet edge at its X position.</source>
+      <comment>stations_gauge_no_edge</comment>
+      <translation>У одного из пальцев заднего упора нет задней кромки детали в его позиции X.</translation>
+    </message>
+    <message>
+      <source>Backgauge fingers extend outside the configured machine X bounds.</source>
+      <comment>stations_gauge_outside_layout</comment>
+      <translation>Пальцы заднего упора выходят за заданные границы станка по X.</translation>
+    </message>
+    <message>
       <source>Layout draft updated for the current session.</source>
       <comment>stations_layout_saved</comment>
       <translation>Черновик раскладки обновлён для текущей сессии.</translation>
@@ -4858,9 +4883,9 @@ Solids: {solids} | Faces: {faces}
       <translation>Сначала подготовьте раскладку станций.</translation>
     </message>
     <message>
-      <source>Station layout preview. No motion, gauge or collision check.</source>
+      <source>Station layout preview. The forming cycle and collisions are unchecked.</source>
       <comment>stations_preview_unverified</comment>
-      <translation>Предпросмотр станций. Движение, упор и коллизии не проверены.</translation>
+      <translation>Предпросмотр станций. Цикл гибки и коллизии не проверены.</translation>
     </message>
     <message>
       <source>Reverse punch</source>
@@ -4898,9 +4923,9 @@ Solids: {solids} | Faces: {faces}
       <translation>Показать переход к следующей операции</translation>
     </message>
     <message>
-      <source>Transfer preview. The path, gauge and clearances are unchecked.</source>
+      <source>Transfer preview. Motion clearance is unchecked. The backgauge is shown at the destination only.</source>
       <comment>stations_transfer_unverified</comment>
-      <translation>Предпросмотр перехода. Траектория, задний упор и зазоры не проверены.</translation>
+      <translation>Предпросмотр перехода. Зазоры на траектории не проверены. Задний упор показывается только в позиции назначения.</translation>
     </message>
     <message>
       <source>Station X (mm)</source>

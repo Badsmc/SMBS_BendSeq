@@ -528,13 +528,16 @@ def create_coin_viewer(parent=None):
                 0.0, 0.0, float(ram_z) - self._tool_base_ram_z
             )
 
+        def update_backgauge(self, library_root, stations, contact):
+            return self._machine.update_gauges(library_root, stations, contact)
+
         def update_machine(self, library_root, tooling, ram_z, *, frame_visible,
                            gauge_stations, gauge_contact, project_clamp_config=None, mount_planes=None):
             frame_error = self._machine.update_frame(
                 library_root, tooling, ram_z, frame_visible, mount_planes=mount_planes,
             )
             clamp_error = self._machine.update_clamps(library_root, project_config=project_clamp_config)
-            gauge_error = self._machine.update_gauges(library_root, gauge_stations, gauge_contact)
+            gauge_error = self.update_backgauge(library_root, gauge_stations, gauge_contact)
             return tuple(error for error in (frame_error, clamp_error, gauge_error) if error)
 
         def set_collision_boxes(self, boxes):

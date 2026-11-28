@@ -399,6 +399,7 @@ class CoinMachineScene:
             else:
                 self.gauge_error = ""
         if self.gauge_error:
+            self.gauges.whichChild.setValue(self.coin.SO_SWITCH_NONE)
             return self.gauge_error
         if len(self.stations) != len(stations):
             self.gauges.removeAllChildren()

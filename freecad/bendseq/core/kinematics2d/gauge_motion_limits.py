@@ -17,17 +17,18 @@ class GaugeHeight:
 
 def bounded_gauge_height(requested_z, preferred_z, z_min, z_max, *,
                          s_mm, stations, gauge_bounds, face_z_span,
-                         die_polygon=(), die_spans=(), clearance_mm=0.0):
+                         die_polygon=(), die_spans=(), clearance_mm=0.0, die_obstacles=()):
     """Retain previous Z if the working face still covers the desired edge.
 
     Overlap in both horizontal axes forces the complete gauge body above
     the die top. A missing die X span is treated conservatively as infinite.
     No feasible range returns None so the caller can hide the gauge visibly.
     """
+    obstacles = ((die_polygon, die_spans), *die_obstacles)
     values = (requested_z, preferred_z, z_min, z_max, s_mm, clearance_mm,
               *gauge_bounds, *face_z_span, *stations,
-              *(v for point in die_polygon for v in point),
-              *(v for span in die_spans for v in span))
+              *(v for polygon, _ in obstacles for point in polygon for v in point),
+              *(v for _, spans in obstacles for span in spans for v in span))
     if not all(isinstance(v, (int, float)) and not isinstance(v, bool) and isfinite(v) for v in values):
         raise ValueError("nonfinite gauge geometry or travel limits")
     if z_min > z_max or clearance_mm < 0:
@@ -38,13 +39,15 @@ def bounded_gauge_height(requested_z, preferred_z, z_min, z_max, *,
         raise ValueError("invalid gauge CAD envelope")
     overlaps = False
     lo, hi = z_min, z_max
-    if die_polygon and stations:
+    for die_polygon, die_spans in obstacles:
+        if not die_polygon or not stations:
+            continue
         ds0, ds1 = min(s for s, z in die_polygon), max(s for s, z in die_polygon)
         overlaps_s = s_mm + s1 >= ds0 and s_mm + s0 <= ds1
         overlaps_x = (not die_spans or any(
             x + x1 >= a and x + x0 <= b for x in stations for a, b in die_spans))
-        overlaps = overlaps_s and overlaps_x
-        if overlaps:
+        if overlaps_s and overlaps_x:
+            overlaps = True
             lo = max(lo, max(z for s, z in die_polygon) - bottom + clearance_mm)
     if lo > hi:
         return GaugeHeight(None, True, False, overlaps)

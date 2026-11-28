@@ -6141,6 +6141,41 @@ class _PreviewPanel:
                     _warn(msg)
                     self.status.setText(msg)
 
+            def _station_backgauge_target(self, setup, operation, faces, meshes):
+                from freecad.bendseq.core.kinematics2d.station_backgauge import (
+                    die_envelopes_for_gauge, resolve_station_backgauge,
+                )
+                from freecad.bendseq.ui.coin3d_machine import load_gauge_envelope
+
+                model = self.backgauge_model
+                station = setup.assigned_station(operation.operation_id)
+                if model is None or not model.cad_geometry_enabled:
+                    return (), None, ""
+                if not model.automatic and model.part_label and model.part_label != self.session.part_label:
+                    note = tr("stations_gauge_manual_no_contact")
+                    _desktop_debug_event("STATION_GAUGE_REJECTED", operation_id=operation.operation_id,
+                                         station_id=station.station_id, reason="manual_target_part_mismatch")
+                    return (), None, note
+                try:
+                    bounds, face_span = load_gauge_envelope(self.tool_library.library_root)
+                    result = resolve_station_backgauge(
+                        model, operation.bend_id, faces, setup.machine_x_mm,
+                        gauge_bounds=bounds, face_z_span=face_span,
+                        die_obstacles=die_envelopes_for_gauge(meshes),
+                    )
+                except (OSError, ValueError, RuntimeError, AttributeError, TypeError) as exc:
+                    _desktop_debug_event("STATION_GAUGE_REJECTED", operation_id=operation.operation_id,
+                                         station_id=station.station_id, error=str(exc))
+                    return (), None, tr("gauge_limit_geometry_unavailable", error=str(exc))
+                _desktop_debug_event(
+                    "STATION_GAUGE_RESOLVED" if result.contact else "STATION_GAUGE_REJECTED",
+                    operation_id=operation.operation_id, station_id=station.station_id,
+                    stations_xm=result.stations, contact_sz=result.contact,
+                    requested_z_mm=result.requested_z_mm, reason=result.reason,
+                    evidence="STATIC_CAD_ENVELOPE_ONLY",
+                )
+                return result.stations, result.contact, tr(result.reason) if result.reason else ""
+
             def _show_installed_station_preview(self, operation_id, *, transfer_timer=None):
                 from freecad.bendseq.core.kinematics2d.machine_pose_solver import loading_fold_state
                 from freecad.bendseq.core.kinematics2d.mounted_station_preview import mounted_station_meshes
@@ -6236,6 +6271,11 @@ class _PreviewPanel:
                         )
                         faces = transform_preview_faces(local_faces, placement)
                         ram_z += state.bends[step.bend_id].bend_zone.thickness_mm
+                    gauge_stations, gauge_contact, gauge_note = (), None, ""
+                    if station is not None and animation is None:
+                        gauge_stations, gauge_contact, gauge_note = self._station_backgauge_target(
+                            setup, step, faces, meshes,
+                        )
                     if not viewer._native:
                         self._viewer_tabs.setCurrentWidget(viewer)
                     viewer.attach_document(self._smbs_document_name)
@@ -6245,7 +6285,7 @@ class _PreviewPanel:
                     messages = viewer.update_machine(
                         self.tool_library.library_root, self.tooling_setup, ram_z,
                         frame_visible=self.machine_preview_checkbox.isChecked(),
-                        gauge_stations=(), gauge_contact=None,
+                        gauge_stations=gauge_stations, gauge_contact=gauge_contact,
                         project_clamp_config=self._project_clamp_config,
                         mount_planes=(planes["punch"], planes["die"]),
                     )
@@ -6274,13 +6314,26 @@ class _PreviewPanel:
                                 return
                             elapsed = time.monotonic() - started
                             try:
-                                viewer.set_sheet_faces(transform_preview_faces(local_faces, path.pose_at(elapsed)))
+                                frame_faces = transform_preview_faces(local_faces, path.pose_at(elapsed))
+                                viewer.set_sheet_faces(frame_faces)
                                 if elapsed >= path.duration_s:
                                     transfer_timer.stop()
                                     viewer.update_tools(
                                         self.tooling_setup, ram_z, installed_meshes=meshes,
                                         installed_key=cache_key, active_station=destination.station_id,
                                     )
+                                    next_stations, next_contact, next_note = self._station_backgauge_target(
+                                        setup, steps[index + 1], frame_faces, meshes,
+                                    )
+                                    gauge_error = viewer.update_backgauge(
+                                        self.tool_library.library_root, next_stations, next_contact,
+                                    )
+                                    if gauge_error:
+                                        _desktop_debug_event("STATION_GAUGE_RENDER_FAILED",
+                                                             station_id=destination.station_id, error=gauge_error)
+                                    self._coin_frame_status.setText(" · ".join(
+                                        filter(None, (note, next_note, gauge_error, *messages))
+                                    ))
                                     _desktop_debug_event("STATION_TRANSFER_END", station_id=destination.station_id,
                                                          collision_validated=False)
                             except Exception as exc:
@@ -6296,7 +6349,8 @@ class _PreviewPanel:
                         transfer_timer.timeout.connect(frame)
                         transfer_timer.start(33)
 
-                    self._coin_frame_status.setText(" · ".join((note, *messages)))
+                    self._coin_frame_status.setText(" · ".join(filter(None, (note, gauge_note, *messages))))
+                    note = " · ".join(filter(None, (note, gauge_note)))
                     _desktop_debug_event("STATION_PREVIEW_READY", operation_id=operation_id,
                                          station_id=station.station_id if station else None,
                                          tool_count=len(meshes), machine_messages=messages)
