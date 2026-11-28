@@ -358,6 +358,16 @@ Note: Select tools in Tooling for full production verification.</source>
       <translation>Отклонённые инструменты / комплекты</translation>
     </message>
     <message>
+      <source>Try alternative tool pairs after a confirmed Mesh collision (max. 3 attempts)</source>
+      <comment>auto_tool_retry_collision</comment>
+      <translation>Проверять альтернативные комплекты после подтверждённой коллизии Mesh (макс. 3 попытки)</translation>
+    </message>
+    <message>
+      <source>Auto Tool Selection: {outcome}; attempts: {count}. See Mesh and Debug Log.</source>
+      <comment>auto_tool_retry_summary</comment>
+      <translation>Автоматический подбор оснастки: {outcome}; попыток: {count}. См. Mesh и Debug Log.</translation>
+    </message>
+    <message>
       <source>FAST / 2D pairs reviewed</source>
       <comment>auto_tool_reviewing</comment>
       <translation>Проверено комплектов FAST / 2D</translation>
