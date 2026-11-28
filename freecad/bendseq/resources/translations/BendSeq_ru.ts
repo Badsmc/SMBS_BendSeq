@@ -318,6 +318,76 @@ Note: Select tools in Tooling for full production verification.</source>
       <translation>AUTO PLAY остановлен: {status}</translation>
     </message>
     <message>
+      <source>Pair and layout applied. Sequence not applied; run FAST and Mesh to verify.</source>
+      <comment>auto_tool_applied</comment>
+      <translation>Комплект и раскладка применены. Последовательность не применена; запустите FAST и Mesh для проверки.</translation>
+    </message>
+    <message>
+      <source>Apply tool pair and layout</source>
+      <comment>auto_tool_apply</comment>
+      <translation>Применить комплект и раскладку</translation>
+    </message>
+    <message>
+      <source>Tool selection failed; inspect active tooling.</source>
+      <comment>auto_tool_apply_error</comment>
+      <translation>Не удалось выбрать комплект. Проверьте активную оснастку.</translation>
+    </message>
+    <message>
+      <source>Inventory search complete</source>
+      <comment>auto_tool_complete</comment>
+      <translation>Поиск по складу завершён</translation>
+    </message>
+    <message>
+      <source>Candidate pairs examined</source>
+      <comment>auto_tool_examined</comment>
+      <translation>Проверено комплектов</translation>
+    </message>
+    <message>
+      <source>Inventory search limited or cancelled</source>
+      <comment>auto_tool_limited</comment>
+      <translation>Поиск по складу ограничен или отменён</translation>
+    </message>
+    <message>
+      <source>Preliminary inventory and FAST / sampled 2D review. Run Mesh after applying a pair.</source>
+      <comment>auto_tool_note</comment>
+      <translation>Предварительный подбор и проверка FAST / дискретная 2D-проверка. После применения комплекта запустите Mesh.</translation>
+    </message>
+    <message>
+      <source>Rejected tools / pairs</source>
+      <comment>auto_tool_rejected</comment>
+      <translation>Отклонённые инструменты / комплекты</translation>
+    </message>
+    <message>
+      <source>FAST / 2D pairs reviewed</source>
+      <comment>auto_tool_reviewing</comment>
+      <translation>Проверено комплектов FAST / 2D</translation>
+    </message>
+    <message>
+      <source>Search</source>
+      <comment>auto_tool_search</comment>
+      <translation>Поиск</translation>
+    </message>
+    <message>
+      <source>Searching tooling inventory</source>
+      <comment>auto_tool_searching</comment>
+      <translation>Поиск по складу оснастки</translation>
+    </message>
+    <message>
+      <source>Part, sequence, library or machine settings changed, or simulation is active. Search again.</source>
+      <comment>auto_tool_stale</comment>
+      <translation>Деталь, последовательность, библиотека или настройки станка изменились либо симуляция активна. Повторите поиск.</translation>
+    </message>
+    <message>
+      <source>Stop</source>
+      <comment>auto_tool_stop</comment>
+      <translation>Стоп</translation>
+    </message>
+    <message>
+      <source>Auto Tool Selection</source>
+      <comment>auto_tool_title</comment>
+      <translation>Автоматический подбор оснастки</translation>
+    </message>
+    <message>
       <source>Automatic: account for formed geometry and thickness</source>
       <comment>automatic_account_for_formed_geometry_and_thickness</comment>
       <translation>Авто: учитывать уже согнутую геометрию и толщину</translation>
