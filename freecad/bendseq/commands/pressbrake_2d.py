@@ -7543,7 +7543,7 @@ class _PreviewPanel:
                     App.closeDocument(doc.Name)
                     QtWidgets.QMessageBox.warning(self, tr("error"), tr_message(exc))
 
-            def _run_mesh_sequence_check(self, *, auto_tool_run_id=None):
+            def _run_mesh_sequence_check(self, *, auto_tool_run_id=None, auto_tool_attempt=None, budget_cap_seconds=None):
                 if self.session is None or self.timer.isActive() or self.playing:
                     self.status.setText(tr("mesh_load_a_part_and_stop_the_simulation"))
                     return
@@ -7562,16 +7562,20 @@ class _PreviewPanel:
 
                     def progress(index, count, operation):
                         if auto_tool_run_id:
-                            _desktop_debug_event("AUTO_TOOL_MESH_OPERATION", run_id=auto_tool_run_id,
+                            _desktop_debug_event("AUTO_TOOL_MESH_OPERATION", run_id=auto_tool_run_id, attempt=auto_tool_attempt,
                                                  index=index, count=count, operation=operation)
                         self.status.setText(f"Mesh: {index + 1}/{count} · {operation}")
                         QtWidgets.QApplication.processEvents(QtCore.QEventLoop.ExcludeUserInputEvents)
 
                     from freecad.bendseq.ui.mesh_preferences import mesh_defaults
                     default_budget, default_overlap = mesh_defaults()
+                    if budget_cap_seconds is not None:
+                        if not math.isfinite(budget_cap_seconds) or budget_cap_seconds <= 0:
+                            raise ValueError("Invalid auto-tool Mesh budget")
+                        default_budget = min(default_budget, budget_cap_seconds)
                     latest_collision = None
                     if auto_tool_run_id:
-                        _desktop_debug_event("AUTO_TOOL_MESH_STARTED", run_id=auto_tool_run_id,
+                        _desktop_debug_event("AUTO_TOOL_MESH_STARTED", run_id=auto_tool_run_id, attempt=auto_tool_attempt,
                             identity=self._mesh_preview_identity(),
                             operations=[step.operation_id for step in operations],
                             budget_s=default_budget, min_overlap_mm3=default_overlap)
@@ -7590,7 +7594,7 @@ class _PreviewPanel:
                     self._latest_mesh_collision = latest_collision
                     _desktop_debug_event("MESH_SEQUENCE_RESULT", **report)
                     if auto_tool_run_id:
-                        _desktop_debug_event("AUTO_TOOL_MESH_RESULT", run_id=auto_tool_run_id,
+                        _desktop_debug_event("AUTO_TOOL_MESH_RESULT", run_id=auto_tool_run_id, attempt=auto_tool_attempt,
                                              report=report)
                     if self._mesh_collision_index is not None:
                         self._collision_display_active = False
@@ -7649,7 +7653,7 @@ class _PreviewPanel:
                     return report
                 except (ValueError, RuntimeError, AttributeError) as exc:
                     if auto_tool_run_id:
-                        _desktop_debug_event("AUTO_TOOL_MESH_ERROR", run_id=auto_tool_run_id,
+                        _desktop_debug_event("AUTO_TOOL_MESH_ERROR", run_id=auto_tool_run_id, attempt=auto_tool_attempt,
                                              error=str(exc), traceback=traceback.format_exc())
                     self._set_task_result("Mesh", "error", tr("check_failed"), str(exc))
                     self.status.setText("Mesh: " + tr_message(exc))

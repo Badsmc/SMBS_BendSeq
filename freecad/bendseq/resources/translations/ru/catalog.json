@@ -65,6 +65,8 @@
   "auto_tool_limited": "Поиск по складу ограничен или отменён",
   "auto_tool_note": "Предварительный подбор и проверка FAST / дискретная 2D-проверка. После применения комплекта запустите Mesh.",
   "auto_tool_rejected": "Отклонённые инструменты / комплекты",
+  "auto_tool_retry_collision": "Проверять альтернативные комплекты после подтверждённой коллизии Mesh (макс. 3 попытки)",
+  "auto_tool_retry_summary": "Автоматический подбор оснастки: {outcome}; попыток: {count}. См. Mesh и Debug Log.",
   "auto_tool_reviewing": "Проверено комплектов FAST / 2D",
   "auto_tool_search": "Поиск",
   "auto_tool_searching": "Поиск по складу оснастки",

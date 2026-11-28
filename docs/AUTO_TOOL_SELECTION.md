@@ -52,3 +52,19 @@ rerun selection. AUTO_TOOL_APPLY_REQUESTED/STARTED/SEQUENCE_STARTED/RESULT,
 FAST_LAYOUT_COVERAGE/REJECTED, APPLY_ERROR/TOOLING_ROLLBACK/ROLLBACK_ERROR and
 MESH_STARTED/OPERATION/RESULT/FINISHED/SKIPPED/ERROR share the same run_id.
 Earlier description of pair-only application is superseded by this increment.
+
+## Bounded Mesh alternatives
+
+Opt in with the new checkbox before applying. Try the selected pair first,
+then at most two other FAST-reviewed pairs, in rank order. Retry only on a
+confirmed collision in the current sequence; incomplete, conditional, failed
+or sampled-clear reports stop the chain. A collision does not prove the tool
+itself cannot be used with another order. The total application/Mesh target
+is 120 seconds, with individual Mesh limits capped by the remaining budget;
+native calls are cooperative and may overrun. A failed application stops,
+and the last applied setup remains visible (no silent restoration after a
+collision). User input/part/library/settings changes invalidate the chain.
+The existing Mesh result and collision display are used for the last attempt.
+All attempts are correlated with the same run_id and attempt index, including
+RETRY_ATTEMPT_STARTED, RETRY_DECISION, RETRY_FINISHED and RETRY_ERROR.
+Runtime UI validation remains required; no continuous safety certificate.

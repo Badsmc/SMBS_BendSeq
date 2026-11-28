@@ -65,6 +65,8 @@
   "auto_tool_limited": "Inventory search limited or cancelled",
   "auto_tool_note": "Preliminary inventory and FAST / sampled 2D review. Run Mesh after applying a pair.",
   "auto_tool_rejected": "Rejected tools / pairs",
+  "auto_tool_retry_collision": "Try alternative tool pairs after a confirmed Mesh collision (max. 3 attempts)",
+  "auto_tool_retry_summary": "Auto Tool Selection: {outcome}; attempts: {count}. See Mesh and Debug Log.",
   "auto_tool_reviewing": "FAST / 2D pairs reviewed",
   "auto_tool_search": "Search",
   "auto_tool_searching": "Searching tooling inventory",

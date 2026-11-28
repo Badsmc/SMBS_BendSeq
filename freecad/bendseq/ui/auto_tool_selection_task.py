@@ -11,6 +11,7 @@ from freecad.bendseq.core.geometry_backend.io.tooling_library import ToolingLibr
 from freecad.bendseq.core.kinematics2d.auto_tool_selection import BendRequirement, shortlist
 from freecad.bendseq.core.kinematics2d.auto_tool_fast_review import review_pair, PairFastReview
 from freecad.bendseq.core.kinematics2d.auto_tool_apply import pinned_orientations, verify_candidate_layout
+from freecad.bendseq.core.kinematics2d.auto_tool_retry import (attempt_order, mesh_outcome, next_action, TOTAL_MESH_BUDGET_S)
 from freecad.bendseq.core.kinematics2d.developer_debug_log import debug_event
 from freecad.bendseq.core.kinematics2d.shared_strokes import stroke_axis
 from freecad.bendseq.core.kinematics2d.tooling_assembly import ToolAssembly
@@ -30,13 +31,24 @@ def _snapshot(workspace):
         strokes = workspace._continuous_tool_strokes(workspace._tool_assembly_order())
         span = max(dist(*stroke_axis(group, bends)) for group in strokes)
     catalog = ToolingLibrary(workspace.tool_library.library_root).list_tools()
+    # File changes may not alter the parsed sidecar metadata. Record source
+    # and sidecar stat identity to invalidate stale candidates before reuse.
+    def stamp(path):
+        if path is None:
+            return None
+        info = path.stat()
+        return (str(path), info.st_size, info.st_mtime_ns)
+    files = tuple((stamp(tool.fcstd_path), stamp(tool.sidecar_path))
+                  for tool in catalog.all_tools())
     return (session, requirements, span, catalog, workspace._current_clamp_config(),
             tuple(session.bend_order), tuple(session.controller.operation_steps),
             tuple(sorted(workspace._manual_operation_orientation_overrides.items())),
             tuple(sorted(workspace._manual_orientation_overrides.items())),
             tuple(sorted(workspace._fast_advisory_orientation_keys)),
             tuple(sorted(workspace._selected_operation_weights().to_dict().items())),
-            repr(workspace.backgauge_model))
+            repr(workspace.backgauge_model), files, repr(workspace.cycle_config),
+            bool(workspace.tooling_setup.allow_end_zone_collision),
+            float(workspace.tooling_setup.end_zone_length_mm))
 
 
 def show_auto_tool_selection(workspace, qt, embed, tool_kind):
@@ -62,6 +74,10 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
     run_mesh = widgets.QCheckBox(tr("run_mesh"))
     run_mesh.setChecked(True)
     layout.addWidget(run_mesh)
+    retry_mesh = widgets.QCheckBox(tr("auto_tool_retry_collision"))
+    retry_mesh.setChecked(False)
+    run_mesh.toggled.connect(retry_mesh.setEnabled)
+    layout.addWidget(retry_mesh)
     timer = QtCore.QTimer(dialog)
     timer.setInterval(100)
     state = {"snapshot": None, "result": None, "cancel": None, "queue": None,
@@ -291,13 +307,19 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
         candidate = review.candidate
         check_mesh = run_mesh.isChecked()
         run_id = state["run"]
+        retry = check_mesh and retry_mesh.isChecked()
+        ranked = [(row, state["reviews"][key(row)].candidate)
+                  for row in state["rows"] if key(row) in state["reviews"]
+                  and state["reviews"][key(row)].candidate is not None]
+        attempts = attempt_order((c, candidate), ranked, retry=retry)
         log("APPLY_REQUESTED", punch=c.punch_id, die=c.die_id,
-            candidate=candidate.to_dict(), mesh_requested=check_mesh)
+            candidate=candidate.to_dict(), mesh_requested=check_mesh,
+            retry_enabled=retry, attempts=[(x.punch_id, x.die_id) for x, _ in attempts])
         dialog.accept()
         # Follow native FAST lifecycle: never mutate the CAD scene from a
         # contextual dialog's completion callback.
-        QtCore.QTimer.singleShot(0, lambda: _apply_selection(
-            workspace, tool_kind, snap, c, candidate, run_id, check_mesh, QtCore))
+        QtCore.QTimer.singleShot(0, lambda: _start_attempts(
+            workspace, tool_kind, snap, attempts, run_id, check_mesh, retry, QtCore))
 
     timer.timeout.connect(poll)
     search.clicked.connect(start)
@@ -309,7 +331,7 @@ def show_auto_tool_selection(workspace, qt, embed, tool_kind):
     embed(workspace, dialog, tr("auto_tool_title"), "auto_tool_selection")
 
 
-def _apply_selection(workspace, tool_kind, snap, c, candidate, run_id, check_mesh, QtCore):
+def _apply_selection(workspace, tool_kind, snap, c, candidate, run_id, check_mesh):
     def log(event, **data):
         debug_event("AUTO_TOOL_" + event, run_id=run_id, **data)
 
@@ -371,10 +393,7 @@ def _apply_selection(workspace, tool_kind, snap, c, candidate, run_id, check_mes
         log("APPLY_RESULT", punch=c.punch_id, die=c.die_id, order=actual,
             orientations=actual_orientations, assembly=asdict(assembly),
             evidence="APPLIED_UNVERIFIED_3D", mesh_requested=check_mesh)
-        if check_mesh:
-            expected_identity = workspace._mesh_preview_identity()
-            QtCore.QTimer.singleShot(0, lambda: _run_selected_mesh(
-                workspace, expected_identity, run_id))
+        return workspace._mesh_preview_identity(), _snapshot(workspace)
     except Exception as exc:
         log("APPLY_ERROR", error=str(exc), traceback=traceback.format_exc(),
             changed_tooling=changed, sequence_applied=sequence_applied)
@@ -398,17 +417,106 @@ def _apply_selection(workspace, tool_kind, snap, c, candidate, run_id, check_mes
             workspace.status.setText("Auto Tool Selection: " + str(exc))
 
 
-def _run_selected_mesh(workspace, identity, run_id):
-    try:
-        if (not workspace._playback_alive() or workspace.session is None
-                or workspace._task_progress_busy or workspace.timer.isActive() or workspace.playing
-                or workspace._mesh_preview_identity() != identity):
-            debug_event("AUTO_TOOL_MESH_SKIPPED", run_id=run_id, reason="setup_changed_or_busy")
+def _start_attempts(workspace, tool_kind, snap, attempts, run_id, check_mesh, retry, QtCore):
+    """Only the user-approved bounded shortlist; no hidden changes after errors."""
+    started = monotonic()
+    history = []
+    initial_pins = pinned_orientations(snap[6], dict(snap[7]), dict(snap[8]), set(snap[9]))
+
+    def log(event, **data):
+        debug_event("AUTO_TOOL_" + event, run_id=run_id, **data)
+
+    def finish(reason):
+        log("RETRY_FINISHED", reason=reason, attempts=history,
+            elapsed_s=monotonic()-started,
+            evidence="SAMPLED_ONLY_NOT_CONTINUOUS_CERTIFICATION")
+        if workspace._playback_alive() and check_mesh:
+            workspace.status.setText(tr("auto_tool_retry_summary",
+                outcome=reason, count=len(history)))
+        # The last applied configuration remains visible with its own Mesh
+        # evidence; never silently restore or label another candidate clear.
+
+    def attempt(index, expected_snapshot, expected_identity=None):
+        if not workspace._playback_alive():
+            finish("WORKSPACE_DESTROYED")
             return
-        report = workspace._run_mesh_sequence_check(auto_tool_run_id=run_id)
-        debug_event("AUTO_TOOL_MESH_FINISHED", run_id=run_id,
-                    returned_report=report is not None,
-                    evidence="SAMPLED_ONLY_NOT_CONTINUOUS_CERTIFICATION")
-    except Exception as exc:
-        debug_event("AUTO_TOOL_MESH_ERROR", run_id=run_id, error=str(exc),
-                    traceback=traceback.format_exc())
+        try:
+            if (workspace.session is None or workspace._task_progress_busy
+                    or workspace.timer.isActive() or workspace.playing):
+                finish("SETUP_CHANGED_OR_BUSY")
+                return
+            current = _snapshot(workspace)
+            if (current[0] is not expected_snapshot[0] or current[1:] != expected_snapshot[1:]
+                    or (expected_identity is not None and workspace._mesh_preview_identity() != expected_identity)):
+                finish("SETUP_CHANGED_OR_BUSY")
+                return
+            if pinned_orientations(current[6], dict(current[7]), dict(current[8]), set(current[9])) != initial_pins:
+                finish("OPERATOR_PINS_CHANGED")
+                return
+            remaining = TOTAL_MESH_BUDGET_S - (monotonic() - started)
+            if retry and remaining <= 0:
+                finish("TOTAL_BUDGET_EXCEEDED")
+                return
+            tool, candidate = attempts[index]
+            record = dict(attempt=index+1, punch=tool.punch_id, die=tool.die_id,
+                          order=list(candidate.operation_ids))
+            history.append(record)
+            log("RETRY_ATTEMPT_STARTED", **record, remaining_budget_s=remaining if retry else None)
+            applied = _apply_selection(workspace, tool_kind, current, tool, candidate, run_id, check_mesh)
+            if applied is None:
+                record["outcome"] = "APPLY_ERROR"
+                finish("APPLY_ERROR")
+                return
+            identity, post_snapshot = applied
+            if not check_mesh:
+                record["outcome"] = "APPLIED_UNVERIFIED_3D"
+                finish(record["outcome"])
+                return
+            def check():
+                try:
+                    if (not workspace._playback_alive() or workspace.session is None
+                            or workspace._task_progress_busy or workspace.timer.isActive() or workspace.playing
+                            or workspace._mesh_preview_identity() != identity):
+                        log("MESH_SKIPPED", attempt=index+1, reason="setup_changed_or_busy")
+                        finish("SETUP_CHANGED_OR_BUSY")
+                        return
+                    now = _snapshot(workspace)
+                    if now[0] is not post_snapshot[0] or now[1:] != post_snapshot[1:]:
+                        finish("SETUP_CHANGED_OR_BUSY")
+                        return
+                    remaining = TOTAL_MESH_BUDGET_S - (monotonic() - started)
+                    if retry and remaining <= 0:
+                        finish("TOTAL_BUDGET_EXCEEDED")
+                        return
+                    report = workspace._run_mesh_sequence_check(
+                        auto_tool_run_id=run_id, auto_tool_attempt=index+1,
+                        budget_cap_seconds=remaining if retry else None)
+                    if not workspace._playback_alive():
+                        finish("WORKSPACE_DESTROYED")
+                        return
+                    if workspace.session is None or workspace._mesh_preview_identity() != identity:
+                        finish("SETUP_CHANGED_OR_BUSY")
+                        return
+                    outcome = mesh_outcome(report, candidate.operation_ids)
+                    record.update(outcome=outcome,
+                                  findings=len(report.get("findings", ())) if isinstance(report, dict) else None,
+                                  elapsed_s=report.get("elapsed_seconds") if isinstance(report, dict) else None)
+                    log("MESH_FINISHED", **record, returned_report=report is not None)
+                    action = next_action(outcome, len(attempts)-index-1,
+                                         TOTAL_MESH_BUDGET_S-(monotonic()-started)) if retry else outcome
+                    log("RETRY_DECISION", attempt=index+1, outcome=outcome, action=action)
+                    if action == "RETRY":
+                        # Reuse the exact post-apply input snapshot. Any change
+                        # while Mesh was running cancels the alternative.
+                        QtCore.QTimer.singleShot(0, lambda: attempt(index+1, post_snapshot, identity))
+                    else:
+                        finish(action)
+                except Exception as exc:
+                    log("MESH_ERROR", attempt=index+1, error=str(exc), traceback=traceback.format_exc())
+                    finish("ERROR")
+            QtCore.QTimer.singleShot(0, check)
+        except Exception as exc:
+            log("RETRY_ERROR", attempt=index+1, error=str(exc), traceback=traceback.format_exc())
+            finish("ERROR")
+
+    attempt(0, snap)
