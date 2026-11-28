@@ -458,6 +458,20 @@ def show_station_editor(workspace, embed):
     cycle_button = qt.QPushButton(tr("stations_cycle_preview"))
     cycle_button.clicked.connect(toggle_cycle)
     layout.addWidget(cycle_button)
+    mesh_button = qt.QPushButton(tr("station_mesh_check"))
+    def check_stations():
+        if auto_timer.isActive():
+            return
+        stop_transfer()
+        mesh_button.setEnabled(False)
+        try:
+            feedback.setText(workspace._run_station_mesh_check())
+        except Exception as exc:
+            feedback.setText(str(exc))
+        finally:
+            mesh_button.setEnabled(True)
+    mesh_button.clicked.connect(check_stations)
+    layout.addWidget(mesh_button)
     selected.currentIndexChanged.connect(load_fields)
     operation.currentIndexChanged.connect(refresh_assignment)
     if saved is not None:

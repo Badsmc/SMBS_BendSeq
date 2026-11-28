@@ -166,3 +166,13 @@ collision checks, including lateral transfer clearance, remain pending.
 132 headless tests cover the current branch, including a 30-degree pre-bend
 on S1, transfer, and 90-degree finish using a different die on S2. GUI playback
 and real CAD assembly have not been exercised on FreeCAD 1.1.3.
+
+### Sampled installed-tool collisions
+
+The auto-tool integration branch adds a station-aware Mesh check using the
+same station cycle and native meshes as playback, with shared ram displacement.
+All mounted punches and dies are checked at sampled approach, bending and
+retract positions. Neighbor hits identify the actual station. This is partial
+Phase D; transfers, grouped strokes, non-tool machine components, containment
+without surface crossing and continuous collision verification remain open.
+See AUTO_TOOL_SELECTION.md for diagnostic events and scope.

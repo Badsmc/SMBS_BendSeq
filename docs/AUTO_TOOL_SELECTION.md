@@ -129,3 +129,18 @@ stock rejection, X trials, beam depth, limits, cancellation and application.
 Legacy single-pair FAST, Mesh, OCC and PDF entry points refuse a nonempty
 station draft; draft edits invalidate prior live evidence. This avoids treating
 single-pair results as verification of the installed multi-station layout.
+
+## Station-aware sampled Mesh
+
+Tooling → Stations → Check all mounted station tools (Mesh). Uses the assigned
+station cycle and shared Mesh BVH/OCC engine, with fixed X segment coordinates.
+All installed tools, including disabled stations, are checked; all punches
+share ram Z. Neighboring-tool hits cannot use active forming contact or
+conditional end-zone exemptions. Native mount-height mismatch and missing
+assignments fail closed. Report labels operation, active and hit station,
+component, phase and overlap. STATION_MESH_* events correlate native profile
+loading, BVH construction, per-sample pose and hits, errors and full report.
+Only sampled approach/forming/retract for individual operations is implemented.
+Transfers, simultaneous groups, clamps, gauge, machine body, tool-tool contact,
+containment without surface crossing and continuous motion remain unchecked.
+The station editor report is not stored as ordinary single-pair Mesh evidence.

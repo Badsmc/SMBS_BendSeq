@@ -963,6 +963,8 @@
   "stage_order_is_invalid_press_reset": "Stage order is invalid. Press Reset.",
   "start": "Start",
   "state_frozen_use_reset_or_change_mode_to_restart": " | State frozen; use Reset or change mode to restart.",
+  "station_mesh_check": "Check all mounted station tools (Mesh)",
+  "station_mesh_scope": "Sampled approach, forming and retract only. Transfers, grouped forming, clamps, gauge, machine body and continuous motion are not verified.",
   "stations_add": "Add station",
   "stations_assign": "Assign operation",
   "stations_auto_layout": "Auto layout",

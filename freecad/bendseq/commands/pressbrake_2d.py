@@ -6489,6 +6489,78 @@ class _PreviewPanel:
                 timer.timeout.connect(frame)
                 timer.start(33)
 
+            def _run_station_mesh_check(self):
+                from uuid import uuid4
+                from freecad.bendseq.core.kinematics2d.station_mesh_screen import screen_station_sequence
+                from freecad.bendseq.core.kinematics2d.physical_validation_25d import _source_path
+                from freecad.bendseq.core.kinematics2d.segment_assembly_planner import read_inventory
+                from freecad.bendseq.ui.mesh_preferences import mesh_defaults
+
+                session = self.session
+                setup = getattr(session, "station_draft", None)
+                if setup is None or not setup.stations:
+                    raise ValueError(tr("stations_preview_requires_layout"))
+                if self._task_progress_busy or self.playing or self.timer.isActive() or not session.can_reorder():
+                    raise ValueError(tr("stop_the_simulation_or_wait_for_the_check_to"))
+                transfer = getattr(self, "_station_transfer_timer", None)
+                if transfer is not None:
+                    transfer.stop()
+                run = uuid4().hex
+                def trace(event, **data):
+                    _desktop_debug_event("STATION_MESH_" + event, run_id=run, **data)
+                self._invalidate_station_draft_evidence()
+                self._set_task_busy(True)
+                try:
+                    profiles, stock = {}, {}
+                    for station in setup.stations:
+                        for kind, tool_id in (("punch", station.punch_id), ("die", station.die_id)):
+                            key = kind, tool_id
+                            if key in profiles:
+                                continue
+                            trace("PROFILE_LOAD_STARTED", kind=kind, tool_id=tool_id)
+                            profile = self.tool_library.load_tool(tool_id, kind.upper(), use_cache=False)
+                            path = _source_path(profile)
+                            if path is None:
+                                raise ValueError(tr("stations_preview_requires_cad", tool=tool_id))
+                            profiles[key] = profile
+                            stock[key] = read_inventory(path)
+                            trace("PROFILE_LOADED", kind=kind, tool_id=tool_id, path=str(path))
+                    budget, overlap = mesh_defaults()
+                    def progress(index, count, operation):
+                        self.status.setText(f"Station Mesh: {index+1}/{count} · {operation}")
+                        QtWidgets.QApplication.processEvents(QtCore.QEventLoop.ExcludeUserInputEvents)
+                    report = screen_station_sequence(session, setup, profiles, stock,
+                        self._current_clamp_config(), self._effective_operation_orientation_map(),
+                        self.cycle_config, budget_seconds=budget, min_overlap_mm3=overlap,
+                        progress=progress, trace=trace)
+                    if self.session is not session or session.station_draft != setup:
+                        trace("STALE")
+                        raise ValueError(tr("auto_tool_stale"))
+                    if report["findings"]:
+                        summary = tr("confirmed_collisions", count=len(report["findings"]))
+                    elif report["pending"] or report["unresolved"] or report["reason"] or not report["samples"]:
+                        summary = tr("the_check_is_incomplete")
+                    else:
+                        summary = tr("no_collisions_found_at_the_checked_positions")
+                    lines = [summary, tr("station_mesh_scope"),
+                             tr("bends_checked_time_s", checked=len(report["completed"]),
+                                total=len(session.controller.operation_steps),
+                                seconds=report["elapsed_seconds"])]
+                    for hit in report["findings"] + report["unresolved"]:
+                        lines.append(f"{hit.get('operation','?')} · {hit.get('active_station','?')} → "
+                                     f"{hit.get('station','?')} / {hit.get('tool','?')} · "
+                                     f"{hit.get('component','?')} · {hit.get('phase','?')} · "
+                                     f"{hit.get('occ_overlap_volume_mm3',hit.get('reason','?'))}")
+                    if report["reason"]:
+                        lines.append(report["reason"])
+                    self.status.setText("Station Mesh: " + summary)
+                    return "\n".join(lines)
+                except Exception as exc:
+                    trace("UI_ERROR", error=str(exc), traceback=traceback.format_exc())
+                    raise
+                finally:
+                    self._set_task_busy(False)
+
             def _block_legacy_station_check(self, action):
                 draft = getattr(self.session, "station_draft", None)
                 if draft is None or not draft.stations:

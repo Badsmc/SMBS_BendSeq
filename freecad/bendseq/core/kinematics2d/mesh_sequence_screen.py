@@ -244,8 +244,22 @@ def _is_forming_contact_sliver(kind, phase, component, active_bend, volume, boun
 
 
 def screen_mesh_sequence(session, preview_cycle, order, *, budget_seconds=60.0, min_overlap_mm3=1e-4,
-                         progress=None, on_collision=None):
-    """Check sampled surfaces in the current operation order using CAD tool meshes."""
+                         progress=None, on_collision=None, mounted_meshes=None,
+                         station_ids=None, trace=lambda *a, **k: None):
+    """Check sampled surfaces using the same press-cycle pose and native meshes.
+
+    With installed station meshes, every punch shares ram Z, all dies stay
+    fixed, and every component is tested even at inactive stations. No transfer
+    or continuous motion, machine body, clamp or gauge clearance is implied.
+    """
+    order = tuple(order)
+    if (mounted_meshes is None) != (station_ids is None):
+        raise ValueError("Station meshes and assignment IDs must be supplied together")
+    if station_ids is not None:
+        station_ids = tuple(station_ids)
+        if (len(station_ids) != len(order) or preview_cycle.operation_setup is None
+                or len(preview_cycle.operation_setup) != len(order)):
+            raise ValueError("Station Mesh operation configuration mismatch")
     start = perf_counter()
 
     def check_budget():
@@ -265,10 +279,26 @@ def screen_mesh_sequence(session, preview_cycle, order, *, budget_seconds=60.0, 
     samples = 0
     reason = ""
     try:
-        cycle = PressCycleController(sequence, tooling, config=preview_cycle.config)
+        layouts = None if station_ids is None else tuple(
+            (copy(t), midpoint) for t, midpoint in preview_cycle.operation_setup)
+        cycle = PressCycleController(sequence, tooling, config=preview_cycle.config,
+                                     operation_setup=layouts)
         cycle.loading_orientation_by_bend = preview_cycle.loading_orientation_by_bend
         cycle.loading_rear_frame_for_step = getattr(preview_cycle, "loading_rear_frame_for_step", None)
         cycle.assisted_retract_preview_bends = set(preview_cycle.assisted_retract_preview_bends)
+        installed = None
+        if station_ids is not None:
+            installed = {}
+            for sid, kind, tool, triangles in mounted_meshes:
+                check_budget()
+                if not sid or kind not in ("punch", "die") or not triangles or (sid, kind) in installed:
+                    raise ValueError("Invalid or duplicate installed station mesh")
+                installed[sid, kind] = (tool, _tree([(_bounds(t), t) for t in triangles], check_budget))
+            if (not installed or any((sid, kind) not in installed
+                    for sid in set(station_ids) | {k[0] for k in installed}
+                    for kind in ("punch", "die"))):
+                raise ValueError("Incomplete installed station meshes")
+            trace("BVH_READY", tools=[dict(station=sid, kind=kind) for sid,kind in installed])
         panel_meshes = _panel_meshes(session, sequence.fold_state, check_budget)
         for index, operation_id in enumerate(order):
             check_budget()
@@ -282,10 +312,17 @@ def screen_mesh_sequence(session, preview_cycle, order, *, budget_seconds=60.0, 
             bend = sequence.fold_state.bends[bend_id]
             points = bend.axis_xyz
             length = sum((a-b)**2 for a,b in zip(*points))**0.5
-            virtual_length = length if tooling.match_active_bend_length else None
-            if virtual_length not in tool_cache:
-                tool_cache[virtual_length] = _native_tool_trees(tooling, virtual_length, check_budget)
-            tools = tool_cache[virtual_length]
+            active_station = station_ids[index] if station_ids is not None else None
+            if installed is not None:
+                tools = installed
+            else:
+                virtual_length = length if tooling.match_active_bend_length else None
+                if virtual_length not in tool_cache:
+                    tool_cache[virtual_length] = _native_tool_trees(tooling, virtual_length, check_budget)
+                tools = {(None, kind): value for kind,value in tool_cache[virtual_length].items()}
+            trace("OPERATION_STARTED", operation=operation_id, active_station=active_station,
+                  tool_count=len(tools), bend=bend_id, midpoint_xm=(
+                      layouts[index][1] if layouts is not None else None))
             start_angle = cycle.current_angle_deg
             target = cycle.target_angle_deg
             fractions = (0., .25, .5, .75, 1.)
@@ -317,8 +354,8 @@ def screen_mesh_sequence(session, preview_cycle, order, *, budget_seconds=60.0, 
                     tool_shapes = {}
                     for component, triangle in last_triangles:
                         check_budget()
-                        for kind, (tool, tree) in tools.items():
-                            pair = kind, component
+                        for (sid, kind), (tool, tree) in tools.items():
+                            pair = sid, kind, component
                             if pair in tested or pair in reported:
                                 continue
                             ram_z = cycle.ram_z_mm if kind == "punch" else 0.0
@@ -332,22 +369,25 @@ def screen_mesh_sequence(session, preview_cycle, order, *, budget_seconds=60.0, 
                                 "tool": kind, "component": component,
                                 "ram_z_mm": cycle.ram_z_mm, "angle_deg": cycle.current_angle_deg,
                             }
+                            if station_ids is not None:
+                                hit.update(station=sid, active_station=active_station,
+                                           neighboring_station=sid != active_station)
                             try:
                                 if key not in confirmed:
-                                    if kind not in tool_shapes:
+                                    if (sid, kind) not in tool_shapes:
                                         from .native_tool_loader import set_punch_ram_z
 
-                                        tool_shapes[kind] = (
+                                        tool_shapes[sid, kind] = (
                                             set_punch_ram_z(tool, ram_z).machine_shape
                                             if kind == "punch" else tool.machine_shape
                                         )
                                     confirmed[key] = _confirm_crossing(
                                         session, sequence.fold_state, component, placement,
-                                        tool_shapes[kind], panel_prisms, check_budget,
+                                        tool_shapes[sid, kind], panel_prisms, check_budget,
                                         min_overlap_mm3=min_overlap_mm3,
                                         end_zone_length=(
                                             tooling.end_zone_length_mm
-                                            if kind == "punch" and tooling.allow_end_zone_collision
+                                            if station_ids is None and kind == "punch" and tooling.allow_end_zone_collision
                                             else None
                                         ),
                                     )
@@ -357,8 +397,9 @@ def screen_mesh_sequence(session, preview_cycle, order, *, budget_seconds=60.0, 
                                 raise
                             except Exception as exc:
                                 unresolved.append({**hit, "reason": str(exc)})
+                                trace("CONFIRMATION_ERROR", hit=hit, error=str(exc))
                                 continue
-                            if volume > min_overlap_mm3 and _is_forming_contact_sliver(
+                            if sid == active_station and volume > min_overlap_mm3 and _is_forming_contact_sliver(
                                 kind, phase, component, bend_id, volume, bounds, fraction=fraction,
                             ):
                                 forming_contact_slivers.append({
@@ -384,15 +425,25 @@ def screen_mesh_sequence(session, preview_cycle, order, *, budget_seconds=60.0, 
                                     if on_collision is not None:
                                         on_collision(result, component_shape, tool_shape, common)
                                     findings.append(result)
+                                    trace("COLLISION", hit=result)
                                     reported.add(pair)
                             else:
                                 unconfirmed_crossings += 1
                     samples += 1
+                    if station_ids is not None:
+                        trace("SAMPLE", operation=operation_id, active_station=active_station,
+                              phase=phase.value, fraction=fraction, ram_z_mm=cycle.ram_z_mm,
+                              angles_deg=dict(sequence.fold_state.angles),
+                              rotation=placement.rotation, translation=placement.translation,
+                              triangle_count=len(last_triangles), findings=len(findings))
             finished.append(operation_id)
+            trace("OPERATION_FINISHED", operation=operation_id, samples=samples)
     except MeshBudgetExpired:
         reason = "TIME_BUDGET"
     except Exception as exc:
+        import traceback
         reason = f"{type(exc).__name__}: {exc}"
+        trace("ERROR", error=reason, traceback=traceback.format_exc())
     return {
         "completed": finished, "pending": list(order[len(finished):]),
         "findings": findings, "unresolved": unresolved,
@@ -401,4 +452,9 @@ def screen_mesh_sequence(session, preview_cycle, order, *, budget_seconds=60.0, 
         "mesh_crossings_without_occ_penetration": unconfirmed_crossings,
         "samples": samples, "reason": reason,
         "elapsed_seconds": perf_counter()-start,
+        **({"scope": "ALL_MOUNTED_TOOLS_SAMPLED_SINGLE_OPERATIONS",
+            "unchecked": ["TRANSFER", "CONTINUOUS_MOTION", "CLAMPS", "BACKGAUGE",
+                          "MACHINE_BODY", "SIMULTANEOUS_GROUPED_FORMING", "TOOL_TOOL_CONTACT",
+                          "CONTAINMENT_WITHOUT_SURFACE_CROSSING"]}
+           if station_ids is not None else {}),
     }
