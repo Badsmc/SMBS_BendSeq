@@ -32,7 +32,7 @@ The project version stays 0.2.0.
 | A | Architecture, station and operation-assignment contracts | Implemented and covered by headless regression tests |
 | B | Manual tooling, inventory, layout, assignment UI | Layout, stock and session draft editor implemented; native FreeCAD acceptance pending |
 | C | Coin3D, station-specific machine pose, transfers and gauge | Machine Pose, native station preview and explicit transfer preview implemented; static backgauge and assigned-station forming preview implemented |
-| D | Shared-ram motion and all installed component checks | Pending |
+| D | Shared-ram motion and all installed component checks | Sampled sheet vs. installed punches and dies integrated; other machine components pending |
 | E | Bounded FAST search with station transitions and cached feasibility | Pending |
 | F | FCStd snapshots, templates and PDF | Pending |
 | G | Synthetic FreeCAD demos, complete regression inventory and 1/2/3/5-station benchmarks | Pending |
@@ -107,7 +107,7 @@ The preview rechecks stock and clamp positions and requires verified native
 FCStd geometry. For now, it rejects different punch top or die base heights
 measured from the native meshes. This restriction supports a common visual
 mount plane. It does not validate mounting datums, force or ram travel.
-Station-specific collision overlays remain pending. Failures and
+The static layout preview has no collision overlay. Failures and
 preview results are logged as `STATION_LAYOUT_REJECTED` and
 `STATION_PREVIEW_*` in the existing debug journal when enabled.
 
@@ -160,9 +160,29 @@ The standard simulation still uses the single-pair workspace controls.
 
 Missing assignments, insufficient coverage and incomplete tool datums prevent
 starting. STATION_CYCLE debug events include the operation, station and phase.
-The preview currently plays operations individually. Grouped strokes and
-collision checks, including lateral transfer clearance, remain pending.
+The preview currently plays operations individually. Grouped strokes remain pending.
 
 132 headless tests cover the current branch, including a 30-degree pre-bend
 on S1, transfer, and 90-degree finish using a different die on S2. GUI playback
 and real CAD assembly have not been exercised on FreeCAD 1.1.3.
+
+### Collision sampling during the station cycle
+
+The forming-cycle preview checks the initial pose, phase/operation changes,
+and intermediate poses at roughly 0.15 seconds of simulated motion. It uses
+the same native sheet components, Machine Pose and installed tool solids as
+the rest of the simulation. An AABB filter precedes the OCC common-volume
+calculation. Every mounted punch follows the shared ram, including punches
+on disabled stations. Dies remain fixed. The first confirmed penetration
+above the numerical volume tolerance freezes the scene and highlights the
+tool, workpiece component and available overlap bounds. An OCC calculation
+failure stops the preview as unverified. Debug events record phase, component,
+tool, station, overlap, and sample count.
+
+The checked objects are the installed punches and dies. Clamps, fingers,
+frame and beam are outside this check. The isolated transfer preview is
+still visual only. A result without collisions applies only to the sampled
+positions. This path is not yet integrated with FAST or the standalone Mesh
+command. The headless suite ran 134 tests (two native tests skipped without
+FreeCAD). Both native common-volume tests passed separately with Part from
+FreeCAD 1.0; GUI playback under FreeCAD 1.1.3 is still pending.

@@ -411,7 +411,7 @@ def create_coin_viewer(parent=None):
 
         def update_tools(self, tooling, ram_z, *, active_bend_length_mm=None,
                          section_preview=None, transparency=0.0, installed_meshes=None,
-                         installed_key=None, active_station=None):
+                         installed_key=None, active_station=None, collision_tool=None):
             from freecad.bendseq.core.kinematics2d.preview_mesh_3d import (
                 build_tool_preview_faces,
             )
@@ -436,7 +436,7 @@ def create_coin_viewer(parent=None):
                 tuple(die_transform.to_matrix_tuple()),
             )
             if installed_meshes is not None:
-                key = ("installed_stations", installed_key, active_station)
+                key = ("installed_stations", installed_key, active_station, collision_tool)
             if key != self._tool_key:
                 from freecad.bendseq.core.kinematics2d.physical_validation_25d import _source_path
 
@@ -477,6 +477,8 @@ def create_coin_viewer(parent=None):
                         color = segment_color(kind, section_index)
                         if station_id is not None and station_id != active_station:
                             color = tuple(0.4 * channel + 0.36 for channel in color)
+                        if collision_tool == (station_id, kind):
+                            color = (1.0, 0.08, 0.08)
                         material.diffuseColor.setValue(*color)
                         material.transparency.setValue(float(transparency))
                         coordinates = coin.SoCoordinate3()

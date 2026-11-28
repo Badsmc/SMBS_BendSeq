@@ -4798,14 +4798,29 @@ Solids: {solids} | Faces: {faces}
       <translation>Выберите пуансон и матрицу из библиотеки оснастки.</translation>
     </message>
     <message>
+      <source>{operation} / {phase}: collision at {station}, tool {tool}, sheet component {component}.</source>
+      <comment>stations_cycle_collision</comment>
+      <translation>{operation} / {phase}: коллизия на станции {station}, инструмент {tool}, участок детали {component}.</translation>
+    </message>
+    <message>
       <source>Play / stop station cycle</source>
       <comment>stations_cycle_preview</comment>
       <translation>Пуск / стоп цикла по станциям</translation>
     </message>
     <message>
-      <source>Station cycle preview. Collisions and motion clearance are unchecked.</source>
+      <source>Station cycle stopped. Collision sample could not be checked: {error}</source>
+      <comment>stations_cycle_sample_failed</comment>
+      <translation>Цикл по станциям остановлен. Не удалось проверить коллизию в текущем положении: {error}</translation>
+    </message>
+    <message>
+      <source>No collisions with installed punches or dies in {count} checked positions. Motion between samples is unchecked.</source>
+      <comment>stations_cycle_sampled_clear</comment>
+      <translation>В {count} проверенных положениях коллизий с пуансонами и матрицами не найдено. Движение между точками не проверено.</translation>
+    </message>
+    <message>
+      <source>Station cycle preview. Sampled tool checks only.</source>
       <comment>stations_cycle_unverified</comment>
-      <translation>Предпросмотр цикла по станциям. Коллизии и зазоры на траектории не проверены.</translation>
+      <translation>Предпросмотр цикла по станциям. Оснастка проверяется в отдельных положениях.</translation>
     </message>
     <message>
       <source>Layout draft for this session. Assignments here serve preparation only. Simulation, FAST, collision checks and export still use the single tool pair.</source>

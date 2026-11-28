@@ -1127,5 +1127,8 @@
   "stations_gauge_different_depths": "Rear edges need different depths. The fingers share one depth axis.",
   "stations_gauge_manual_no_contact": "The configured manual backgauge target does not match this part pose.",
   "stations_cycle_preview": "Play / stop station cycle",
-  "stations_cycle_unverified": "Station cycle preview. Collisions and motion clearance are unchecked."
+  "stations_cycle_unverified": "Station cycle preview. Sampled tool checks only.",
+  "stations_cycle_collision": "{operation} / {phase}: collision at {station}, tool {tool}, sheet component {component}.",
+  "stations_cycle_sampled_clear": "No collisions with installed punches or dies in {count} checked positions. Motion between samples is unchecked.",
+  "stations_cycle_sample_failed": "Station cycle stopped. Collision sample could not be checked: {error}"
 }

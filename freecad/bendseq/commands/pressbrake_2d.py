@@ -6321,6 +6321,7 @@ class _PreviewPanel:
                             cycle_timer, station_cycle, cycle_station_ids, session, setup,
                             meshes, cache_key, planes, note,
                         )
+                        return note
                     elif animation is not None:
                         note = tr("stations_transfer_unverified")
                         destination, path = animation
@@ -6389,6 +6390,10 @@ class _PreviewPanel:
 
             def _start_station_cycle_preview(self, timer, cycle, station_ids, session, setup,
                                              meshes, cache_key, planes, notice):
+                from freecad.bendseq.core.kinematics2d.station_collision import StationCollisionSampler
+
+                sampler = StationCollisionSampler(session.panel_build, meshes)
+                simulated_time_since_sample = 0.0
                 viewer = self._preview_3d
                 steps = cycle.sequence.operation_steps
                 initial_order = session.controller.operation_steps
@@ -6401,7 +6406,8 @@ class _PreviewPanel:
                     (step.operation_id, station_id) for step, station_id in zip(steps, station_ids)
                 ], collision_validated=False)
 
-                def frame():
+                def frame(advance=True):
+                    nonlocal simulated_time_since_sample
                     nonlocal tick_at, last_phase, last_index, gauge_stations, gauge_contact, gauge_note
                     if (not self._playback_alive() or self.session is not session
                             or session.station_draft is not setup
@@ -6411,17 +6417,29 @@ class _PreviewPanel:
                         return
                     now = time.monotonic()
                     try:
-                        cycle.advance_time(now - tick_at)
+                        if advance:
+                            dt = now - tick_at
+                            cycle.advance_time(dt)
+                            simulated_time_since_sample += min(dt, 0.1)
                         tick_at = now
                         index = cycle.active_index
                         op = steps[index]
                         phase = cycle.phase
+                        placement = cycle.current_workpiece_placement_3d()
                         faces = build_sheet_preview_faces(
                             cycle.sequence.fold_state, session.panel_vertices_xy, op.bend_id,
-                            WorkpiecePose2D(), machine_placement=cycle.current_workpiece_placement_3d(),
+                            WorkpiecePose2D(), machine_placement=placement,
                             panel_meshes=getattr(session.unfold_data, "panel_meshes", None),
                         )
-                        if (index, phase) != (last_index, last_phase):
+                        phase_changed = (index, phase) != (last_index, last_phase)
+                        hit = None
+                        if phase_changed or simulated_time_since_sample >= 0.15:
+                            hit = sampler.sample(
+                                cycle.sequence.fold_state, placement, cycle.ram_z_mm,
+                                active_station=station_ids[index], active_bend=op.bend_id, phase=phase,
+                            )
+                            simulated_time_since_sample = 0.0
+                        if phase_changed:
                             gauge_stations, gauge_contact, gauge_note = (), None, ""
                             if phase in (CyclePhase.APPROACH, CyclePhase.CONTACT):
                                 gauge_stations, gauge_contact, gauge_note = self._station_backgauge_target(
@@ -6443,27 +6461,57 @@ class _PreviewPanel:
                         viewer.update_tools(
                             cycle.tooling, cycle.ram_z_mm, installed_meshes=meshes,
                             installed_key=cache_key, active_station=station_ids[index],
+                            collision_tool=(hit.station_id, hit.tool_kind) if hit else None,
                         )
-                        viewer.set_sheet_faces(faces)
+                        component = hit.sheet_component.removeprefix("bend_zone:") if hit else None
+                        viewer.set_sheet_faces(faces, highlighted=(component,) if hit else ())
+                        if hit:
+                            timer.stop()
+                            viewer.set_collision_boxes((hit.bounds,) if hit.bounds else ())
+                            self._coin_frame_status.setText(tr(
+                                "stations_cycle_collision", operation=op.operation_id, phase=phase.value,
+                                station=next(item.name for item in setup.stations if item.station_id == hit.station_id),
+                                tool=hit.tool_id, component=hit.sheet_component,
+                            ))
+                            _desktop_debug_event(
+                                "STATION_CYCLE_COLLISION", operation_id=op.operation_id,
+                                active_station_id=station_ids[index], phase=phase.value,
+                                station_id=hit.station_id, tool_kind=hit.tool_kind,
+                                tool_id=hit.tool_id, component=hit.sheet_component,
+                                volume_mm3=hit.volume_mm3, bounds=hit.bounds,
+                                ram_z_mm=cycle.ram_z_mm, angle_deg=cycle.current_angle_deg,
+                                samples=sampler.samples,
+                            )
+                            return False
                         station = setup.assigned_station(op.operation_id)
                         self._coin_frame_status.setText(" · ".join(filter(None, (
                             notice, op.operation_id, station.name, phase.value, gauge_note, *messages,
                         ))))
                         if phase == CyclePhase.COMPLETED:
                             timer.stop()
-                            _desktop_debug_event("STATION_CYCLE_END", collision_validated=False)
+                            self._coin_frame_status.setText(tr(
+                                "stations_cycle_sampled_clear", count=sampler.samples,
+                            ))
+                            _desktop_debug_event(
+                                "STATION_CYCLE_END", samples=sampler.samples,
+                                evidence="NO_TOOL_COLLISION_AT_SAMPLES", collision_validated=False,
+                            )
+                            return False
+                        return True
                     except Exception as exc:
                         timer.stop()
-                        self._coin_frame_status.setText(str(exc))
+                        self._coin_frame_status.setText(tr("stations_cycle_sample_failed", error=str(exc)))
                         _desktop_debug_event("STATION_CYCLE_ERROR", operation_id=steps[cycle.active_index].operation_id,
-                                             error=str(exc), traceback=traceback.format_exc())
+                                             error=str(exc), samples=sampler.samples, traceback=traceback.format_exc())
+                        return False
 
                 old_frame = getattr(timer, "_smbs_frame", None)
                 if old_frame is not None:
                     timer.timeout.disconnect(old_frame)
                 timer._smbs_frame = frame
                 timer.timeout.connect(frame)
-                timer.start(33)
+                if frame(advance=False):
+                    timer.start(33)
 
             def _show_station_editor(self):
                 from freecad.bendseq.ui.station_editor import show_station_editor
