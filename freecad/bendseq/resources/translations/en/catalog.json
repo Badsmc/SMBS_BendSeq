@@ -1125,5 +1125,7 @@
   "stations_gauge_outside_layout": "Backgauge fingers extend outside the configured machine X bounds.",
   "stations_gauge_fingers_overlap": "The backgauge fingers overlap along X.",
   "stations_gauge_different_depths": "Rear edges need different depths. The fingers share one depth axis.",
-  "stations_gauge_manual_no_contact": "The configured manual backgauge target does not match this part pose."
+  "stations_gauge_manual_no_contact": "The configured manual backgauge target does not match this part pose.",
+  "stations_cycle_preview": "Play / stop station cycle",
+  "stations_cycle_unverified": "Station cycle preview. Collisions and motion clearance are unchecked."
 }

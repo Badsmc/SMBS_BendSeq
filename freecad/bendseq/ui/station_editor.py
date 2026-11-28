@@ -296,13 +296,14 @@ def show_station_editor(workspace, embed):
 
     dialog.finished.connect(stop_transfer)
 
-    def preview(animate=False):
+    def preview(animate=False, whole_cycle=False):
         if workspace.session is not session:
             dialog.reject()
             return
         try:
             feedback.setText(workspace._show_installed_station_preview(
                 operation.currentData(), transfer_timer=transfer_timer if animate else None,
+                cycle_timer=transfer_timer if whole_cycle else None,
             ))
         except Exception as exc:
             feedback.setText(str(exc))
@@ -313,6 +314,16 @@ def show_station_editor(workspace, embed):
     transfer_button = qt.QPushButton(tr("stations_transfer_preview"))
     transfer_button.clicked.connect(lambda: preview(True))
     layout.addWidget(transfer_button)
+
+    def toggle_cycle():
+        if transfer_timer.isActive():
+            stop_transfer()
+        else:
+            preview(whole_cycle=True)
+
+    cycle_button = qt.QPushButton(tr("stations_cycle_preview"))
+    cycle_button.clicked.connect(toggle_cycle)
+    layout.addWidget(cycle_button)
     selected.currentIndexChanged.connect(load_fields)
     operation.currentIndexChanged.connect(refresh_assignment)
     if saved is not None:

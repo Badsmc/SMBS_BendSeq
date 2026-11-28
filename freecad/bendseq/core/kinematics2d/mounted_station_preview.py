@@ -7,6 +7,20 @@ from .tooling_25d import ToolingSetup2D
 from .tooling_assembly import ToolAssembly
 
 
+def tooling_for_station(station, profiles):
+    punch = profiles["punch", station.punch_id]
+    die = profiles["die", station.die_id]
+    lo, hi = station.occupied_interval()
+    return ToolingSetup2D(
+        punch=replace(punch, punch_reversed=station.punch_reversed), die=die,
+        tool_assembly=ToolAssembly(
+            hi - lo, station.spans_xm("punch"), station.spans_xm("die"), (),
+        ),
+        # The native loader places die shoulders at machine Z=0.
+        sheet_bottom_z_mm=0.0,
+    )
+
+
 def mounted_station_meshes(stations, profiles, *, mesh_loader=native_tool_meshes):
     """Keep all mounted tools, including those inactive for assignments.
 
@@ -18,15 +32,7 @@ def mounted_station_meshes(stations, profiles, *, mesh_loader=native_tool_meshes
     mount_z = {}
     for station in stations:
         try:
-            punch = profiles["punch", station.punch_id]
-            die = profiles["die", station.die_id]
-            tools = ToolingSetup2D(
-                punch=replace(punch, punch_reversed=station.punch_reversed), die=die,
-                tool_assembly=ToolAssembly(
-                    station.occupied_interval()[1] - station.occupied_interval()[0],
-                    station.spans_xm("punch"), station.spans_xm("die"), (),
-                ),
-            )
+            tools = tooling_for_station(station, profiles)
             for kind, tool, facets in mesh_loader(tools, None):
                 # Native machine geometry supplies the candidate mount plane
                 # used for a visual fit. This does not validate mount datums.

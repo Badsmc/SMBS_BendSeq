@@ -31,7 +31,7 @@ The project version stays 0.2.0.
 | --- | --- | --- |
 | A | Architecture, station and operation-assignment contracts | Implemented and covered by headless regression tests |
 | B | Manual tooling, inventory, layout, assignment UI | Layout, stock and session draft editor implemented; native FreeCAD acceptance pending |
-| C | Coin3D, station-specific machine pose, transfers and gauge | Machine Pose, native station preview and explicit transfer preview implemented; static backgauge implemented; automatic forming cycle pending |
+| C | Coin3D, station-specific machine pose, transfers and gauge | Machine Pose, native station preview and explicit transfer preview implemented; static backgauge and assigned-station forming preview implemented |
 | D | Shared-ram motion and all installed component checks | Pending |
 | E | Bounded FAST search with station transitions and cached feasibility | Pending |
 | F | FCStd snapshots, templates and PDF | Pending |
@@ -145,3 +145,24 @@ including disabled stations. Results and rejections go into the debug log.
 During transfer the fingers remain hidden and appear at the destination only
 if the static calculation succeeds. This does not check swept motion, actual
 finger travel in X/S, punch, beam, or collisions with all other components.
+
+### Previewing the assigned forming sequence
+
+After assigning every operation, select **Tooling → Stations → Play / stop
+station cycle**. The preview uses a private copy of the fold state and the
+existing PressCycleController. Each operation uses the selected native
+station's tool datums and a Machine Pose midpoint that fits its span. The
+existing transfer interpolation takes the formed sheet to the next operation.
+The Coin3D punch group moves with the ram and the dies remain fixed. The
+backgauge is drawn only in the approach and contact phases if the existing
+static check succeeds. Click the button again to stop, or close the editor.
+The standard simulation still uses the single-pair workspace controls.
+
+Missing assignments, insufficient coverage and incomplete tool datums prevent
+starting. STATION_CYCLE debug events include the operation, station and phase.
+The preview currently plays operations individually. Grouped strokes and
+collision checks, including lateral transfer clearance, remain pending.
+
+132 headless tests cover the current branch, including a 30-degree pre-bend
+on S1, transfer, and 90-degree finish using a different die on S2. GUI playback
+and real CAD assembly have not been exercised on FreeCAD 1.1.3.

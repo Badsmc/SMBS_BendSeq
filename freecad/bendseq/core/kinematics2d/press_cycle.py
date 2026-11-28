@@ -173,12 +173,14 @@ class PressCycleController:
         cross_section_provider: Optional[Callable[[], Optional[Dict[str, Any]]]] = None,
         follow_sheet_contact_preview: bool = False,
         animate_workpiece_transfer: bool = False,
+        operation_setup=None,
     ) -> None:
         if not isinstance(sequence_controller, BendSequenceController):
             raise PressCycleError("sequence_controller must be a BendSequenceController instance")
         if not isinstance(tooling_setup, ToolingSetup2D):
             raise PressCycleError("tooling_setup must be a ToolingSetup2D instance")
 
+        self.operation_setup = operation_setup
         self.sequence: BendSequenceController = sequence_controller
         self.tooling: ToolingSetup2D = tooling_setup
         self.config: CycleConfig = config or CycleConfig()
@@ -356,6 +358,8 @@ class PressCycleController:
         """Compute `upper_z_mm`, `contact_z_mm`, `bottom_z_mm` for the active bend
         and optionally align the static die + retracted punch to the active bend line.
         """
+        if self.operation_setup is not None:
+            self.tooling, _ = self.operation_setup[self.active_index]
         sec = self._current_cross_section()
         self.contact_kind = self._evaluate_contact_kind(sec)
         self.orientation_status = self._evaluate_orientation_status()
@@ -378,7 +382,9 @@ class PressCycleController:
         self.bottom_z_mm = ram_positions["bottom_z_mm"]
         self.contact_tracking_status = f"COUPLED_AIR_BENDING ({self.coupled_kinematics.tooling_status})"
 
-        if reposition_tools:
+        if reposition_tools and self.operation_setup is not None:
+            self._park_punch_at_upper_position()
+        elif reposition_tools:
             self.ram_z_mm = self.upper_z_mm
             self.ram_stroke_mm = 0.0
             active_bz = None
@@ -835,7 +841,8 @@ class PressCycleController:
             end_pose = compute_machine_pose(
                 self.sequence.fold_state,
                 nxt.bend_id,
-                phase="TRANSFER_TARGET",
+                phase="APPROACH" if self.operation_setup is not None else "TRANSFER_TARGET",
+                desired_midpoint_xm=self.operation_setup[next_index][1] if self.operation_setup else 0.0,
                 support_plane_zm=next_outer_r,
                 reverse_axis=self._loading_reverse_axis_for_step(
                     next_index
@@ -1063,6 +1070,8 @@ class PressCycleController:
         """
         if self.transfer_fault is not None:
             raise PressCycleError(self.transfer_fault)
+        if self.operation_setup is not None:
+            desired_midpoint_xm = self.operation_setup[self.active_index][1]
         fold_state = self.sequence.fold_state
         if self.phase == CyclePhase.TRANSFER:
             elapsed_s = self.transfer_progress * self.transfer_duration_s
