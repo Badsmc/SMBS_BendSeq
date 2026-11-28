@@ -31,7 +31,7 @@ The project version stays 0.2.0.
 | --- | --- | --- |
 | A | Architecture, station and operation-assignment contracts | Implemented and covered by headless regression tests |
 | B | Manual tooling, inventory, layout, assignment UI | Layout, stock and session draft editor implemented; native FreeCAD acceptance pending |
-| C | Coin3D, station-specific machine pose, transfers and gauge | Machine Pose adapter tested; viewer, transfers and gauge integration pending |
+| C | Coin3D, station-specific machine pose, transfers and gauge | Machine Pose and static native station preview tested; cycle, transfers and gauge pending |
 | D | Shared-ram motion and all installed component checks | Pending |
 | E | Bounded FAST search with station transitions and cached feasibility | Pending |
 | F | FCStd snapshots, templates and PDF | Pending |
@@ -90,3 +90,29 @@ contact, gauge or collision verdict.
 Three new headless tests cover fixed station coordinates, grouped alignment in
 both loading orientations, insufficient coverage across a gap and independent
 stage positions. The full suite passed with 122 tests.
+
+### Installed Coin3D preview
+
+**Tooling → Stations → Preview stations in 3D** draws the current station
+layout in the existing Coin3D viewer. The installed CAD meshes reuse the
+mesh screening loader and fixed machine-X segment spans. Punches share the
+existing punch motion node. Dies remain fixed. Disabled stations are still
+visible as installed tooling. The selected operation's assigned station is
+highlighted, and Machine Pose places the sheet in the state before that
+operation. The original session angles are preserved. An unassigned selection
+shows the tooling alone. Standard playback uses the existing single-pair
+controller. The station preview is a separate static view.
+
+The preview rechecks stock and clamp positions and requires verified native
+FCStd geometry. For now, it rejects different punch top or die base heights
+measured from the native meshes. This restriction supports a common visual
+mount plane. It does not validate mounting datums, force or ram travel.
+Station-specific gauge and collision overlays are omitted. Failures and
+preview results are logged as `STATION_LAYOUT_REJECTED` and
+`STATION_PREVIEW_*` in the existing debug journal when enabled.
+
+Validation: 124 headless tests and an offscreen Coin3D smoke test using the
+available FreeCAD 1.0 runtime. The smoke test changed ram Z without rebuilding
+the tool nodes and switched back to the single-pair viewer path. Native CAD
+loading for an actual multi-station job and full FreeCAD 1.1 GUI acceptance
+remain pending.

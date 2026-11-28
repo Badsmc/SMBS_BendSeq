@@ -1111,5 +1111,11 @@
   "stations_stale_operation": "Список операций изменился. Откройте раздел «Станции» заново.",
   "stations_station": "Станция",
   "stations_title": "Станции",
-  "stations_x": "Координата станции X (мм)"
+  "stations_x": "Координата станции X (мм)",
+  "stations_preview": "Показать станции в 3D",
+  "stations_preview_requires_layout": "Сначала подготовьте раскладку станций.",
+  "stations_preview_requires_cad": "Для {tool} нужна проверенная геометрия FCStd.",
+  "stations_preview_missing_geometry": "У операции нет геометрии зоны гиба.",
+  "stations_preview_insufficient_span": "Назначенная станция не покрывает пролёт гиба.",
+  "stations_preview_unverified": "Предпросмотр станций. Движение, упор и коллизии не проверены."
 }

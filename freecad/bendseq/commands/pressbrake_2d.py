@@ -6138,6 +6138,114 @@ class _PreviewPanel:
                     _warn(msg)
                     self.status.setText(msg)
 
+            def _show_installed_station_preview(self, operation_id):
+                from freecad.bendseq.core.kinematics2d.machine_pose_solver import loading_fold_state
+                from freecad.bendseq.core.kinematics2d.mounted_station_preview import mounted_station_meshes
+                from freecad.bendseq.core.kinematics2d.physical_validation_25d import _source_path
+                from freecad.bendseq.core.kinematics2d.station_pose import resolve_station_poses
+                from freecad.bendseq.core.kinematics2d.station_layout import validate_station_layout
+                from freecad.bendseq.core.kinematics2d.segment_assembly_planner import read_inventory
+
+                session = self.session
+                if session is None or self.playing or self._task_progress_busy:
+                    raise ValueError(tr("stop_the_simulation_or_wait_for_the_check_to"))
+                setup = session.station_draft
+                if setup is None or not setup.stations:
+                    raise ValueError(tr("stations_preview_requires_layout"))
+                viewer = self._preview_3d
+                if not viewer._available:
+                    raise ValueError(tr("coin3d_unavailable_check_pivy_coin_in_freecad_python"))
+                station = setup.assigned_station(operation_id)
+                _desktop_debug_event("STATION_PREVIEW_START", operation_id=operation_id,
+                                     station_id=station.station_id if station else None,
+                                     stations=[s.station_id for s in setup.stations])
+                try:
+                    profiles = {}
+                    stamps = {}
+                    stock = {}
+                    for item in setup.stations:
+                        for kind, tool_id in (("punch", item.punch_id), ("die", item.die_id)):
+                            key = kind, tool_id
+                            if key in profiles:
+                                continue
+                            profile = self.tool_library.load_tool(tool_id, kind.upper())
+                            path = _source_path(profile)
+                            if path is None:
+                                raise ValueError(tr("stations_preview_requires_cad", tool=tool_id))
+                            sidecar = path.with_suffix(".tooling.json")
+                            stamps[key] = (str(path), path.stat().st_mtime_ns,
+                                           sidecar.stat().st_mtime_ns if sidecar.exists() else None)
+                            profiles[key] = profile
+                            stock[key] = read_inventory(path)
+                    validate_station_layout(setup, stock, self._current_clamp_config())
+                    cache_key = setup.stations, tuple(sorted(stamps.items()))
+                    cached = getattr(self, "_installed_station_mesh_cache", None)
+                    if cached is None or cached[0] != cache_key:
+                        cached = cache_key, mounted_station_meshes(setup.stations, profiles)
+                        self._installed_station_mesh_cache = cached
+                    meshes = cached[1]
+                    planes = {kind: (tool.machine_shape.BoundBox.ZMax if kind == "punch"
+                                     else tool.machine_shape.BoundBox.ZMin)
+                              for _, kind, tool, _ in meshes}
+                    faces = ()
+                    ram_z = self.cycle_config.initial_clearance_mm
+                    steps = tuple(session.controller.operation_steps)
+                    if station is not None:
+                        index = next(i for i, step in enumerate(steps) if step.operation_id == operation_id)
+                        step = steps[index]
+                        state = loading_fold_state(session.fold_state, steps, (1 << index) - 1)
+                        bend = state.bends[step.bend_id]
+                        if bend.bend_zone is None:
+                            raise ValueError(tr("stations_preview_missing_geometry"))
+                        orientations = self._effective_operation_orientation_map()
+                        if operation_id not in orientations and step.bend_id in orientations:
+                            orientations = {operation_id: orientations[step.bend_id]}
+                        poses = resolve_station_poses(
+                            setup, (step,), orientations, state,
+                            phase="APPROACH", support_plane_zm=bend.bend_zone.outer_radius_mm,
+                            rear_panel_vertices_xy=session.panel_vertices_xy,
+                        )
+                        if not poses:
+                            raise ValueError(tr("stations_preview_insufficient_span"))
+                        pose = poses[0]
+                        faces = build_sheet_preview_faces(
+                            state, session.panel_vertices_xy, step.bend_id,
+                            WorkpiecePose2D(), machine_placement=pose.frame.placement,
+                            panel_meshes=getattr(session.unfold_data, "panel_meshes", None),
+                        )
+                        ram_z += bend.bend_zone.thickness_mm
+                    if not viewer._native:
+                        self._viewer_tabs.setCurrentWidget(viewer)
+                    viewer.attach_document(self._smbs_document_name)
+                    # Do not reuse the legacy backgauge or collision overlays
+                    # under a different tooling/placement contract.
+                    viewer.set_collision_boxes(())
+                    messages = viewer.update_machine(
+                        self.tool_library.library_root, self.tooling_setup, ram_z,
+                        frame_visible=self.machine_preview_checkbox.isChecked(),
+                        gauge_stations=(), gauge_contact=None,
+                        project_clamp_config=self._project_clamp_config,
+                        mount_planes=(planes["punch"], planes["die"]),
+                    )
+                    viewer.update_tools(
+                        self.tooling_setup, ram_z, installed_meshes=meshes,
+                        installed_key=cache_key,
+                        active_station=station.station_id if station else None,
+                    )
+                    viewer.set_sheet_faces(faces)
+                    viewer.show_view()
+                    note = tr("stations_preview_unverified")
+                    self._coin_frame_status.setText(" · ".join((note, *messages)))
+                    _desktop_debug_event("STATION_PREVIEW_READY", operation_id=operation_id,
+                                         station_id=station.station_id if station else None,
+                                         tool_count=len(meshes), machine_messages=messages)
+                except Exception as exc:
+                    _desktop_debug_event("STATION_PREVIEW_FAILED", operation_id=operation_id,
+                                         station_id=station.station_id if station else None,
+                                         error=str(exc), traceback=traceback.format_exc())
+                    raise
+                return note
+
             def _show_station_editor(self):
                 from freecad.bendseq.ui.station_editor import show_station_editor
 

@@ -8,6 +8,7 @@ from freecad.bendseq.core.kinematics2d.station_layout import (
     auto_layout_stations, calculate_station_segments, validate_station_layout,
 )
 from freecad.bendseq.ui.localization import tr
+from freecad.bendseq.core.kinematics2d.developer_debug_log import debug_event
 
 
 def show_station_editor(workspace, embed):
@@ -270,6 +271,7 @@ def show_station_editor(workspace, embed):
                 setup = replace(setup, stations=stations)
             validate_station_layout(setup, inventory, clamps)
         except (ValueError, TypeError, OSError) as exc:
+            debug_event("STATION_LAYOUT_REJECTED", action=action, error=str(exc))
             feedback.setText(str(exc))
             return
         session.station_draft = setup
@@ -285,6 +287,18 @@ def show_station_editor(workspace, embed):
         button = qt.QPushButton(tr(key))
         button.clicked.connect(lambda _checked=False, action=action: save(action))
         layout.addWidget(button)
+    def preview():
+        if workspace.session is not session:
+            dialog.reject()
+            return
+        try:
+            feedback.setText(workspace._show_installed_station_preview(operation.currentData()))
+        except Exception as exc:
+            feedback.setText(str(exc))
+
+    preview_button = qt.QPushButton(tr("stations_preview"))
+    preview_button.clicked.connect(preview)
+    layout.addWidget(preview_button)
     selected.currentIndexChanged.connect(load_fields)
     operation.currentIndexChanged.connect(refresh_assignment)
     if saved is not None:

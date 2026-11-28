@@ -4833,6 +4833,36 @@ Solids: {solids} | Faces: {faces}
       <translation>Переместить станцию в позицию X</translation>
     </message>
     <message>
+      <source>Preview stations in 3D</source>
+      <comment>stations_preview</comment>
+      <translation>Показать станции в 3D</translation>
+    </message>
+    <message>
+      <source>The assigned station does not cover the bend span.</source>
+      <comment>stations_preview_insufficient_span</comment>
+      <translation>Назначенная станция не покрывает пролёт гиба.</translation>
+    </message>
+    <message>
+      <source>The operation has no bend-zone geometry.</source>
+      <comment>stations_preview_missing_geometry</comment>
+      <translation>У операции нет геометрии зоны гиба.</translation>
+    </message>
+    <message>
+      <source>Verified FCStd geometry is required for {tool}.</source>
+      <comment>stations_preview_requires_cad</comment>
+      <translation>Для {tool} нужна проверенная геометрия FCStd.</translation>
+    </message>
+    <message>
+      <source>Prepare a station layout first.</source>
+      <comment>stations_preview_requires_layout</comment>
+      <translation>Сначала подготовьте раскладку станций.</translation>
+    </message>
+    <message>
+      <source>Station layout preview. No motion, gauge or collision check.</source>
+      <comment>stations_preview_unverified</comment>
+      <translation>Предпросмотр станций. Движение, упор и коллизии не проверены.</translation>
+    </message>
+    <message>
       <source>Reverse punch</source>
       <comment>stations_reverse_punch</comment>
       <translation>Развернуть пуансон</translation>

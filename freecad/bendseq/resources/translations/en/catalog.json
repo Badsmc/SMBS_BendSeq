@@ -1111,5 +1111,11 @@
   "stations_stale_operation": "The operation list changed. Reopen Stations.",
   "stations_station": "Station",
   "stations_title": "Stations",
-  "stations_x": "Station X (mm)"
+  "stations_x": "Station X (mm)",
+  "stations_preview": "Preview stations in 3D",
+  "stations_preview_requires_layout": "Prepare a station layout first.",
+  "stations_preview_requires_cad": "Verified FCStd geometry is required for {tool}.",
+  "stations_preview_missing_geometry": "The operation has no bend-zone geometry.",
+  "stations_preview_insufficient_span": "The assigned station does not cover the bend span.",
+  "stations_preview_unverified": "Station layout preview. No motion, gauge or collision check."
 }

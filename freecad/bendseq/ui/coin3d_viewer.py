@@ -409,7 +409,9 @@ def create_coin_viewer(parent=None):
                 self.reset_camera()
                 self._initial_fit_done = True
 
-        def update_tools(self, tooling, ram_z, *, active_bend_length_mm=None, section_preview=None, transparency=0.0):
+        def update_tools(self, tooling, ram_z, *, active_bend_length_mm=None,
+                         section_preview=None, transparency=0.0, installed_meshes=None,
+                         installed_key=None, active_station=None):
             from freecad.bendseq.core.kinematics2d.preview_mesh_3d import (
                 build_tool_preview_faces,
             )
@@ -433,19 +435,24 @@ def create_coin_viewer(parent=None):
                 round(float(punch_transform.tx), 5),
                 tuple(die_transform.to_matrix_tuple()),
             )
+            if installed_meshes is not None:
+                key = ("installed_stations", installed_key, active_station)
             if key != self._tool_key:
                 from freecad.bendseq.core.kinematics2d.physical_validation_25d import _source_path
 
                 base_ram_z = float(tooling.ram_z_mm)
                 tool_faces = ()
                 native_meshes = ()
-                if (tooling.visible and section_preview is None
+                if installed_meshes is not None:
+                    native_meshes = installed_meshes
+                    base_ram_z = 0.0
+                elif (tooling.visible and section_preview is None
                         and _source_path(punch) is not None and _source_path(die) is not None):
                     from freecad.bendseq.core.kinematics2d.mesh_sequence_screen import native_tool_meshes
                     length = (tooling.active_bend_length_mm if active_bend_length_mm is None
                               else active_bend_length_mm)
                     virtual_length = float(length) if tooling.match_active_bend_length else None
-                    native_meshes = tuple(native_tool_meshes(tooling, virtual_length))
+                    native_meshes = tuple((None, *mesh) for mesh in native_tool_meshes(tooling, virtual_length))
                     base_ram_z = 0.0
                 elif tooling.visible:
                     tool_faces = build_tool_preview_faces(
@@ -462,12 +469,15 @@ def create_coin_viewer(parent=None):
                 punch_root = coin.SoSeparator()
                 punch_root.addChild(self._punch_motion)
                 die_root = coin.SoSeparator()
-                for kind, tool, triangles in native_meshes:
+                for station_id, kind, tool, triangles in native_meshes:
                     root = punch_root if kind == "punch" else die_root
                     for section_index, span, facets in native_display_sections(tool, triangles):
                         group = coin.SoSeparator()
                         material = coin.SoMaterial()
-                        material.diffuseColor.setValue(*segment_color(kind, section_index))
+                        color = segment_color(kind, section_index)
+                        if station_id is not None and station_id != active_station:
+                            color = tuple(0.4 * channel + 0.36 for channel in color)
+                        material.diffuseColor.setValue(*color)
                         material.transparency.setValue(float(transparency))
                         coordinates = coin.SoCoordinate3()
                         points = [(-y, x, z) for triangle in facets for x, y, z in triangle]
@@ -519,8 +529,10 @@ def create_coin_viewer(parent=None):
             )
 
         def update_machine(self, library_root, tooling, ram_z, *, frame_visible,
-                           gauge_stations, gauge_contact, project_clamp_config=None):
-            frame_error = self._machine.update_frame(library_root, tooling, ram_z, frame_visible)
+                           gauge_stations, gauge_contact, project_clamp_config=None, mount_planes=None):
+            frame_error = self._machine.update_frame(
+                library_root, tooling, ram_z, frame_visible, mount_planes=mount_planes,
+            )
             clamp_error = self._machine.update_clamps(library_root, project_config=project_clamp_config)
             gauge_error = self._machine.update_gauges(library_root, gauge_stations, gauge_contact)
             return tuple(error for error in (frame_error, clamp_error, gauge_error) if error)
