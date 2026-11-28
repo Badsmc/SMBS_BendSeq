@@ -23,6 +23,10 @@ from freecad.bendseq.ui.localization import tr
 
 def _snapshot(workspace):
     session = workspace.session
+    if session is None:
+        raise ValueError(tr("auto_tool_stale"))
+    if session.station_draft is not None and session.station_draft.stations:
+        raise ValueError(tr("auto_station_single_blocked"))
     bends = session.fold_state.bends
     requirements = tuple(BendRequirement(bid, dist(*bends[bid].axis_xyz),
                          session.local_bend_dimensions_mm.get(bid),

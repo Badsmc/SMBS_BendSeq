@@ -105,3 +105,23 @@ AUTO_TOOL_TECHNOLOGY_PAIR and AUTO_TOOL_TECHNOLOGY_FAST_STROKES record full
 inputs, formula, ratings, warnings, estimates and reasons. Material save
 and validation errors are recorded too. Per-project technology persistence,
 tool rating editor and PDF integration are pending.
+
+## Automatic multi-station draft
+
+Merged the current multi-station feature into the auto-tool branch. Use
+Tooling → Stations, enter the machine X bounds and minimum gap, choose a
+maximum station count and optionally a saved material and machine force.
+Automatic station selection searches a bounded beam of layouts and assigns
+all existing operations (including separate stages) without changing order.
+The existing station segment planner reserves stock globally, validates
+clamp support, machine limits and gaps. Per-operation technology estimates
+reuse the single-pair engine. Search prefers fewer stations, then fewer
+warnings and transitions; no exhaustive solution guarantee. Existing draft
+is replaced only after confirmation and a complete revalidated result.
+The station editor can preview the draft with its existing station preview.
+Station force for staged operations is reference only. No simultaneous group
+forming, adjacent-tool collision verification, mounting height certification,
+station-aware FAST, persistence or PDF are claimed. Single-pair Auto Tool
+Selection is blocked while a station draft is installed.
+AUTO_TOOL_STATION_* events record inputs, per-operation compatibility,
+stock rejection, X trials, beam depth, limits, cancellation and application.

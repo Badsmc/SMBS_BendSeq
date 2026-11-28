@@ -1,5 +1,9 @@
 """Native Tasks editor for preparing station layouts for the current part."""
-from dataclasses import replace
+from dataclasses import replace, asdict
+from math import dist
+from queue import Queue, Empty
+from threading import Event, Thread
+import traceback
 from uuid import uuid4
 
 from freecad.bendseq.core.kinematics2d.bending_stations import BendingStation, StationSetup
@@ -112,6 +116,37 @@ def show_station_editor(workspace, embed):
     feedback = qt.QLabel()
     feedback.setWordWrap(True)
     layout.addWidget(feedback)
+    from freecad.bendseq.core.kinematics2d.auto_station_selection import plan_stations
+    from freecad.bendseq.core.kinematics2d.auto_tool_selection import BendRequirement
+    from freecad.bendseq.core.kinematics2d.bending_technology import Material, TechnologyInputs
+    from freecad.bendseq.core.geometry_backend.io.tooling_library import ToolingLibrary
+    from freecad.bendseq.ui.native_preferences import NativePreferences
+    auto_form = qt.QFormLayout()
+    max_stations = qt.QSpinBox()
+    max_stations.setRange(1, 10)
+    max_stations.setValue(3)
+    material = qt.QComboBox()
+    material.addItem(tr("auto_tool_material_unknown"), None)
+    for row in NativePreferences(core).value("materials/Profiles", [], type=list):
+        try:
+            item = Material(**row)
+            material.addItem(item.name, item)
+        except (TypeError, ValueError) as exc:
+            debug_event("AUTO_TOOL_MATERIAL_INVALID", error=str(exc), record=row)
+    machine_limit = number()
+    machine_limit.setSuffix(" kN")
+    auto_form.addRow(tr("auto_station_max"), max_stations)
+    auto_form.addRow(tr("auto_tool_materials"), material)
+    auto_form.addRow(tr("auto_tool_machine_limit"), machine_limit)
+    layout.addLayout(auto_form)
+    auto_button = qt.QPushButton(tr("auto_station_search"))
+    auto_stop = qt.QPushButton(tr("auto_tool_stop"))
+    auto_stop.setEnabled(False)
+    layout.addWidget(auto_button)
+    layout.addWidget(auto_stop)
+    auto_timer = core.QTimer(dialog)
+    auto_timer.setInterval(100)
+    auto_state = {"cancel": None, "queue": None, "snapshot": None, "run": None}
 
     def current_station():
         setup = session.station_draft
@@ -211,6 +246,8 @@ def show_station_editor(workspace, embed):
         }
 
     def save(action):
+        if auto_timer.isActive():
+            return
         if workspace.session is not session:
             dialog.reject()
             return
@@ -287,6 +324,99 @@ def show_station_editor(workspace, embed):
         button = qt.QPushButton(tr(key))
         button.clicked.connect(lambda _checked=False, action=action: save(action))
         layout.addWidget(button)
+    def auto_snapshot():
+        if workspace.session is not session or not session.can_reorder() or workspace._task_progress_busy or workspace.playing or workspace.timer.isActive():
+            raise ValueError(tr("auto_tool_stale"))
+        operations = tuple(session.controller.operation_steps)
+        catalog = ToolingLibrary(workspace.tool_library.library_root).list_tools()
+        requirements = tuple(BendRequirement(step.operation_id,
+            dist(*session.fold_state.bends[step.bend_id].axis_xyz),
+            session.local_bend_dimensions_mm.get(step.bend_id),
+            getattr(session.fold_state.bends[step.bend_id].bend_zone,"thickness_mm",None),
+            step.target_angle_deg if step.kind == "SINGLE" else None) for step in operations)
+        # Include source and sidecar changes, in addition to the parsed stock.
+        def stamp(path):
+            if path is None:
+                return None
+            info = path.stat()
+            return (str(path),info.st_size,info.st_mtime_ns)
+        files = tuple((stamp(t.fcstd_path),stamp(t.sidecar_path)) for t in catalog.all_tools())
+        return (session.station_draft, operations, requirements, catalog,
+                workspace._current_clamp_config(), (x_min.value(),x_max.value()),
+                gap.value(), TechnologyInputs(material.currentData(),machine_limit.value() or None),
+                max_stations.value(),files)
+
+    def auto_start(*_):
+        if auto_timer.isActive():
+            return
+        if session.station_draft is not None and session.station_draft.stations:
+            if qt.QMessageBox.question(dialog,tr("auto_station_search"),
+                    tr("auto_station_replace"),qt.QMessageBox.Yes|qt.QMessageBox.No,
+                    qt.QMessageBox.No) != qt.QMessageBox.Yes:
+                return
+        run = uuid4().hex
+        try:
+            snap = auto_snapshot()
+            StationSetup(snap[5],minimum_gap_mm=snap[6])
+        except Exception as exc:
+            debug_event("AUTO_TOOL_STATION_START_ERROR",run_id=run,error=str(exc),traceback=traceback.format_exc())
+            feedback.setText(str(exc))
+            return
+        cancel,queue = Event(),Queue()
+        auto_state.update(cancel=cancel,queue=queue,snapshot=snap,run=run)
+        def worker():
+            def trace(event,**data):
+                debug_event("AUTO_TOOL_"+event,run_id=run,**data)
+            try:
+                result = plan_stations(snap[2],snap[3],snap[4],snap[5],snap[6],
+                    technology=snap[7],max_stations=snap[8],cancelled=cancel.is_set,trace=trace)
+                queue.put((result,None))
+            except Exception as exc:
+                trace("STATION_SEARCH_ERROR",error=str(exc),traceback=traceback.format_exc())
+                queue.put((None,str(exc)))
+        auto_button.setEnabled(False)
+        auto_stop.setEnabled(True)
+        feedback.setText(tr("auto_tool_searching"))
+        auto_timer.start()
+        Thread(target=worker,daemon=True,name="BendSeqStationSelection").start()
+
+    def auto_poll():
+        try:
+            result,error = auto_state["queue"].get_nowait()
+        except Empty:
+            return
+        auto_timer.stop()
+        auto_button.setEnabled(True)
+        auto_stop.setEnabled(False)
+        run = auto_state["run"]
+        if error or auto_state["cancel"].is_set() or result.setup is None:
+            feedback.setText(error or ("CANCELLED" if auto_state["cancel"].is_set() else result.status))
+            return
+        try:
+            if auto_snapshot() != auto_state["snapshot"]:
+                raise ValueError(tr("auto_tool_stale"))
+            # Revalidate against the editor's actual inventory before replacing the draft.
+            validate_station_layout(result.setup,stock(),workspace._current_clamp_config())
+            session.station_draft = result.setup
+            workspace._update_station_assignment_column()
+            refresh()
+            feedback.setText(tr("auto_station_draft_result",count=len(result.setup.stations))
+                             +"\n"+"; ".join(result.warnings))
+            debug_event("AUTO_TOOL_STATION_DRAFT_APPLIED",run_id=run,setup=asdict(result.setup),
+                        evidence=result.status,elapsed_s=result.elapsed_s)
+        except Exception as exc:
+            debug_event("AUTO_TOOL_STATION_APPLY_ERROR",run_id=run,error=str(exc),traceback=traceback.format_exc())
+            feedback.setText(str(exc))
+
+    def auto_cancel(*_):
+        if auto_state["cancel"] is not None and auto_timer.isActive():
+            auto_state["cancel"].set()
+            debug_event("AUTO_TOOL_STATION_CANCEL_REQUESTED",run_id=auto_state["run"])
+
+    auto_button.clicked.connect(auto_start)
+    auto_stop.clicked.connect(auto_cancel)
+    auto_timer.timeout.connect(auto_poll)
+    dialog.finished.connect(auto_cancel)
     transfer_timer = core.QTimer(dialog)
 
     def stop_transfer(*_args):
@@ -297,6 +427,8 @@ def show_station_editor(workspace, embed):
     dialog.finished.connect(stop_transfer)
 
     def preview(animate=False, whole_cycle=False):
+        if auto_timer.isActive():
+            return
         if workspace.session is not session:
             dialog.reject()
             return
