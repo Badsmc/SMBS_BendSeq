@@ -4913,6 +4913,176 @@ Solids: {solids} | Faces: {faces}
       <translation> | Состояние зафиксировано; Reset или смена режима для повторного запуска.</translation>
     </message>
     <message>
+      <source>Add station</source>
+      <comment>stations_add</comment>
+      <translation>Добавить станцию</translation>
+    </message>
+    <message>
+      <source>Assign operation</source>
+      <comment>stations_assign</comment>
+      <translation>Назначить операцию</translation>
+    </message>
+    <message>
+      <source>Auto layout</source>
+      <comment>stations_auto_layout</comment>
+      <translation>Автоматическая раскладка</translation>
+    </message>
+    <message>
+      <source>Calculate segments and apply settings</source>
+      <comment>stations_calculate</comment>
+      <translation>Рассчитать сегменты и применить настройки</translation>
+    </message>
+    <message>
+      <source>Select a punch and a die from the tool library.</source>
+      <comment>stations_choose_tools</comment>
+      <translation>Выберите пуансон и матрицу из библиотеки оснастки.</translation>
+    </message>
+    <message>
+      <source>Play / stop station cycle</source>
+      <comment>stations_cycle_preview</comment>
+      <translation>Пуск / стоп цикла по станциям</translation>
+    </message>
+    <message>
+      <source>Station cycle preview. Collisions and motion clearance are unchecked.</source>
+      <comment>stations_cycle_unverified</comment>
+      <translation>Предпросмотр цикла по станциям. Коллизии и зазоры на траектории не проверены.</translation>
+    </message>
+    <message>
+      <source>Layout draft for this session. Assignments here serve preparation only. Simulation, FAST, collision checks and export still use the single tool pair.</source>
+      <comment>stations_draft_notice</comment>
+      <translation>Черновик раскладки для текущей сессии. Назначения в этом разделе служат для подготовки. Симуляция, FAST, проверка коллизий и экспорт пока используют одну пару инструментов.</translation>
+    </message>
+    <message>
+      <source>Duplicate station at X</source>
+      <comment>stations_duplicate</comment>
+      <translation>Дублировать станцию в позиции X</translation>
+    </message>
+    <message>
+      <source>Rear edges need different depths. The fingers share one depth axis.</source>
+      <comment>stations_gauge_different_depths</comment>
+      <translation>Задние кромки требуют разной глубины. Пальцы используют общую ось глубины.</translation>
+    </message>
+    <message>
+      <source>The backgauge fingers overlap along X.</source>
+      <comment>stations_gauge_fingers_overlap</comment>
+      <translation>Пальцы заднего упора пересекаются по X.</translation>
+    </message>
+    <message>
+      <source>The configured manual backgauge target does not match this part pose.</source>
+      <comment>stations_gauge_manual_no_contact</comment>
+      <translation>Ручная настройка заднего упора не соответствует этому положению детали.</translation>
+    </message>
+    <message>
+      <source>A backgauge finger has no rear sheet edge at its X position.</source>
+      <comment>stations_gauge_no_edge</comment>
+      <translation>У одного из пальцев заднего упора нет задней кромки детали в его позиции X.</translation>
+    </message>
+    <message>
+      <source>Backgauge fingers extend outside the configured machine X bounds.</source>
+      <comment>stations_gauge_outside_layout</comment>
+      <translation>Пальцы заднего упора выходят за заданные границы станка по X.</translation>
+    </message>
+    <message>
+      <source>Layout draft updated for the current session.</source>
+      <comment>stations_layout_saved</comment>
+      <translation>Черновик раскладки обновлён для текущей сессии.</translation>
+    </message>
+    <message>
+      <source>Machine left limit X (mm)</source>
+      <comment>stations_machine_left</comment>
+      <translation>Левая граница станка X (мм)</translation>
+    </message>
+    <message>
+      <source>Machine right limit X (mm)</source>
+      <comment>stations_machine_right</comment>
+      <translation>Правая граница станка X (мм)</translation>
+    </message>
+    <message>
+      <source>Minimum station gap (mm)</source>
+      <comment>stations_min_gap</comment>
+      <translation>Минимальный зазор между станциями (мм)</translation>
+    </message>
+    <message>
+      <source>Move station to X</source>
+      <comment>stations_move</comment>
+      <translation>Переместить станцию в позицию X</translation>
+    </message>
+    <message>
+      <source>Preview stations in 3D</source>
+      <comment>stations_preview</comment>
+      <translation>Показать станции в 3D</translation>
+    </message>
+    <message>
+      <source>The assigned station does not cover the bend span.</source>
+      <comment>stations_preview_insufficient_span</comment>
+      <translation>Назначенная станция не покрывает пролёт гиба.</translation>
+    </message>
+    <message>
+      <source>The operation has no bend-zone geometry.</source>
+      <comment>stations_preview_missing_geometry</comment>
+      <translation>У операции нет геометрии зоны гиба.</translation>
+    </message>
+    <message>
+      <source>Verified FCStd geometry is required for {tool}.</source>
+      <comment>stations_preview_requires_cad</comment>
+      <translation>Для {tool} нужна проверенная геометрия FCStd.</translation>
+    </message>
+    <message>
+      <source>Prepare a station layout first.</source>
+      <comment>stations_preview_requires_layout</comment>
+      <translation>Сначала подготовьте раскладку станций.</translation>
+    </message>
+    <message>
+      <source>Station layout preview. The forming cycle and collisions are unchecked.</source>
+      <comment>stations_preview_unverified</comment>
+      <translation>Предпросмотр станций. Цикл гибки и коллизии не проверены.</translation>
+    </message>
+    <message>
+      <source>Reverse punch</source>
+      <comment>stations_reverse_punch</comment>
+      <translation>Развернуть пуансон</translation>
+    </message>
+    <message>
+      <source>Required tool span (mm)</source>
+      <comment>stations_span</comment>
+      <translation>Требуемый пролёт инструмента (мм)</translation>
+    </message>
+    <message>
+      <source>The operation list changed. Reopen Stations.</source>
+      <comment>stations_stale_operation</comment>
+      <translation>Список операций изменился. Откройте раздел «Станции» заново.</translation>
+    </message>
+    <message>
+      <source>Station</source>
+      <comment>stations_station</comment>
+      <translation>Станция</translation>
+    </message>
+    <message>
+      <source>Stations</source>
+      <comment>stations_title</comment>
+      <translation>Станции</translation>
+    </message>
+    <message>
+      <source>Assign a station to this operation and to the next operation.</source>
+      <comment>stations_transfer_assign_both</comment>
+      <translation>Назначьте станцию для текущей и следующей операции.</translation>
+    </message>
+    <message>
+      <source>Preview transfer to next operation</source>
+      <comment>stations_transfer_preview</comment>
+      <translation>Показать переход к следующей операции</translation>
+    </message>
+    <message>
+      <source>Transfer preview. Motion clearance is unchecked. The backgauge is shown at the destination only.</source>
+      <comment>stations_transfer_unverified</comment>
+      <translation>Предпросмотр перехода. Зазоры на траектории не проверены. Задний упор показывается только в позиции назначения.</translation>
+    </message>
+    <message>
+      <source>Station X (mm)</source>
+      <comment>stations_x</comment>
+      <translation>Координата станции X (мм)</translation>
+    </message>
+    <message>
       <source>Status</source>
       <comment>status</comment>
       <translation>Статус</translation>
