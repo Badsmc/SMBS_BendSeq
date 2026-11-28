@@ -125,3 +125,7 @@ station-aware FAST, persistence or PDF are claimed. Single-pair Auto Tool
 Selection is blocked while a station draft is installed.
 AUTO_TOOL_STATION_* events record inputs, per-operation compatibility,
 stock rejection, X trials, beam depth, limits, cancellation and application.
+
+Legacy single-pair FAST, Mesh, OCC and PDF entry points refuse a nonempty
+station draft; draft edits invalidate prior live evidence. This avoids treating
+single-pair results as verification of the installed multi-station layout.

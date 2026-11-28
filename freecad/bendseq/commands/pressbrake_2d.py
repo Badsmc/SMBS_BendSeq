@@ -3593,6 +3593,8 @@ class _PreviewPanel:
             def _save_bend_instructions_pdf(self):
                 if self.session is None or self._task_progress_busy:
                     return
+                if self._block_legacy_station_check("PDF"):
+                    return
                 if activate_task_dialog(self, "pdf_export"):
                     return
                 if not self._apply_typed_manual_order():
@@ -4257,6 +4259,8 @@ class _PreviewPanel:
                     self.status.setText(
                         tr("fast_stop_and_reset_the_simulation_before_changing_or")
                     )
+                    return
+                if self._block_legacy_station_check("FAST"):
                     return
                 if activate_task_dialog(self, "fast_results"):
                     return
@@ -5153,6 +5157,8 @@ class _PreviewPanel:
                         "FAST_APPLY_SKIPPED", reason="workspace_destroyed"
                     )
                     return
+                if self._block_legacy_station_check("FAST_APPLY"):
+                    return False
                 required_widgets = (
                     self.operations, self.status, self.tooling_status,
                     self._flat_view, self._task_stack,
@@ -6482,6 +6488,31 @@ class _PreviewPanel:
                 timer._smbs_frame = frame
                 timer.timeout.connect(frame)
                 timer.start(33)
+
+            def _block_legacy_station_check(self, action):
+                draft = getattr(self.session, "station_draft", None)
+                if draft is None or not draft.stations:
+                    return False
+                _desktop_debug_event("AUTO_TOOL_STATION_LEGACY_BLOCKED", action=action,
+                    station_ids=[s.station_id for s in draft.stations],
+                    reason="SINGLE_PAIR_CHECK_NOT_STATION_AWARE")
+                self.status.setText(tr("auto_station_single_blocked"))
+                return True
+
+            def _invalidate_station_draft_evidence(self):
+                self._last_manual_sequence_report = None
+                self._manual_3d_verdicts.clear()
+                self._manual_retract_verdicts.clear()
+                self._conditional_bends_status.clear()
+                self._latest_mesh_collision = None
+                self._mesh_collision_hits = ()
+                self._mesh_collision_index = None
+                self._mesh_collision_identity = None
+                self.mesh_show_collision_btn.hide()
+                self._clear_manual_check_feedback()
+                for key in ("FAST", "Mesh"):
+                    self._set_task_result(key, "idle", tr("the_current_sequence_has_not_been_checked"))
+                _desktop_debug_event("AUTO_TOOL_STATION_EVIDENCE_INVALIDATED")
 
             def _show_station_editor(self):
                 from freecad.bendseq.ui.station_editor import show_station_editor
@@ -7896,6 +7927,8 @@ class _PreviewPanel:
                 if self.session is None or self.timer.isActive() or self.playing:
                     self.status.setText(tr("mesh_load_a_part_and_stop_the_simulation"))
                     return
+                if self._block_legacy_station_check("Mesh"):
+                    return None
                 from freecad.bendseq.core.kinematics2d.mesh_sequence_screen import screen_mesh_sequence
 
                 if self._task_progress_busy:
@@ -8018,6 +8051,8 @@ class _PreviewPanel:
                 """
                 if self.session is None:
                     self.status.setText(tr("load_a_part_first"))
+                    return
+                if self._block_legacy_station_check("OCC"):
                     return
                 if self.session.controller.has_stages:
                     self.status.setText(

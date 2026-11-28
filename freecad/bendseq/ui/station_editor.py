@@ -312,6 +312,7 @@ def show_station_editor(workspace, embed):
             feedback.setText(str(exc))
             return
         session.station_draft = setup
+        workspace._invalidate_station_draft_evidence()
         workspace._update_station_assignment_column()
         refresh(selected_id)
         feedback.setText(tr("stations_layout_saved"))
@@ -398,6 +399,7 @@ def show_station_editor(workspace, embed):
             # Revalidate against the editor's actual inventory before replacing the draft.
             validate_station_layout(result.setup,stock(),workspace._current_clamp_config())
             session.station_draft = result.setup
+            workspace._invalidate_station_draft_evidence()
             workspace._update_station_assignment_column()
             refresh()
             feedback.setText(tr("auto_station_draft_result",count=len(result.setup.stations))
